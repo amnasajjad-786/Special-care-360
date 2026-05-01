@@ -1,0 +1,30 @@
+# ─── Frontend ─────────────────────────────────────────────────────────────────
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
+frontend/.env*.local
+frontend/out/
+frontend/build/
+
+# ─── Backend ──────────────────────────────────────────────────────────────────
+backend/venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.pyc
+backend/*.pyo
+backend/serviceAccountKey.json
+backend/*.json
+!backend/requirements.txt
+backend/.env
+
+# ─── OS / Editor ──────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/settings.json
+
+# ─── Misc ─────────────────────────────────────────────────────────────────────
+*.log
+*.pid
