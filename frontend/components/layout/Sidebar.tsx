@@ -21,7 +21,10 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/daily-care",  icon: "📓", label: "Daily Care",  roles: ["admin","teacher","parent"] },
   { href: "/dashboard/abc-tracker", icon: "🧠", label: "ABC Tracker", roles: ["admin","teacher","therapist","parent"] },
   { href: "/dashboard/admin/alerts",icon: "🚨", label: "Alerts",      roles: ["admin"] },
+<<<<<<< HEAD
   { href: "/dashboard/admin",       icon: "🔑", label: "Admin Panel", roles: ["admin"] },
+=======
+>>>>>>> 9ba631039d4105b4708d5fc7f92f0bebec531811
   { href: "/dashboard/panic",       icon: "⚠️", label: "Panic Alert", roles: ["teacher","therapist"] },
 ];
 

@@ -1,10 +1,16 @@
 "use client";
+<<<<<<< HEAD
 
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { studentsApi } from "@/lib/api";
 
 
+=======
+import { useEffect, useState } from "react";
+import { useAuth } from "@/lib/auth-context";
+import { studentsApi } from "@/lib/api";
+>>>>>>> 9ba631039d4105b4708d5fc7f92f0bebec531811
 import { Student, MedicalProfile, CarePlan } from "@/types";
 import StudentListSidebar from "@/components/students/StudentListSidebar";
 import OverviewTab from "@/components/students/OverviewTab";
@@ -13,7 +19,10 @@ import CarePlanTab from "@/components/students/CarePlanTab";
 import EmergencyTab from "@/components/students/EmergencyTab";
 import toast from "react-hot-toast";
 
+<<<<<<< HEAD
 /* MOCK DATA */
+=======
+>>>>>>> 9ba631039d4105b4708d5fc7f92f0bebec531811
 const MOCK_STUDENTS: Student[] = [
   { id: "s1", name: "Ali Hassan", dob: "2015-03-12", diagnosis: "ASD", centerId: "demo-center-001", teacherId: "t1", therapistIds: ["th1"], enrollmentDate: "2022-09-01", iepStatus: "Active" },
   { id: "s2", name: "Sara Ahmed", dob: "2016-07-24", diagnosis: "ADHD", centerId: "demo-center-001", teacherId: "t1", therapistIds: [], enrollmentDate: "2023-01-15", iepStatus: "Active" },
@@ -23,6 +32,7 @@ const MOCK_STUDENTS: Student[] = [
 
 const MOCK_MEDICAL: MedicalProfile = {
   allergies: ["Peanuts", "Latex"],
+<<<<<<< HEAD
   seizureHistory: {
     hasHistory: true,
     frequency: "Monthly",
@@ -32,6 +42,10 @@ const MOCK_MEDICAL: MedicalProfile = {
   medications: [
     { name: "Ritalin", dosage: "10mg", frequency: "Daily", time: "8:00 AM", administeredBy: "Nurse" },
   ],
+=======
+  seizureHistory: { hasHistory: true, frequency: "Monthly", lastOccurrence: "2026-03-15", protocol: "1. Keep student calm\n2. Clear area\n3. Do not restrain\n4. Call nurse" },
+  medications: [{ name: "Ritalin", dosage: "10mg", frequency: "Daily", time: "8:00 AM", administeredBy: "Nurse" }],
+>>>>>>> 9ba631039d4105b4708d5fc7f92f0bebec531811
   emergencyContact: { name: "Ahmed Hassan", relation: "Father", phone: "+92-300-1234567" },
   bloodType: "A+",
   specialPhysicalNeeds: "Wheelchair accessible classroom required",
@@ -48,6 +62,7 @@ const MOCK_CAREPLAN: CarePlan = {
 
 const TABS = ["Overview", "Medical", "Care Plan", "Emergency"];
 
+<<<<<<< HEAD
 const hashPassword = async (s: string) => {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
   return Array.from(new Uint8Array(buf))
@@ -97,12 +112,28 @@ export default function StudentsPage() {
   const canEdit = profile?.role === "admin" || profile?.role === "therapist";
 
   /* LOAD STUDENTS */
+=======
+export default function StudentsPage() {
+  const { profile } = useAuth();
+  const [students, setStudents] = useState<Student[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [activeTab, setActiveTab] = useState("Overview");
+  const [listLoading, setListLoading] = useState(true);
+  const [medical, setMedical] = useState<MedicalProfile | null>(null);
+  const [carePlan, setCarePlan] = useState<CarePlan | null>(null);
+
+  const selectedStudent = students.find(s => s.id === selectedId) || null;
+  const canEdit = profile?.role === "admin" || profile?.role === "therapist";
+
+>>>>>>> 9ba631039d4105b4708d5fc7f92f0bebec531811
   useEffect(() => {
     const loadStudents = async () => {
       setListLoading(true);
       try {
         const res = await studentsApi.list();
         setStudents(res.data);
+<<<<<<< HEAD
         if (res.data.length > 0 && !localStorage.getItem("selectedStudentId")) {
           setSelectedId(res.data[0].id);
         }
@@ -111,22 +142,32 @@ export default function StudentsPage() {
         if (!localStorage.getItem("selectedStudentId")) {
           setSelectedId(MOCK_STUDENTS[0].id);
         }
+=======
+        if (res.data.length > 0) setSelectedId(res.data[0].id);
+      } catch {
+        setStudents(MOCK_STUDENTS);
+        setSelectedId(MOCK_STUDENTS[0].id);
+>>>>>>> 9ba631039d4105b4708d5fc7f92f0bebec531811
       }
       setListLoading(false);
     };
     loadStudents();
   }, []);
 
+<<<<<<< HEAD
   /* PERSIST selectedId */
   useEffect(() => {
     if (selectedId) localStorage.setItem("selectedStudentId", selectedId);
   }, [selectedId]);
 
   /* LOAD DETAILS */
+=======
+>>>>>>> 9ba631039d4105b4708d5fc7f92f0bebec531811
   useEffect(() => {
     if (!selectedId) return;
     setMedical(null);
     setCarePlan(null);
+<<<<<<< HEAD
     setDetailLoading(true);
 
     const loadDetail = async () => {
@@ -135,18 +176,28 @@ export default function StudentsPage() {
           studentsApi.getMedical(selectedId),
           studentsApi.getCarePlan(selectedId),
         ]);
+=======
+
+    const loadDetail = async () => {
+      try {
+        const [medRes, cpRes] = await Promise.all([studentsApi.getMedical(selectedId), studentsApi.getCarePlan(selectedId)]);
+>>>>>>> 9ba631039d4105b4708d5fc7f92f0bebec531811
         setMedical(medRes.data);
         setCarePlan(cpRes.data);
       } catch {
         setMedical(MOCK_MEDICAL);
         setCarePlan(MOCK_CAREPLAN);
+<<<<<<< HEAD
       } finally {
         setDetailLoading(false);
+=======
+>>>>>>> 9ba631039d4105b4708d5fc7f92f0bebec531811
       }
     };
     loadDetail();
   }, [selectedId]);
 
+<<<<<<< HEAD
   /* SELECT STUDENT */
   const handleSelect = (id: string) => {
     if (profile?.role === "parent") {
@@ -156,10 +207,14 @@ export default function StudentsPage() {
       setShowPasswordModal(true);
       return;
     }
+=======
+  const handleSelect = (id: string) => {
+>>>>>>> 9ba631039d4105b4708d5fc7f92f0bebec531811
     setSelectedId(id);
     setActiveTab("Overview");
   };
 
+<<<<<<< HEAD
   /* SAVE */
   const handleSave = async () => {
     if (!selectedStudent) return;
@@ -373,3 +428,65 @@ const modalStyle: React.CSSProperties = {
   alignItems: "center",
   zIndex: 1000,
 };
+=======
+  return (
+    <div style={{ display: "flex", gap: "24px", minHeight: "calc(100vh - 120px)" }}>
+      {/* Left: Student List */}
+      <StudentListSidebar
+        students={students}
+        selectedId={selectedId}
+        search={search}
+        onSearch={setSearch}
+        onSelect={handleSelect}
+        loading={listLoading}
+      />
+
+      {/* Right: Profile */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {!selectedStudent ? (
+          <div className="glass-card" style={{ padding: "60px", textAlign: "center" }}>
+            <div style={{ fontSize: "52px", marginBottom: "16px" }}>👤</div>
+            <h2 style={{ margin: 0, color: "var(--primary-dark)" }}>Select a Student</h2>
+            <p style={{ color: "var(--text-secondary)", marginTop: "8px" }}>Choose a student from the list to view their profile</p>
+          </div>
+        ) : (
+          <>
+            {/* Tab bar */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
+              <div className="tab-bar">
+                {TABS.map(tab => (
+                  <button key={tab} className={`tab-item ${activeTab === tab ? "active" : ""}`} onClick={() => setActiveTab(tab)}>
+                    {tab === "Overview" ? "👤" : tab === "Medical" ? "💊" : tab === "Care Plan" ? "🎯" : "🚨"} {tab}
+                  </button>
+                ))}
+              </div>
+              {canEdit && (
+                <button className="btn-primary" style={{ padding: "8px 18px", fontSize: "0.85rem" }}
+                  onClick={() => toast.success("Student record saved")}>
+                  💾 Save
+                </button>
+              )}
+            </div>
+
+            {/* Tab content */}
+            {activeTab === "Overview" && <OverviewTab student={selectedStudent} />}
+            {activeTab === "Medical" && (
+              medical
+                ? <MedicalTab studentId={selectedStudent.id} profile={medical} canEdit={canEdit} />
+                : <div className="glass-card" style={{ padding: "40px", textAlign: "center" }}><div className="skeleton" style={{ height: "200px", borderRadius: "12px" }} /></div>
+            )}
+            {activeTab === "Care Plan" && (
+              carePlan
+                ? <CarePlanTab studentId={selectedStudent.id} carePlan={carePlan} canEdit={canEdit} />
+                : <div className="glass-card" style={{ padding: "40px", textAlign: "center" }}><div className="skeleton" style={{ height: "200px", borderRadius: "12px" }} /></div>
+            )}
+            {activeTab === "Emergency" && medical && (
+              <EmergencyTab studentId={selectedStudent.id} studentName={selectedStudent.name} medical={medical} canEdit={canEdit} />
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+>>>>>>> 9ba631039d4105b4708d5fc7f92f0bebec531811
