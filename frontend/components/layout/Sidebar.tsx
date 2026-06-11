@@ -7,13 +7,13 @@ import { useEffect, useState } from "react";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import toast from "react-hot-toast";
+import { useSidebar } from "@/app/dashboard/layout";
 
 interface NavItem {
   href: string;
   icon: string;
   label: string;
   roles: string[];
-  badge?: number;
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -21,10 +21,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/daily-care",  icon: "📓", label: "Daily Care",  roles: ["admin","teacher","parent"] },
   { href: "/dashboard/abc-tracker", icon: "🧠", label: "ABC Tracker", roles: ["admin","teacher","therapist","parent"] },
   { href: "/dashboard/admin/alerts",icon: "🚨", label: "Alerts",      roles: ["admin"] },
-<<<<<<< HEAD
   { href: "/dashboard/admin",       icon: "🔑", label: "Admin Panel", roles: ["admin"] },
-=======
->>>>>>> 9ba631039d4105b4708d5fc7f92f0bebec531811
   { href: "/dashboard/panic",       icon: "⚠️", label: "Panic Alert", roles: ["teacher","therapist"] },
 ];
 
@@ -33,6 +30,7 @@ export default function Sidebar() {
   const router = useRouter();
   const { profile, logout } = useAuth();
   const [alertCount, setAlertCount] = useState(0);
+  const { isOpen, close } = useSidebar();
 
   // ─── Real-time active alert count (admin only) ───────────────────────────
   useEffect(() => {
@@ -46,8 +44,7 @@ export default function Sidebar() {
       const unsub = onSnapshot(q, (snap) => {
         setAlertCount(snap.size);
       }, () => {
-        // Firebase not configured — use mock
-        setAlertCount(1);
+        setAlertCount(1); // Firebase not configured — use mock
       });
       return unsub;
     } catch {
@@ -71,11 +68,10 @@ export default function Sidebar() {
     therapist: "#b8a8d4",
     parent: "#9b8ec4",
   };
-
   const roleColor = roleColors[profile?.role || "admin"] || "#7bc4c4";
 
   return (
-    <nav className="sidebar">
+    <nav className={`sidebar${isOpen ? " sidebar-open" : ""}`}>
       {/* ── Logo ── */}
       <div style={{ padding: "24px 20px 16px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
@@ -94,6 +90,14 @@ export default function Sidebar() {
               Special Education Platform
             </div>
           </div>
+          {/* ── Mobile close button ── */}
+          <button
+            className="sidebar-close-btn"
+            onClick={close}
+            aria-label="Close navigation menu"
+          >
+            ✕
+          </button>
         </div>
       </div>
 
@@ -110,7 +114,8 @@ export default function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
-              className={`sidebar-nav-item ${isActive ? "active" : ""}`}
+              className={`sidebar-nav-item${isActive ? " active" : ""}`}
+              onClick={close}
             >
               <span style={{ fontSize: "1.1rem", minWidth: "22px" }}>{item.icon}</span>
               <span style={{ flex: 1 }}>{item.label}</span>
@@ -153,10 +158,7 @@ export default function Sidebar() {
             <div style={{ color: "white", fontWeight: 600, fontSize: "0.85rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
               {profile?.name || "User"}
             </div>
-            <div style={{
-              fontSize: "0.72rem", color: roleColor,
-              fontWeight: 600, textTransform: "capitalize",
-            }}>
+            <div style={{ fontSize: "0.72rem", color: roleColor, fontWeight: 600, textTransform: "capitalize" }}>
               {profile?.role}
             </div>
           </div>

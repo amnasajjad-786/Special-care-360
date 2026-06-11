@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useAuth } from "@/lib/auth-context";
 import toast from "react-hot-toast";
+import { collection, query, where, onSnapshot } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 import {
   LayoutDashboard,
   Users,
@@ -165,8 +167,30 @@ export default function AdminDashboard() {
 
   // --- Calculations ---
   const totalStudents = students.length;
-  const activeAlertsCount = 2; // Hardcoded or dynamic
   const staffCount = staff.length;
+
+  // --- Dynamic active alert count from Firestore (with demo fallback) --------
+  const [activeAlertsCount, setActiveAlertsCount] = useState(2);
+
+  useEffect(() => {
+    if (!profile) return;
+    try {
+      const q = query(
+        collection(db, "panicAlerts"),
+        where("status", "==", "active"),
+        where("centerId", "==", profile.centerId || "demo-center-001")
+      );
+      const unsub = onSnapshot(
+        q,
+        (snap) => setActiveAlertsCount(snap.size),
+        () => setActiveAlertsCount(2) // Firebase not configured — keep mock
+      );
+      return unsub;
+    } catch {
+      // Firebase not configured
+      setActiveAlertsCount(2);
+    }
+  }, [profile]);
 
   const feeStats = useMemo(() => {
     let collected = 0;

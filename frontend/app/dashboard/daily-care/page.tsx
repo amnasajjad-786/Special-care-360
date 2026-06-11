@@ -2,13 +2,13 @@
 import { useEffect, useState } from "react";
 import { format } from "date-fns";
 import { useAuth } from "@/lib/auth-context";
-import { dailyCareApi } from "@/lib/api";
+import { dailyCareApi, studentsApi } from "@/lib/api";
 import { DailyCareJournal } from "@/types";
 import JournalForm from "@/components/daily-care/JournalForm";
 import DailyDigest from "@/components/daily-care/DailyDigest";
 
 const MOCK_STUDENTS = [
-  { id: "s1", name: "Ali Hassan" },
+  { id: "s1", name: "Ali Hassan", parentId: "parent-001" },
   { id: "s2", name: "Sara Ahmed" },
   { id: "s3", name: "Omar Malik" },
   { id: "s4", name: "Zara Khan" },
@@ -24,14 +24,43 @@ const MOCK_JOURNAL: DailyCareJournal = {
 
 export default function DailyCarePage() {
   const { profile } = useAuth();
-  const [selectedStudent, setSelectedStudent] = useState(MOCK_STUDENTS[0]);
+  const [students, setStudents] = useState<{ id: string; name: string; parentId?: string }[]>([]);
+  const [selectedStudent, setSelectedStudent] = useState<{ id: string; name: string } | null>(null);
   const [date, setDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [existingJournal, setExistingJournal] = useState<DailyCareJournal | null>(null);
   const [loading, setLoading] = useState(false);
 
   const isTeacher = profile?.role === "teacher" || profile?.role === "admin";
 
+  // Load students list dynamically
   useEffect(() => {
+    const loadStudents = async () => {
+      try {
+        const res = await studentsApi.list();
+        const allowed = profile?.role === "parent"
+          ? res.data.filter((s: any) => s.parentId === profile.uid)
+          : res.data;
+        setStudents(allowed);
+        if (allowed.length > 0) {
+          setSelectedStudent(allowed[0]);
+        }
+      } catch {
+        const allowed = profile?.role === "parent"
+          ? MOCK_STUDENTS.filter((s) => s.parentId === profile.uid)
+          : MOCK_STUDENTS;
+        setStudents(allowed);
+        if (allowed.length > 0) {
+          setSelectedStudent(allowed[0]);
+        }
+      }
+    };
+    if (profile) {
+      loadStudents();
+    }
+  }, [profile]);
+
+  useEffect(() => {
+    if (!selectedStudent) return;
     const fetchJournal = async () => {
       setLoading(true);
       try {
@@ -43,7 +72,15 @@ export default function DailyCarePage() {
       setLoading(false);
     };
     fetchJournal();
-  }, [selectedStudent.id, date]);
+  }, [selectedStudent?.id, date]);
+
+  if (!selectedStudent) {
+    return (
+      <div className="glass-card animate-fade-in" style={{ padding: "40px", textAlign: "center" }}>
+        <p style={{ color: "var(--text-secondary)" }}>Loading student profile...</p>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -52,10 +89,16 @@ export default function DailyCarePage() {
         <div style={{ flex: 1, display: "flex", gap: "16px", flexWrap: "wrap", alignItems: "center" }}>
           <div>
             <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 700, color: "var(--text-secondary)", marginBottom: "4px", textTransform: "uppercase" }}>Student</label>
-            <select id="dc-student-select" className="glass-input" style={{ minWidth: "180px" }}
-              value={selectedStudent.id} onChange={e => setSelectedStudent(MOCK_STUDENTS.find(s => s.id === e.target.value) || MOCK_STUDENTS[0])}>
-              {MOCK_STUDENTS.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
+            {students.length > 1 ? (
+              <select id="dc-student-select" className="glass-input" style={{ minWidth: "180px" }}
+                value={selectedStudent.id} onChange={e => setSelectedStudent(students.find(s => s.id === e.target.value) || students[0])}>
+                {students.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            ) : (
+              <div style={{ padding: "8px 12px", background: "rgba(255,255,255,0.4)", borderRadius: "10px", fontWeight: 600, fontSize: "0.9rem", color: "var(--primary-dark)", border: "1px solid rgba(255,255,255,0.5)" }}>
+                {selectedStudent.name}
+              </div>
+            )}
           </div>
           <div>
             <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 700, color: "var(--text-secondary)", marginBottom: "4px", textTransform: "uppercase" }}>Date</label>

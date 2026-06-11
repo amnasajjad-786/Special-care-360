@@ -435,3 +435,89 @@ input[type="range"]::-webkit-slider-thumb {
   overflow-y: auto;
   animation: fadeIn 0.25s ease;
 }
+
+/* ─── Mobile Responsive ──────────────────────────────────────────────────── */
+
+/* Hamburger button — hidden on desktop, shown on mobile */
+.hamburger-btn {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  background: rgba(255,255,255,0.7);
+  border: 1px solid rgba(255,255,255,0.5);
+  border-radius: 10px;
+  width: 40px;
+  height: 40px;
+  padding: 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.2s ease;
+}
+.hamburger-btn:hover { background: rgba(255,255,255,0.9); }
+
+.hamburger-bar {
+  display: block;
+  height: 2px;
+  width: 100%;
+  background: var(--primary-dark);
+  border-radius: 2px;
+  transition: all 0.2s ease;
+}
+
+/* Sidebar close button — hidden on desktop */
+.sidebar-close-btn {
+  display: none;
+  margin-left: auto;
+  background: rgba(255,255,255,0.1);
+  border: none;
+  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: white;
+  font-size: 1rem;
+  flex-shrink: 0;
+  transition: background 0.2s ease;
+}
+.sidebar-close-btn:hover { background: rgba(255,255,255,0.2); }
+
+/* Sidebar overlay (mobile backdrop) */
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 28, 48, 0.55);
+  backdrop-filter: blur(3px);
+  z-index: 49;
+  animation: fadeIn 0.2s ease;
+}
+
+@media (max-width: 768px) {
+  /* Show hamburger & close button on mobile */
+  .hamburger-btn       { display: flex; }
+  .sidebar-close-btn   { display: flex; }
+  .sidebar-overlay     { display: block; }
+
+  /* Hide search & user label text on very small screens */
+  .topbar-search       { display: none; }
+  .topbar-user-text    { display: none; }
+
+  /* Sidebar off-screen by default, slides in when open */
+  .sidebar {
+    transform: translateX(-100%);
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 50;
+  }
+  .sidebar.sidebar-open {
+    transform: translateX(0);
+  }
+
+  /* Dashboard layout has no left margin — sidebar is overlaid */
+  .dashboard-layout {
+    margin-left: 0 !important;
+  }
+}
+

@@ -7,14 +7,11 @@ import toast from "react-hot-toast";
 
 const STUDENTS = [{ id: "s1", name: "Ali Hassan" }, { id: "s2", name: "Sara Ahmed" }, { id: "s3", name: "Omar Malik" }, { id: "s4", name: "Zara Khan" }];
 const EMERGENCY_TYPES = ["Seizure", "Severe Meltdown", "Self-Injury", "Aggressive Behavior", "Medical Emergency", "Other"];
-<<<<<<< HEAD
 const LOCATIONS = [
   "Classroom 1", "Classroom 2", "Classroom 3", "Classroom 4", "Classroom 5",
   "Classroom 6", "Classroom 7", "Classroom 8", "Classroom 9", "Classroom 10",
   "Garden", "Bathroom", "Lunch Area", "Reception", "Therapy Room", "Hallway",
 ];
-=======
->>>>>>> 9ba631039d4105b4708d5fc7f92f0bebec531811
 
 export default function PanicPage() {
   const { profile } = useAuth();
@@ -153,11 +150,7 @@ export default function PanicPage() {
           </div>
           <div>
             <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary)", marginBottom: "5px", textTransform: "uppercase" }}>Additional Details (optional)</label>
-<<<<<<< HEAD
-            <textarea className="glass-input" rows={3} placeholder="Describe the situation in more detail…" value={description} onChange={e => setDescription(e.target.value)} style={{ resize: "vertical" }} />
-=======
             <textarea id="panic-description" className="glass-input" rows={3} placeholder="Describe the situation in more detail…" value={description} onChange={e => setDescription(e.target.value)} style={{ resize: "vertical" }} />
->>>>>>> 9ba631039d4105b4708d5fc7f92f0bebec531811
           </div>
           <div style={{ display: "flex", gap: "10px", marginTop: "20px" }}>
             <button className="btn-ghost" onClick={() => setStep(1)} style={{ flex: 1 }}>← Back</button>
@@ -171,7 +164,6 @@ export default function PanicPage() {
         <div className="glass-card animate-fade-in" style={{ padding: "32px" }}>
           <h3 style={{ margin: "0 0 6px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1.1rem" }}>Step 3: Your Location</h3>
           <p style={{ margin: "0 0 20px", color: "var(--text-secondary)", fontSize: "0.85rem" }}>Where are you right now?</p>
-<<<<<<< HEAD
 
           {/* Location buttons */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px", marginBottom: "14px" }}>
@@ -190,20 +182,14 @@ export default function PanicPage() {
 
           {/* Custom location */}
           <input
+            id="panic-location"
             className="glass-input"
             placeholder="Or type custom location…"
-            value={LOCATIONS.includes(location) ? "" : location}
+            value={location}
             onChange={e => setLocation(e.target.value)}
             style={{ marginBottom: "16px" }}
           />
 
-=======
-          <div>
-            <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary)", marginBottom: "5px", textTransform: "uppercase" }}>Classroom / Room</label>
-            <input id="panic-location" className="glass-input" placeholder="e.g. Classroom A, Room 204, Cafeteria…" value={location} onChange={e => setLocation(e.target.value)} style={{ marginBottom: "16px" }} />
-          </div>
-
->>>>>>> 9ba631039d4105b4708d5fc7f92f0bebec531811
           {/* Summary */}
           <div style={{ padding: "16px", background: "rgba(229,62,62,0.05)", borderRadius: "12px", border: "1px solid rgba(229,62,62,0.2)", marginBottom: "20px" }}>
             <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--danger)", marginBottom: "8px", textTransform: "uppercase" }}>Alert Summary</div>
@@ -217,10 +203,7 @@ export default function PanicPage() {
           <div style={{ display: "flex", gap: "10px" }}>
             <button className="btn-ghost" onClick={() => setStep(2)} style={{ flex: 1 }}>← Back</button>
             <button
-<<<<<<< HEAD
-=======
               id="panic-send-btn"
->>>>>>> 9ba631039d4105b4708d5fc7f92f0bebec531811
               className="btn-danger"
               onClick={handleSend}
               disabled={sending || !location}
@@ -233,8 +216,4 @@ export default function PanicPage() {
       )}
     </div>
   );
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> 9ba631039d4105b4708d5fc7f92f0bebec531811

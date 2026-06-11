@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { abcApi } from "@/lib/api";
+import { abcApi, studentsApi } from "@/lib/api";
 import { ABCIncident, PatternAnalysis, HeatmapCell } from "@/types";
 import HeatmapGrid from "@/components/abc-tracker/HeatmapGrid";
 import TrendChart from "@/components/abc-tracker/TrendChart";
@@ -38,11 +38,16 @@ const MOCK_HEATMAP: HeatmapCell[] = [
   { day: "Thu", severity: 3, count: 1 }, { day: "Fri", severity: 1, count: 0 },
 ];
 
-const STUDENTS = [{ id: "s1", name: "Ali Hassan" }, { id: "s2", name: "Sara Ahmed" }, { id: "s3", name: "Omar Malik" }];
+const MOCK_STUDENTS = [
+  { id: "s1", name: "Ali Hassan", parentId: "parent-001" },
+  { id: "s2", name: "Sara Ahmed" },
+  { id: "s3", name: "Omar Malik" }
+];
 
 export default function ABCTrackerPage() {
   const { profile } = useAuth();
-  const [selectedStudent, setSelectedStudent] = useState(STUDENTS[0]);
+  const [students, setStudents] = useState<{ id: string; name: string; parentId?: string }[]>([]);
+  const [selectedStudent, setSelectedStudent] = useState<{ id: string; name: string } | null>(null);
   const [incidents, setIncidents] = useState<ABCIncident[]>([]);
   const [patterns, setPatterns] = useState<PatternAnalysis | null>(null);
   const [heatmap, setHeatmap] = useState<HeatmapCell[]>([]);
@@ -50,6 +55,33 @@ export default function ABCTrackerPage() {
   const [showModal, setShowModal] = useState(false);
 
   const canWrite = profile?.role ? ["teacher", "therapist", "admin"].includes(profile.role) : false;
+
+  // Load students list dynamically
+  useEffect(() => {
+    const loadStudents = async () => {
+      try {
+        const res = await studentsApi.list();
+        const allowed = profile?.role === "parent"
+          ? res.data.filter((s: any) => s.parentId === profile.uid)
+          : res.data;
+        setStudents(allowed);
+        if (allowed.length > 0) {
+          setSelectedStudent(allowed[0]);
+        }
+      } catch {
+        const allowed = profile?.role === "parent"
+          ? MOCK_STUDENTS.filter((s) => s.parentId === profile.uid)
+          : MOCK_STUDENTS;
+        setStudents(allowed);
+        if (allowed.length > 0) {
+          setSelectedStudent(allowed[0]);
+        }
+      }
+    };
+    if (profile) {
+      loadStudents();
+    }
+  }, [profile]);
 
   const loadData = async (studentId: string) => {
     setLoading(true);
@@ -70,9 +102,26 @@ export default function ABCTrackerPage() {
     setLoading(false);
   };
 
-  useEffect(() => { loadData(selectedStudent.id); }, [selectedStudent.id]);
+  useEffect(() => {
+    if (selectedStudent) {
+      loadData(selectedStudent.id);
+    }
+  }, [selectedStudent?.id]);
 
-  const handleSaved = () => { setShowModal(false); loadData(selectedStudent.id); };
+  const handleSaved = () => {
+    if (selectedStudent) {
+      setShowModal(false);
+      loadData(selectedStudent.id);
+    }
+  };
+
+  if (!selectedStudent) {
+    return (
+      <div className="glass-card animate-fade-in" style={{ padding: "40px", textAlign: "center" }}>
+        <p style={{ color: "var(--text-secondary)" }}>Loading student profile...</p>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -80,11 +129,17 @@ export default function ABCTrackerPage() {
       <div className="glass-card" style={{ padding: "16px 24px", marginBottom: "24px", display: "flex", alignItems: "center", gap: "16px", flexWrap: "wrap" }}>
         <div>
           <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 700, color: "var(--text-secondary)", marginBottom: "4px", textTransform: "uppercase" }}>Student</label>
-          <select id="abc-student-select" className="glass-input" style={{ minWidth: "180px" }}
-            value={selectedStudent.id}
-            onChange={e => setSelectedStudent(STUDENTS.find(s => s.id === e.target.value) || STUDENTS[0])}>
-            {STUDENTS.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
+          {students.length > 1 ? (
+            <select id="abc-student-select" className="glass-input" style={{ minWidth: "180px" }}
+              value={selectedStudent.id}
+              onChange={e => setSelectedStudent(students.find(s => s.id === e.target.value) || students[0])}>
+              {students.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          ) : (
+            <div style={{ padding: "8px 12px", background: "rgba(255,255,255,0.4)", borderRadius: "10px", fontWeight: 600, fontSize: "0.9rem", color: "var(--primary-dark)", border: "1px solid rgba(255,255,255,0.5)" }}>
+              {selectedStudent.name}
+            </div>
+          )}
         </div>
         <div style={{ flex: 1 }} />
         {canWrite && (

@@ -14,6 +14,12 @@ export default function DashboardRoleRedirect() {
     if (!loading) {
       if (!profile) {
         router.replace("/");
+      } else {
+        if (profile.role === "admin") {
+          router.replace("/dashboard/admin");
+        } else {
+          router.replace("/dashboard/students");
+        }
       }
     }
   }, [profile, loading, router]);

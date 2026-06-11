@@ -10,7 +10,7 @@ router = APIRouter(prefix="/api/students", tags=["students"])
 MOCK_STUDENTS = [
     {"id": "s1", "name": "Ali Hassan", "dob": "2015-03-12", "diagnosis": "ASD",
      "centerId": "demo-center-001", "teacherId": "t1", "therapistIds": ["th1"],
-     "enrollmentDate": "2022-09-01", "iepStatus": "Active", "photoUrl": ""},
+     "enrollmentDate": "2022-09-01", "iepStatus": "Active", "photoUrl": "", "parentId": "parent-001"},
     {"id": "s2", "name": "Sara Ahmed", "dob": "2016-07-24", "diagnosis": "ADHD",
      "centerId": "demo-center-001", "teacherId": "t1", "therapistIds": [],
      "enrollmentDate": "2023-01-15", "iepStatus": "Active", "photoUrl": ""},
@@ -27,18 +27,42 @@ def _get_db_safe():
         return None
 
 
+def check_student_access(student_id: str, current_user: dict, db=None):
+    role = current_user.get("role", "")
+    uid = current_user.get("uid", "")
+    if role != "parent":
+        return
+
+    if not db:
+        student = next((s for s in MOCK_STUDENTS if s["id"] == student_id), None)
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
+        if student.get("parentId") != uid:
+            raise HTTPException(status_code=403, detail="Unauthorized student access")
+        return
+
+    doc = db.collection("students").document(student_id).get()
+    if not doc.exists:
+        raise HTTPException(status_code=404, detail="Student not found")
+    if doc.to_dict().get("parentId") != uid:
+        raise HTTPException(status_code=403, detail="Unauthorized student access")
+
+
 @router.get("")
 async def list_students(
     centerId: str = Query("demo-center-001"),
     current_user: dict = Depends(get_current_user)
 ):
     db = _get_db_safe()
+    role = current_user.get("role", "")
+    uid = current_user.get("uid", "")
+
     if not db:
+        if role == "parent":
+            return [s for s in MOCK_STUDENTS if s.get("parentId") == uid]
         return MOCK_STUDENTS
 
     query = db.collection("students").where("centerId", "==", centerId)
-    role = current_user.get("role", "")
-    uid = current_user.get("uid", "")
 
     docs = query.stream()
     students = []
@@ -103,8 +127,12 @@ async def get_student(
     current_user: dict = Depends(get_current_user)
 ):
     db = _get_db_safe()
+    check_student_access(student_id, current_user, db)
+
     if not db:
-        student = next((s for s in MOCK_STUDENTS if s["id"] == student_id), MOCK_STUDENTS[0])
+        student = next((s for s in MOCK_STUDENTS if s["id"] == student_id), None)
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
         return student
 
     doc = db.collection("students").document(student_id).get()
@@ -121,6 +149,8 @@ async def get_medical_profile(
     current_user: dict = Depends(get_current_user)
 ):
     db = _get_db_safe()
+    check_student_access(student_id, current_user, db)
+
     if not db:
         return {
             "allergies": ["Peanuts", "Latex"],
@@ -163,6 +193,8 @@ async def get_care_plan(
     current_user: dict = Depends(get_current_user)
 ):
     db = _get_db_safe()
+    check_student_access(student_id, current_user, db)
+
     if not db:
         return {"goals": [
             {"id": "g1", "title": "Improve verbal communication", "status": "In Progress", "progressPercent": 60},

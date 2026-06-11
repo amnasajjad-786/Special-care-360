@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import toast from "react-hot-toast";
@@ -21,7 +21,7 @@ const DEMO_CREDS: Record<string, string> = {
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, register } = useAuth();
+  const { profile, loading: authLoading, login, register } = useAuth();
 
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
   const [showRegister, setShowRegister] = useState(false);
@@ -38,6 +38,13 @@ export default function LoginPage() {
   const [regRole, setRegRole] = useState("teacher");
   const [regCenterId, setRegCenterId] = useState("demo-center-001");
 
+  // Redirect if already logged in
+  useEffect(() => {
+    if (!authLoading && profile) {
+      router.push(`/dashboard/${profile.role}`);
+    }
+  }, [profile, authLoading, router]);
+
   const handleRoleSelect = (roleId: string) => {
     setSelectedRole(roleId);
     setEmail(DEMO_CREDS[roleId]);
@@ -52,9 +59,11 @@ export default function LoginPage() {
     }
     setLoading(true);
     try {
-      await login(email, password);
+      const resolvedProfile = await login(email, password);
       toast.success("Welcome back!");
-      const role = selectedRole || "admin";
+      // Use role from the returned profile — guaranteed correct even if
+      // no role button was clicked before typing credentials manually.
+      const role = resolvedProfile?.role ?? selectedRole ?? "admin";
       router.push(`/dashboard/${role}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Login failed";

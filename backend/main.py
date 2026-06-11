@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from firebase_admin_init import init_firebase
 from routers import auth, students, daily_care, abc_tracker, panic
+import os
 
 # Initialize Firebase (non-blocking — app starts even in placeholder mode)
 init_firebase()
@@ -12,10 +13,15 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# CORS — allow Next.js dev server
+# ── CORS ──────────────────────────────────────────────────────────────────────
+# Set ALLOWED_ORIGINS in your .env file as a comma-separated list.
+# Example: ALLOWED_ORIGINS=http://localhost:3000,https://yourapp.vercel.app
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000")
+ALLOWED_ORIGINS: list[str] = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -36,6 +42,7 @@ async def root():
         "status": "running",
         "version": "1.0.0",
         "docs": "/docs",
+        "allowed_origins": ALLOWED_ORIGINS,
     }
 
 

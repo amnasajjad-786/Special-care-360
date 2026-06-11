@@ -22,7 +22,7 @@ interface AuthContextType {
   user: User | null;
   profile: UserProfile | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<UserProfile | null>;
   register: (data: RegisterData) => Promise<void>;
   logout: () => Promise<void>;
   getIdToken: () => Promise<string | null>;
@@ -104,7 +104,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => unsubscribe?.();
   }, []);
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string): Promise<UserProfile | null> => {
     // Try demo credentials first
     const demoUser = DEMO_USERS[email.toLowerCase()];
     if (demoUser && demoUser.password === password) {
@@ -115,14 +115,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(demoCurrentUser.user);
       setProfile(demoCurrentUser.profile);
       demoListeners.forEach((l) => l());
-      return;
+      return demoUser.profile;
     }
 
     // Real Firebase login
     const cred = await signInWithEmailAndPassword(auth, email, password);
     const docRef = doc(db, "users", cred.user.uid);
     const snap = await getDoc(docRef);
-    setProfile(snap.exists() ? (snap.data() as UserProfile) : null);
+    const resolvedProfile = snap.exists() ? (snap.data() as UserProfile) : null;
+    setProfile(resolvedProfile);
+    return resolvedProfile;
   };
 
   const register = async (data: RegisterData) => {
