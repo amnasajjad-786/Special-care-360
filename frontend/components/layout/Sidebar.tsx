@@ -77,11 +77,24 @@ export default function Sidebar() {
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <div style={{
             width: "44px", height: "44px", borderRadius: "50%",
-            background: "rgba(255,255,255,0.12)",
-            border: "2px solid rgba(255,255,255,0.2)",
+            background: "white",
+            border: "1px solid rgba(255,255,255,0.3)",
             display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: "22px", flexShrink: 0,
-          }}>🦋</div>
+            flexShrink: 0,
+            overflow: "hidden",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+          }}>
+            <img
+              src="/logo.png"
+              alt="Logo"
+              style={{
+                width: "100%",
+                height: "100%",
+                objectFit: "cover",
+                objectPosition: "center 15%"
+              }}
+            />
+          </div>
           <div>
             <div style={{ color: "white", fontWeight: 800, fontSize: "0.95rem", lineHeight: 1.2 }}>
               Special Care 360

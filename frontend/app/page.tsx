@@ -113,10 +113,23 @@ export default function LoginPage() {
           <div style={{ textAlign: "center", marginBottom: "28px" }}>
             <div style={{
               width: "72px", height: "72px", borderRadius: "50%",
-              background: "var(--primary-dark)", margin: "0 auto 14px",
+              background: "white", margin: "0 auto 14px",
               display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: "32px", boxShadow: "0 6px 24px rgba(61,79,107,0.35)",
-            }}>🦋</div>
+              boxShadow: "0 6px 24px rgba(61,79,107,0.25)",
+              overflow: "hidden",
+              border: "1px solid rgba(61,79,107,0.15)"
+            }}>
+              <img
+                src="/logo.png"
+                alt="Special Care 360 Logo"
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  objectPosition: "center 15%"
+                }}
+              />
+            </div>
             <h1 style={{ margin: 0, fontSize: "1.65rem", fontWeight: 800, color: "var(--primary-dark)" }}>
               Special Care 360
             </h1>

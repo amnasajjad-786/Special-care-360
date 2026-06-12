@@ -33,7 +33,25 @@ export default function DashboardRoleRedirect() {
       justifyContent: "center",
     }}>
       <div className="glass-card" style={{ padding: "40px 48px", textAlign: "center" }}>
-        <div style={{ fontSize: "48px", marginBottom: "16px" }}>🦋</div>
+        <div style={{
+          width: "72px", height: "72px", borderRadius: "50%",
+          background: "white", margin: "0 auto 16px",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          boxShadow: "0 6px 24px rgba(61,79,107,0.2)",
+          overflow: "hidden",
+          border: "1px solid rgba(61,79,107,0.15)"
+        }}>
+          <img
+            src="/logo.png"
+            alt="Special Care 360"
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              objectPosition: "center 15%"
+            }}
+          />
+        </div>
         <h2 style={{ margin: 0, color: "var(--primary-dark)", fontWeight: 700 }}>Special Care 360</h2>
         <p style={{ color: "var(--text-secondary)", marginTop: "8px" }}>
           Loading {role} dashboard…
