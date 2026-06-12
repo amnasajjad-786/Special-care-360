@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
-import { studentsApi } from "@/lib/api";
+import { studentsDb } from "@/lib/firestore-api";
 import { Student, MedicalProfile, CarePlan } from "@/types";
 import StudentListSidebar from "@/components/students/StudentListSidebar";
 import OverviewTab from "@/components/students/OverviewTab";
@@ -11,40 +11,8 @@ import CarePlanTab from "@/components/students/CarePlanTab";
 import EmergencyTab from "@/components/students/EmergencyTab";
 import toast from "react-hot-toast";
 
-/* ── Mock data (fallback when API / Firebase not configured) ──────────────── */
-const MOCK_STUDENTS: Student[] = [
-  { id: "s1", name: "Ali Hassan",   dob: "2015-03-12", diagnosis: "ASD",           centerId: "demo-center-001", teacherId: "t1", therapistIds: ["th1"],        enrollmentDate: "2022-09-01", iepStatus: "Active", parentId: "parent-001" },
-  { id: "s2", name: "Sara Ahmed",   dob: "2016-07-24", diagnosis: "ADHD",          centerId: "demo-center-001", teacherId: "t1", therapistIds: [],             enrollmentDate: "2023-01-15", iepStatus: "Active" },
-  { id: "s3", name: "Omar Malik",   dob: "2014-11-05", diagnosis: "Down Syndrome", centerId: "demo-center-001", teacherId: "t2", therapistIds: ["th1","th2"],   enrollmentDate: "2021-06-01", iepStatus: "Under Review" },
-  { id: "s4", name: "Zara Khan",    dob: "2017-04-19", diagnosis: "Cerebral Palsy",centerId: "demo-center-001", teacherId: "t1", therapistIds: ["th2"],         enrollmentDate: "2023-08-10", iepStatus: "Active" },
-];
-
-const MOCK_MEDICAL: MedicalProfile = {
-  allergies: ["Peanuts", "Latex"],
-  seizureHistory: {
-    hasHistory: true,
-    frequency: "Monthly",
-    lastOccurrence: "2026-03-15",
-    protocol: "1. Keep student calm\n2. Clear area\n3. Do not restrain\n4. Call nurse",
-  },
-  medications: [
-    { name: "Ritalin", dosage: "10mg", frequency: "Daily", time: "8:00 AM", administeredBy: "Nurse" },
-  ],
-  emergencyContact: { name: "Ahmed Hassan", relation: "Father", phone: "+92-300-1234567" },
-  bloodType: "A+",
-  specialPhysicalNeeds: "Wheelchair accessible classroom required",
-};
-
-const MOCK_CAREPLAN: CarePlan = {
-  goals: [
-    { id: "g1", title: "Improve verbal communication",       status: "In Progress", progressPercent: 60  },
-    { id: "g2", title: "Independent dressing",               status: "Mastered",    progressPercent: 100 },
-    { id: "g3", title: "Social interaction with peers",      status: "In Progress", progressPercent: 35  },
-    { id: "g4", title: "Following 2-step instructions",      status: "Regressed",   progressPercent: 20  },
-  ],
-};
-
 const TABS = ["Overview", "Medical", "Care Plan", "Emergency"];
+
 
 /* ── SHA-256 helper for parent password ──────────────────────────────────── */
 const hashPassword = async (s: string) => {
@@ -93,28 +61,13 @@ export default function StudentsPage() {
     const loadStudents = async () => {
       setListLoading(true);
       try {
-        const res = await studentsApi.list();
-        const allowed = profile?.role === "parent"
-          ? res.data.filter((s: any) => s.parentId === profile.uid)
-          : res.data;
-        setStudents(allowed);
-        
-        const storedId = localStorage.getItem("selectedStudentId");
-        if (allowed.length > 0) {
-          if (!storedId || !allowed.some((s: any) => s.id === storedId)) {
-            setSelectedId(allowed[0].id);
-          } else {
-            setSelectedId(storedId);
-          }
-        } else {
-          setSelectedId(null);
-        }
-      } catch {
-        const allowed = profile?.role === "parent"
-          ? MOCK_STUDENTS.filter((s) => s.parentId === profile.uid)
-          : MOCK_STUDENTS;
-        setStudents(allowed);
-        
+        const allowed = await studentsDb.list(
+          profile?.centerId ?? "center-001",
+          profile?.role,
+          profile?.uid
+        );
+        setStudents(allowed as unknown as Student[]);
+
         const storedId = localStorage.getItem("selectedStudentId");
         if (allowed.length > 0) {
           if (!storedId || !allowed.some((s) => s.id === storedId)) {
@@ -125,6 +78,11 @@ export default function StudentsPage() {
         } else {
           setSelectedId(null);
         }
+      } catch (err) {
+        console.error("Failed to load students:", err);
+        toast.error("Failed to load students.");
+        setStudents([]);
+        setSelectedId(null);
       }
       setListLoading(false);
     };
@@ -147,15 +105,17 @@ export default function StudentsPage() {
 
     const loadDetail = async () => {
       try {
-        const [medRes, cpRes] = await Promise.all([
-          studentsApi.getMedical(selectedId),
-          studentsApi.getCarePlan(selectedId),
+        const [medData, cpData] = await Promise.all([
+          studentsDb.getMedical(selectedId),
+          studentsDb.getCarePlan(selectedId),
         ]);
-        setMedical(medRes.data);
-        setCarePlan(cpRes.data);
-      } catch {
-        setMedical(MOCK_MEDICAL);
-        setCarePlan(MOCK_CAREPLAN);
+        setMedical(medData as unknown as MedicalProfile);
+        setCarePlan(cpData as unknown as CarePlan);
+      } catch (err) {
+        console.error("Failed to load student details:", err);
+        toast.error("Failed to load student details");
+        setMedical(null);
+        setCarePlan(null);
       } finally {
         setDetailLoading(false);
       }
@@ -176,27 +136,7 @@ export default function StudentsPage() {
     setActiveTab("Overview");
   };
 
-  /* ── Save changes ─────────────────────────────────────────────────────── */
-  const handleSave = async () => {
-    if (!selectedStudent) return;
-    try {
-      if (activeTab === "Medical" && medical) {
-        await (studentsApi as any).updateMedical(selectedStudent.id, medical);
-      } else if (activeTab === "Care Plan" && carePlan) {
-        await (studentsApi as any).updateCarePlan(selectedStudent.id, carePlan);
-      } else {
-        toast("Nothing to save on this tab");
-        return;
-      }
-      toast.success("Saved successfully");
-    } catch {
-      if (process.env.NEXT_PUBLIC_DEMO_MODE === "true" || typeof window !== "undefined") {
-        toast.success("Saved successfully (demo mode)");
-      } else {
-        toast.error("Save failed");
-      }
-    }
-  };
+
 
   /* ── Parent password verify / create ─────────────────────────────────── */
   const verifyPassword = async () => {
@@ -279,11 +219,6 @@ export default function StudentsPage() {
                     </button>
                   ))}
                 </div>
-                {canEdit && (
-                  <button className="btn-primary" style={{ padding: "8px 18px", fontSize: "0.85rem" }} onClick={handleSave}>
-                    💾 Save
-                  </button>
-                )}
               </div>
 
               {/* Tab content */}
@@ -296,14 +231,14 @@ export default function StudentsPage() {
                   {activeTab === "Overview" && <OverviewTab student={selectedStudent} />}
                   {activeTab === "Medical" && (
                     medical
-                      ? <MedicalTab studentId={selectedStudent.id} profile={medical} canEdit={canEdit} />
+                      ? <MedicalTab studentId={selectedStudent.id} profile={medical} canEdit={canEdit} onChange={setMedical} />
                       : <div className="glass-card" style={{ padding: "40px", textAlign: "center" }}>
                           <div className="skeleton" style={{ height: "200px", borderRadius: "12px" }} />
                         </div>
                   )}
                   {activeTab === "Care Plan" && (
                     carePlan
-                      ? <CarePlanTab studentId={selectedStudent.id} carePlan={carePlan} canEdit={canEdit} />
+                      ? <CarePlanTab studentId={selectedStudent.id} carePlan={carePlan} canEdit={canEdit} onChange={setCarePlan} />
                       : <div className="glass-card" style={{ padding: "40px", textAlign: "center" }}>
                           <div className="skeleton" style={{ height: "200px", borderRadius: "12px" }} />
                         </div>

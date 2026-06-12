@@ -38,105 +38,45 @@ interface RegisterData {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-// ─── Demo mode: bypass real Firebase when using placeholder config ───────────
-const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true" ||
-  typeof window !== "undefined"; // Always true in dev with placeholder
-
-const DEMO_USERS: Record<string, { password: string; profile: UserProfile }> = {
-  "admin@demo.com": {
-    password: "demo1234",
-    profile: { uid: "admin-001", name: "Dr. Amna Raza", email: "admin@demo.com", role: "admin", centerId: "demo-center-001", status: "approved" },
-  },
-  "teacher@demo.com": {
-    password: "demo1234",
-    profile: { uid: "teacher-001", name: "Ms. Fatima Khan", email: "teacher@demo.com", role: "teacher", centerId: "demo-center-001", status: "approved" },
-  },
-  "therapist@demo.com": {
-    password: "demo1234",
-    profile: { uid: "therapist-001", name: "Dr. Zara Ahmed", email: "therapist@demo.com", role: "therapist", centerId: "demo-center-001", status: "approved" },
-  },
-  "parent@demo.com": {
-    password: "demo1234",
-    profile: { uid: "parent-001", name: "Mr. Ali Hassan", email: "parent@demo.com", role: "parent", centerId: "demo-center-001", status: "approved" },
-  },
-};
-
-let demoCurrentUser: { user: User | null; profile: UserProfile | null } = { user: null, profile: null };
-const demoListeners: Array<() => void> = [];
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser]       = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // ── Auth state listener ────────────────────────────────────────────────────
   useEffect(() => {
-    // Try real Firebase first; fall back to demo mode on error
-    let unsubscribe: (() => void) | undefined;
-    try {
-      unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-        setUser(firebaseUser);
-        if (firebaseUser) {
-          const docRef = doc(db, "users", firebaseUser.uid);
-          const snap = await getDoc(docRef);
-          setProfile(snap.exists() ? (snap.data() as UserProfile) : null);
-        } else {
-          setProfile(null);
-        }
-        setLoading(false);
-      });
-    } catch {
-      // Firebase not configured — use demo mode
-      setUser(demoCurrentUser.user);
-      setProfile(demoCurrentUser.profile);
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setUser(firebaseUser);
+      if (firebaseUser) {
+        const snap = await getDoc(doc(db, "users", firebaseUser.uid));
+        setProfile(snap.exists() ? (snap.data() as UserProfile) : null);
+      } else {
+        setProfile(null);
+      }
       setLoading(false);
-
-      // Register demo listener for updates
-      const listener = () => {
-        setUser(demoCurrentUser.user);
-        setProfile(demoCurrentUser.profile);
-      };
-      demoListeners.push(listener);
-      return () => {
-        const idx = demoListeners.indexOf(listener);
-        if (idx > -1) demoListeners.splice(idx, 1);
-      };
-    }
-    return () => unsubscribe?.();
+    });
+    return unsubscribe;
   }, []);
 
+  // ── Login ──────────────────────────────────────────────────────────────────
   const login = async (email: string, password: string): Promise<UserProfile | null> => {
-    // Try demo credentials first
-    const demoUser = DEMO_USERS[email.toLowerCase()];
-    if (demoUser && demoUser.password === password) {
-      demoCurrentUser = {
-        user: { uid: demoUser.profile.uid, email } as unknown as User,
-        profile: demoUser.profile,
-      };
-      setUser(demoCurrentUser.user);
-      setProfile(demoCurrentUser.profile);
-      demoListeners.forEach((l) => l());
-      return demoUser.profile;
-    }
-
-    // Real Firebase login
     const cred = await signInWithEmailAndPassword(auth, email, password);
-    const docRef = doc(db, "users", cred.user.uid);
-    const snap = await getDoc(docRef);
+    const snap = await getDoc(doc(db, "users", cred.user.uid));
     const resolvedProfile = snap.exists() ? (snap.data() as UserProfile) : null;
     setProfile(resolvedProfile);
     return resolvedProfile;
   };
 
-  const register = async (data: RegisterData) => {
-    // Real Firebase registration
+  // ── Register ───────────────────────────────────────────────────────────────
+  const register = async (data: RegisterData): Promise<void> => {
     const cred = await createUserWithEmailAndPassword(auth, data.email, data.password);
     const profileData: UserProfile = {
-      uid: cred.user.uid,
-      name: data.name,
-      email: data.email,
-      role: data.role as UserProfile["role"],
+      uid:      cred.user.uid,
+      name:     data.name,
+      email:    data.email,
+      role:     data.role as UserProfile["role"],
       centerId: data.centerId,
-      status: data.role === "admin" ? "approved" : "pending",
+      status:   data.role === "admin" ? "approved" : "pending",
     };
     await setDoc(doc(db, "users", cred.user.uid), {
       ...profileData,
@@ -145,26 +85,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfile(profileData);
   };
 
-  const logout = async () => {
-    // Clear demo session
-    demoCurrentUser = { user: null, profile: null };
+  // ── Logout ─────────────────────────────────────────────────────────────────
+  const logout = async (): Promise<void> => {
+    await signOut(auth);
     setUser(null);
     setProfile(null);
-    demoListeners.forEach((l) => l());
-    try {
-      await signOut(auth);
-    } catch { /* ignore if Firebase not configured */ }
   };
 
+  // ── Get ID token ───────────────────────────────────────────────────────────
   const getIdToken = async (): Promise<string | null> => {
-    if (user && "getIdToken" in user && typeof (user as User).getIdToken === "function") {
-      try {
-        return await (user as User).getIdToken();
-      } catch {
-        return "demo-token";
-      }
+    if (user) {
+      return await user.getIdToken();
     }
-    return "demo-token";
+    return null;
   };
 
   return (

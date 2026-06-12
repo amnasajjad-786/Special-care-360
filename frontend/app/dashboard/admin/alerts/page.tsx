@@ -2,17 +2,10 @@
 import { useEffect, useState } from "react";
 import { collection, query, where, onSnapshot, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { panicApi } from "@/lib/api";
+import { panicDb, studentsDb } from "@/lib/firestore-api";
 import { PanicAlert } from "@/types";
 import { useAuth } from "@/lib/auth-context";
 import toast from "react-hot-toast";
-
-const STUDENT_NAMES: Record<string, string> = { s1: "Ali Hassan", s2: "Sara Ahmed", s3: "Omar Malik", s4: "Zara Khan" };
-
-const MOCK_ALERTS: PanicAlert[] = [
-  { id: "a1", studentId: "s1", centerId: "demo-center-001", reportedBy: { uid: "t1", name: "Ms. Fatima Khan" }, emergencyType: "Severe Meltdown", description: "Student having major meltdown after transition", location: "Classroom A", timestamp: new Date(Date.now() - 8 * 60000).toISOString(), status: "active", resolvedAt: null, resolvedBy: null },
-  { id: "a2", studentId: "s2", centerId: "demo-center-001", reportedBy: { uid: "th1", name: "Dr. Zara Ahmed" }, emergencyType: "Self-Injury", description: "Student hitting head against wall", location: "Therapy Room", timestamp: new Date(Date.now() - 2 * 3600000).toISOString(), status: "resolved", resolvedAt: new Date(Date.now() - 1.5 * 3600000).toISOString(), resolvedBy: "admin-001" },
-];
 
 function timeAgo(ts: string) {
   const diff = Date.now() - new Date(ts).getTime();
@@ -27,41 +20,51 @@ function timeAgo(ts: string) {
 export default function AlertsPage() {
   const { profile } = useAuth();
   const [alerts, setAlerts] = useState<PanicAlert[]>([]);
+  const [studentNames, setStudentNames] = useState<Record<string, string>>({});
   const [resolving, setResolving] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | "active" | "resolved">("all");
 
+  // Load student names for display
+  useEffect(() => {
+    if (!profile) return;
+    studentsDb.list(profile.centerId ?? "center-001").then((students) => {
+      const map: Record<string, string> = {};
+      students.forEach((s) => { map[s.id] = s.name; });
+      setStudentNames(map);
+    });
+  }, [profile]);
+
   // Real-time Firestore listener
   useEffect(() => {
+    if (!profile) return;
+    const centerId = profile.centerId ?? "center-001";
     try {
       const q = query(
         collection(db, "panicAlerts"),
-        where("centerId", "==", "demo-center-001"),
+        where("centerId", "==", centerId),
         orderBy("timestamp", "desc")
       );
       const unsub = onSnapshot(q, (snap) => {
-        if (snap.empty) {
-          setAlerts(MOCK_ALERTS);
-        } else {
-          setAlerts(snap.docs.map(d => ({ id: d.id, ...d.data() } as PanicAlert)));
-        }
-      }, () => {
-        setAlerts(MOCK_ALERTS);
+        setAlerts(snap.docs.map(d => ({ id: d.id, ...d.data() } as PanicAlert)));
+      }, (err) => {
+        console.error("Failed to load alerts:", err);
+        toast.error("Failed to load alerts");
       });
       return unsub;
-    } catch {
-      setAlerts(MOCK_ALERTS);
+    } catch (err) {
+      console.error(err);
     }
-  }, []);
+  }, [profile]);
 
   const handleResolve = async (alertId: string) => {
     setResolving(alertId);
     try {
-      await panicApi.resolveAlert(alertId, profile?.uid || "admin");
+      await panicDb.resolveAlert(alertId, profile?.uid || "admin");
       setAlerts(prev => prev.map(a => a.id === alertId ? { ...a, status: "resolved", resolvedAt: new Date().toISOString(), resolvedBy: profile?.uid || "admin" } : a));
       toast.success("Alert marked as resolved");
-    } catch {
-      setAlerts(prev => prev.map(a => a.id === alertId ? { ...a, status: "resolved", resolvedAt: new Date().toISOString(), resolvedBy: "admin" } : a));
-      toast.success("Alert resolved (demo mode)");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to resolve alert");
     }
     setResolving(null);
   };
@@ -149,7 +152,7 @@ export default function AlertsPage() {
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px", marginBottom: "10px" }}>
                       <div>
                         <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase" }}>Student</div>
-                        <div style={{ fontWeight: 600, fontSize: "0.88rem", color: "var(--text-primary)" }}>{STUDENT_NAMES[alert.studentId] || alert.studentId}</div>
+                        <div style={{ fontWeight: 600, fontSize: "0.88rem", color: "var(--text-primary)" }}>{studentNames[alert.studentId] || alert.studentId}</div>
                       </div>
                       <div>
                         <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase" }}>Location</div>

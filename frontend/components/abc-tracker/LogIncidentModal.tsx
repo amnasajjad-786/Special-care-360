@@ -1,13 +1,12 @@
 "use client";
-import { useState } from "react";
-import { abcApi } from "@/lib/api";
+import { useState, useEffect } from "react";
+import { abcDb, studentsDb } from "@/lib/firestore-api";
 import { useAuth } from "@/lib/auth-context";
 import toast from "react-hot-toast";
 
 const ANTECEDENT_TAGS = ["Loud Noise", "Transition", "Crowded Space", "Denied Request", "Unexpected Change"];
 const BEHAVIOR_TAGS = ["Hitting", "Screaming", "Self-harm", "Crying", "Running away", "Withdrawal"];
 const CONSEQUENCE_TAGS = ["Redirected", "Timeout", "Verbal Prompt", "Physical Support", "Ignored"];
-const STUDENTS = [{ id: "s1", name: "Ali Hassan" }, { id: "s2", name: "Sara Ahmed" }, { id: "s3", name: "Omar Malik" }, { id: "s4", name: "Zara Khan" }];
 const LOCATIONS = ["Classroom A", "Classroom B", "Therapy Room", "Cafeteria", "Playground", "Hallway", "Gym"];
 
 interface Props { onClose: () => void; onSaved: () => void; }
@@ -32,7 +31,8 @@ function TagSelector({ tags, selected, onToggle, color }: { tags: string[]; sele
 
 export default function LogIncidentModal({ onClose, onSaved }: Props) {
   const { profile } = useAuth();
-  const [studentId, setStudentId] = useState("s1");
+  const [students, setStudents] = useState<{ id: string; name: string }[]>([]);
+  const [studentId, setStudentId] = useState("");
   const [dateTime, setDateTime] = useState(new Date().toISOString().slice(0, 16));
   const [antText, setAntText] = useState("");
   const [antTags, setAntTags] = useState<string[]>([]);
@@ -45,6 +45,13 @@ export default function LogIncidentModal({ onClose, onSaved }: Props) {
   const [location, setLocation] = useState("Classroom A");
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    studentsDb.list(profile?.centerId ?? "center-001", profile?.role, profile?.uid).then((s) => {
+      setStudents(s);
+      if (s.length > 0) setStudentId(s[0].id);
+    });
+  }, [profile]);
+
   const toggleTag = (setter: React.Dispatch<React.SetStateAction<string[]>>) => (tag: string) =>
     setter(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]);
 
@@ -53,21 +60,28 @@ export default function LogIncidentModal({ onClose, onSaved }: Props) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!studentId) { toast.error("Please select a student"); return; }
     setSaving(true);
     try {
-      await abcApi.logIncident({
-        studentId, centerId: "demo-center-001", loggedBy: profile?.uid || "unknown",
-        timestamp: new Date(dateTime).toISOString(),
-        antecedent: { text: antText, tags: antTags },
-        behavior: { text: behText, tags: behTags },
-        consequence: { text: conText, tags: conTags },
-        severity, durationMinutes: duration, location,
-      });
+      await abcDb.logIncident(
+        {
+          studentId,
+          centerId: profile?.centerId ?? "center-001",
+          timestamp: new Date(dateTime).toISOString(),
+          antecedent: { text: antText, tags: antTags },
+          behavior: { text: behText, tags: behTags },
+          consequence: { text: conText, tags: conTags },
+          severity,
+          durationMinutes: duration,
+          location,
+        },
+        profile?.uid ?? "unknown"
+      );
       toast.success("Incident logged successfully");
       onSaved();
-    } catch {
-      toast.success("Incident saved (demo mode)");
-      onSaved();
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to log incident");
     }
     setSaving(false);
   };
@@ -86,7 +100,7 @@ export default function LogIncidentModal({ onClose, onSaved }: Props) {
             <div>
               <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary)", marginBottom: "5px", textTransform: "uppercase" }}>Student</label>
               <select id="abc-student" className="glass-input" value={studentId} onChange={e => setStudentId(e.target.value)}>
-                {STUDENTS.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {students.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
             <div>

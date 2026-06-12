@@ -1,15 +1,19 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { MedicalProfile, Medication } from "@/types";
 import toast from "react-hot-toast";
-import { studentsApi } from "@/lib/api";
+import { studentsDb } from "@/lib/firestore-api";
 
 const BLOOD_TYPES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "Unknown"];
 
-interface Props { studentId: string; profile: MedicalProfile; canEdit: boolean; }
+interface Props { studentId: string; profile: MedicalProfile; canEdit: boolean; onChange?: (data: MedicalProfile) => void; }
 
-export default function MedicalTab({ studentId, profile: initial, canEdit }: Props) {
+export default function MedicalTab({ studentId, profile: initial, canEdit, onChange }: Props) {
   const [data, setData] = useState<MedicalProfile>(initial);
+
+  useEffect(() => {
+    if (onChange) onChange(data);
+  }, [data, onChange]);
   const [saving, setSaving] = useState(false);
   const [newAllergy, setNewAllergy] = useState("");
   const [showAddMed, setShowAddMed] = useState(false);
@@ -18,7 +22,7 @@ export default function MedicalTab({ studentId, profile: initial, canEdit }: Pro
   const save = async () => {
     setSaving(true);
     try {
-      await studentsApi.updateMedical(studentId, data as unknown as Record<string, unknown>);
+      await studentsDb.updateMedical(studentId, data as unknown as Record<string, unknown>);
       toast.success("Medical profile updated");
     } catch { toast.error("Failed to save"); }
     finally { setSaving(false); }

@@ -13,6 +13,15 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
     token = authorization.split("Bearer ")[1]
     try:
         decoded = verify_token(token)
+        # Fetch the user profile from Firestore to populate role and centerId
+        from firebase_admin_init import get_db
+        db = get_db()
+        uid = decoded.get("uid")
+        user_doc = db.collection("users").document(uid).get()
+        if user_doc.exists:
+            user_data = user_doc.to_dict()
+            # Merge firestore data into decoded dict
+            decoded.update(user_data)
         return decoded
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")

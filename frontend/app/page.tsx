@@ -12,16 +12,9 @@ const ROLES = [
   { id: "admin",     label: "Admin Login",     emoji: "🛡️", desc: "Full center management" },
 ];
 
-const DEMO_CREDS: Record<string, string> = {
-  parent: "parent@demo.com",
-  teacher: "teacher@demo.com",
-  therapist: "therapist@demo.com",
-  admin: "admin@demo.com",
-};
-
 export default function LoginPage() {
   const router = useRouter();
-  const { profile, loading: authLoading, login, register } = useAuth();
+  const { profile, loading: authLoading, login, register, logout } = useAuth();
 
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
   const [showRegister, setShowRegister] = useState(false);
@@ -38,17 +31,52 @@ export default function LoginPage() {
   const [regRole, setRegRole] = useState("teacher");
   const [regCenterId, setRegCenterId] = useState("demo-center-001");
 
-  // Redirect if already logged in
+  // Redirect if already logged in AND approved
   useEffect(() => {
-    if (!authLoading && profile) {
+    if (!authLoading && profile && profile.status === "approved") {
       router.push(`/dashboard/${profile.role}`);
     }
   }, [profile, authLoading, router]);
 
+  // Pending approval screen — show inline so user can log out
+  if (!authLoading && profile && profile.status === "pending") {
+    return (
+      <main
+        style={{
+          minHeight: "100vh",
+          background: "var(--bg-gradient)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "24px",
+        }}
+      >
+        <div className="glass-card animate-fade-in" style={{ padding: "48px", textAlign: "center", maxWidth: "420px" }}>
+          <div style={{ fontSize: "52px", marginBottom: "16px" }}>⏳</div>
+          <h2 style={{ color: "var(--primary-dark)", fontWeight: 800, margin: "0 0 10px" }}>
+            Awaiting Approval
+          </h2>
+          <p style={{ color: "var(--text-secondary)", margin: "0 0 8px", lineHeight: 1.6 }}>
+            Your account is pending admin approval. You&apos;ll receive access once an administrator approves your registration.
+          </p>
+          <p style={{ color: "var(--text-secondary)", margin: "0 0 24px", fontSize: "0.85rem" }}>
+            Logged in as <strong>{profile.email}</strong> ({profile.role})
+          </p>
+          <button
+            className="btn-ghost"
+            onClick={async () => { await logout(); }}
+          >
+            Sign Out &amp; Back to Login
+          </button>
+        </div>
+      </main>
+    );
+  }
+
   const handleRoleSelect = (roleId: string) => {
     setSelectedRole(roleId);
-    setEmail(DEMO_CREDS[roleId]);
-    setPassword("demo1234");
+    setEmail("");
+    setPassword("");
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -189,12 +217,12 @@ export default function LoginPage() {
                   style={{ display: "flex", flexDirection: "column", gap: "12px" }}
                 >
                   <div style={{
-                    padding: "10px 14px", background: "rgba(123,196,196,0.1)",
+                    padding: "10px 14px", background: "rgba(123,196,196,0.08)",
                     borderRadius: "10px", fontSize: "0.82rem", color: "var(--accent-teal)",
                     fontWeight: 600, textAlign: "center",
                     border: "1px solid rgba(123,196,196,0.3)",
                   }}>
-                    💡 Demo: {DEMO_CREDS[selectedRole]} / demo1234
+                    🔐 Signing in as {ROLES.find(r => r.id === selectedRole)?.label.split(" ")[0]}
                   </div>
 
                   <div>

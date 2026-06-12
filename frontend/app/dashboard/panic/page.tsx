@@ -1,11 +1,11 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { panicApi } from "@/lib/api";
+import { panicDb, studentsDb } from "@/lib/firestore-api";
 import toast from "react-hot-toast";
 
-const STUDENTS = [{ id: "s1", name: "Ali Hassan" }, { id: "s2", name: "Sara Ahmed" }, { id: "s3", name: "Omar Malik" }, { id: "s4", name: "Zara Khan" }];
+
 const EMERGENCY_TYPES = ["Seizure", "Severe Meltdown", "Self-Injury", "Aggressive Behavior", "Medical Emergency", "Other"];
 const LOCATIONS = [
   "Classroom 1", "Classroom 2", "Classroom 3", "Classroom 4", "Classroom 5",
@@ -19,30 +19,43 @@ export default function PanicPage() {
   const searchParams = useSearchParams();
   const preselectedId = searchParams?.get("studentId") || "";
 
+  const [students, setStudents] = useState<{ id: string; name: string }[]>([]);
   const [step, setStep] = useState(1);
-  const [studentId, setStudentId] = useState(preselectedId || "s1");
+  const [studentId, setStudentId] = useState(preselectedId || "");
   const [emergencyType, setEmergencyType] = useState("");
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState("");
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
 
-  const selectedStudent = STUDENTS.find(s => s.id === studentId) || STUDENTS[0];
+  useEffect(() => {
+    if (profile) {
+      studentsDb.list(profile.centerId ?? "center-001", profile.role, profile.uid).then((s) => {
+        setStudents(s);
+        if (!preselectedId && s.length > 0) setStudentId(s[0].id);
+      });
+    }
+  }, [profile]);
+
+  const selectedStudent = students.find(s => s.id === studentId) || students[0];
 
   const handleSend = async () => {
     if (!emergencyType || !location) { toast.error("Please complete all fields"); return; }
     setSending(true);
     try {
-      await panicApi.sendAlert({
-        studentId, centerId: "demo-center-001",
+      await panicDb.sendAlert({
+        studentId,
+        centerId: profile?.centerId ?? "center-001",
         reportedBy: { uid: profile?.uid || "unknown", name: profile?.name || "Staff" },
-        emergencyType, description, location,
+        emergencyType,
+        description,
+        location,
       });
       setSent(true);
       toast.error("🚨 Panic alert sent to all admins!", { duration: 5000, style: { background: "rgba(229,62,62,0.95)", color: "white", border: "none" } });
-    } catch {
-      setSent(true);
-      toast.error("🚨 Panic alert sent (demo mode)!", { duration: 5000, style: { background: "rgba(229,62,62,0.95)", color: "white", border: "none" } });
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to send alert. Please try again.");
     }
     setSending(false);
   };
@@ -110,7 +123,7 @@ export default function PanicPage() {
           <h3 style={{ margin: "0 0 6px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1.1rem" }}>Step 1: Select Student</h3>
           <p style={{ margin: "0 0 20px", color: "var(--text-secondary)", fontSize: "0.85rem" }}>Who is the emergency about?</p>
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-            {STUDENTS.map(s => (
+            {students.map(s => (
               <button key={s.id} onClick={() => setStudentId(s.id)}
                 style={{
                   padding: "16px 20px", borderRadius: "12px", cursor: "pointer", textAlign: "left",

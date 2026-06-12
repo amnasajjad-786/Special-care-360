@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { abcApi, studentsApi } from "@/lib/api";
+import { abcDb, studentsDb } from "@/lib/firestore-api";
 import { ABCIncident, PatternAnalysis, HeatmapCell } from "@/types";
 import HeatmapGrid from "@/components/abc-tracker/HeatmapGrid";
 import TrendChart from "@/components/abc-tracker/TrendChart";
@@ -9,40 +9,7 @@ import PatternTable from "@/components/abc-tracker/PatternTable";
 import LogIncidentModal from "@/components/abc-tracker/LogIncidentModal";
 import { useAuth } from "@/lib/auth-context";
 
-const MOCK_INCIDENTS: ABCIncident[] = [
-  { id: "i1", studentId: "s1", centerId: "demo-center-001", loggedBy: "t1", timestamp: "2026-04-22T09:00:00Z", antecedent: { text: "Loud announcement", tags: ["Loud Noise"] }, behavior: { text: "Covered ears, rocking", tags: ["Screaming"] }, consequence: { text: "Moved to quiet corner", tags: ["Redirected"] }, severity: 3, durationMinutes: 8, location: "Classroom A" },
-  { id: "i2", studentId: "s1", centerId: "demo-center-001", loggedBy: "t1", timestamp: "2026-04-21T13:30:00Z", antecedent: { text: "Activity changed", tags: ["Transition", "Unexpected Change"] }, behavior: { text: "Threw materials", tags: ["Hitting", "Screaming"] }, consequence: { text: "Verbal prompt", tags: ["Verbal Prompt"] }, severity: 4, durationMinutes: 15, location: "Classroom A" },
-  { id: "i3", studentId: "s1", centerId: "demo-center-001", loggedBy: "t1", timestamp: "2026-04-20T10:00:00Z", antecedent: { text: "Request denied", tags: ["Denied Request"] }, behavior: { text: "Crying", tags: ["Crying", "Withdrawal"] }, consequence: { text: "Ignored then redirected", tags: ["Ignored", "Redirected"] }, severity: 2, durationMinutes: 5, location: "Therapy Room" },
-  { id: "i4", studentId: "s1", centerId: "demo-center-001", loggedBy: "t1", timestamp: "2026-04-19T14:00:00Z", antecedent: { text: "Crowded lunch hall", tags: ["Crowded Space"] }, behavior: { text: "Self-stimulatory", tags: ["Self-harm"] }, consequence: { text: "Physical support", tags: ["Physical Support"] }, severity: 4, durationMinutes: 12, location: "Cafeteria" },
-  { id: "i5", studentId: "s1", centerId: "demo-center-001", loggedBy: "t1", timestamp: "2026-04-18T09:30:00Z", antecedent: { text: "Loud music", tags: ["Loud Noise"] }, behavior: { text: "Running out", tags: ["Running away"] }, consequence: { text: "Teacher followed", tags: ["Physical Support"] }, severity: 3, durationMinutes: 6, location: "Therapy Room" },
-];
-
-const MOCK_PATTERNS: PatternAnalysis = {
-  topAntecedents: [{ tag: "Loud Noise", count: 2 }, { tag: "Transition", count: 1 }, { tag: "Denied Request", count: 1 }, { tag: "Crowded Space", count: 1 }],
-  topBehaviors: [{ tag: "Screaming", count: 2 }, { tag: "Hitting", count: 1 }, { tag: "Crying", count: 1 }, { tag: "Self-harm", count: 1 }],
-  topConsequences: [{ tag: "Redirected", count: 2 }, { tag: "Physical Support", count: 2 }, { tag: "Verbal Prompt", count: 1 }],
-  peakHours: [{ hour: 9, count: 2 }, { hour: 13, count: 2 }, { hour: 14, count: 1 }],
-  avgSeverity: 3.2,
-  totalIncidents: 5,
-  insights: [
-    "Most common trigger: 'Loud Noise' (2 incidents)",
-    "Most frequent behavior: 'Screaming' observed 2 times",
-    "Peak incident time: 9:00 AM",
-    "Average severity is moderate (3.2/5) — consider sensory accommodations",
-  ],
-};
-
-const MOCK_HEATMAP: HeatmapCell[] = [
-  { day: "Mon", severity: 3, count: 1 }, { day: "Mon", severity: 4, count: 1 },
-  { day: "Tue", severity: 2, count: 1 }, { day: "Wed", severity: 4, count: 1 },
-  { day: "Thu", severity: 3, count: 1 }, { day: "Fri", severity: 1, count: 0 },
-];
-
-const MOCK_STUDENTS = [
-  { id: "s1", name: "Ali Hassan", parentId: "parent-001" },
-  { id: "s2", name: "Sara Ahmed" },
-  { id: "s3", name: "Omar Malik" }
-];
+import toast from "react-hot-toast";
 
 export default function ABCTrackerPage() {
   const { profile } = useAuth();
@@ -60,22 +27,18 @@ export default function ABCTrackerPage() {
   useEffect(() => {
     const loadStudents = async () => {
       try {
-        const res = await studentsApi.list();
-        const allowed = profile?.role === "parent"
-          ? res.data.filter((s: any) => s.parentId === profile.uid)
-          : res.data;
+        const allowed = await studentsDb.list(
+          profile?.centerId ?? "center-001",
+          profile?.role,
+          profile?.uid
+        );
         setStudents(allowed);
         if (allowed.length > 0) {
           setSelectedStudent(allowed[0]);
         }
-      } catch {
-        const allowed = profile?.role === "parent"
-          ? MOCK_STUDENTS.filter((s) => s.parentId === profile.uid)
-          : MOCK_STUDENTS;
-        setStudents(allowed);
-        if (allowed.length > 0) {
-          setSelectedStudent(allowed[0]);
-        }
+      } catch (err) {
+        console.error("Failed to load students:", err);
+        toast.error("Failed to load students");
       }
     };
     if (profile) {
@@ -86,18 +49,20 @@ export default function ABCTrackerPage() {
   const loadData = async (studentId: string) => {
     setLoading(true);
     try {
-      const [incRes, patRes, heatRes] = await Promise.all([
-        abcApi.listIncidents(studentId),
-        abcApi.getPatterns(studentId),
-        abcApi.getHeatmap(studentId),
+      const [incidents, patterns, heatmap] = await Promise.all([
+        abcDb.listIncidents(studentId),
+        abcDb.getPatterns(studentId),
+        abcDb.getHeatmap(studentId),
       ]);
-      setIncidents(incRes.data);
-      setPatterns(patRes.data);
-      setHeatmap(heatRes.data);
-    } catch {
-      setIncidents(MOCK_INCIDENTS);
-      setPatterns(MOCK_PATTERNS);
-      setHeatmap(MOCK_HEATMAP);
+      setIncidents(incidents as unknown as ABCIncident[]);
+      setPatterns(patterns as unknown as PatternAnalysis);
+      setHeatmap(heatmap as unknown as HeatmapCell[]);
+    } catch (err) {
+      console.error("Failed to load ABC data:", err);
+      toast.error("Failed to load behavioral data");
+      setIncidents([]);
+      setPatterns(null);
+      setHeatmap([]);
     }
     setLoading(false);
   };

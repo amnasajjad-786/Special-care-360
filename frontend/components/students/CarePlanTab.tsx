@@ -1,8 +1,8 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { CarePlan, IEPGoal } from "@/types";
 import toast from "react-hot-toast";
-import { studentsApi } from "@/lib/api";
+import { studentsDb } from "@/lib/firestore-api";
 
 const STATUS_OPTIONS = ["In Progress", "Mastered", "Regressed"] as const;
 const STATUS_STYLES: Record<string, string> = {
@@ -11,10 +11,14 @@ const STATUS_STYLES: Record<string, string> = {
   Regressed: "chip-danger",
 };
 
-interface Props { studentId: string; carePlan: CarePlan; canEdit: boolean; }
+interface Props { studentId: string; carePlan: CarePlan; canEdit: boolean; onChange?: (data: CarePlan) => void; }
 
-export default function CarePlanTab({ studentId, carePlan: initial, canEdit }: Props) {
+export default function CarePlanTab({ studentId, carePlan: initial, canEdit, onChange }: Props) {
   const [goals, setGoals] = useState<IEPGoal[]>(initial?.goals || []);
+
+  useEffect(() => {
+    if (onChange) onChange({ goals });
+  }, [goals, onChange]);
   const [saving, setSaving] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [newGoal, setNewGoal] = useState({ title: "", status: "In Progress" as IEPGoal["status"], progressPercent: 0 });
@@ -22,7 +26,7 @@ export default function CarePlanTab({ studentId, carePlan: initial, canEdit }: P
   const save = async () => {
     setSaving(true);
     try {
-      await studentsApi.updateCarePlan(studentId, { goals } as unknown as Record<string, unknown>);
+      await studentsDb.updateCarePlan(studentId, { goals } as unknown as Record<string, unknown>);
       toast.success("Care plan saved");
     } catch { toast.error("Save failed"); }
     finally { setSaving(false); }

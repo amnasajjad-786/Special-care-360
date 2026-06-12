@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import toast from "react-hot-toast";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { studentsDb, adminDb } from "@/lib/firestore-api";
 import {
   LayoutDashboard,
   Users,
@@ -29,7 +30,7 @@ import {
 
 // --- Mock initial data matching HTML mockup ---
 interface AdminStudent {
-  id: number;
+  id: string | number;
   name: string;
   age: number;
   diagnosis: string;
@@ -57,7 +58,7 @@ interface AdminPayment {
 }
 
 interface AdminStaff {
-  id: number;
+  id: string | number;
   name: string;
   subRole: string;
   role: "Teacher" | "Therapist" | "Admin";
@@ -66,14 +67,7 @@ interface AdminStaff {
   status: "Active" | "Inactive";
 }
 
-const INITIAL_STUDENTS: AdminStudent[] = [
-  { id: 1, name: "Ahmed Raza", age: 8, diagnosis: "Autism", therapist: "Sara Raza", feeStatus: "paid", status: "Active" },
-  { id: 2, name: "Zara Khan", age: 10, diagnosis: "Down Syndrome", therapist: "M. Kamran", feeStatus: "pending", status: "Active" },
-  { id: 3, name: "Ali Hassan", age: 6, diagnosis: "ADHD", therapist: "Aisha Noor", feeStatus: "overdue", status: "Active" },
-  { id: 4, name: "Fatima Noor", age: 12, diagnosis: "Cerebral Palsy", therapist: "Sara Raza", feeStatus: "paid", status: "Active" },
-  { id: 5, name: "Bilal Ahmed", age: 9, diagnosis: "Autism", therapist: "M. Kamran", feeStatus: "pending", status: "Active" },
-  { id: 6, name: "Hina Malik", age: 7, diagnosis: "Down Syndrome", therapist: "Aisha Noor", feeStatus: "paid", status: "Inactive" },
-];
+const INITIAL_STUDENTS: AdminStudent[] = [];
 
 const INITIAL_INVOICES: AdminInvoice[] = [
   { id: "INV-1024", studentName: "Ali Hassan", amount: 12000, month: "June 2025", issued: "01 Jun", status: "overdue" },
@@ -89,11 +83,7 @@ const INITIAL_PAYMENTS: AdminPayment[] = [
   { id: "RCP-043", studentName: "Hina Malik", amount: 12000, method: "EasyPaisa", date: "01 Jun 2025", recordedBy: "Admin" },
 ];
 
-const INITIAL_STAFF: AdminStaff[] = [
-  { id: 1, name: "Sara Raza", subRole: "Speech Therapist", role: "Therapist", email: "sara@sc360.pk", studentsAssigned: 12, status: "Active" },
-  { id: 2, name: "M. Kamran", subRole: "Special Educator", role: "Teacher", email: "kamran@sc360.pk", studentsAssigned: 15, status: "Active" },
-  { id: 3, name: "Aisha Noor", subRole: "Physiotherapist", role: "Therapist", email: "aisha@sc360.pk", studentsAssigned: 9, status: "Active" },
-];
+const INITIAL_STAFF: AdminStaff[] = [];
 
 const DIAGNOSES_OPTIONS = ["Autism", "Down Syndrome", "ADHD", "Cerebral Palsy", "Other"];
 
@@ -172,6 +162,52 @@ export default function AdminDashboard() {
   // --- Dynamic active alert count from Firestore (with demo fallback) --------
   const [activeAlertsCount, setActiveAlertsCount] = useState(2);
 
+  // --- Fetch Students from Firestore ---
+  useEffect(() => {
+    if (!profile) return;
+    const fetchStudents = async () => {
+      try {
+        const data = await studentsDb.list(profile.centerId || "center-001");
+        const mapped: AdminStudent[] = data.map(s => {
+          const age = s.dob ? Math.floor((Date.now() - new Date(s.dob).getTime()) / (365.25 * 24 * 3600 * 1000)) : 0;
+          return {
+            id: s.id,
+            name: s.name || "Unknown",
+            age,
+            diagnosis: s.diagnosis || "Unknown",
+            therapist: s.therapistIds && s.therapistIds.length > 0 ? "Assigned" : "None",
+            feeStatus: "paid", // Placeholder until fee module is built
+            status: "Active"
+          };
+        });
+        setStudents(mapped);
+      } catch (err) {
+        console.error("Failed to fetch admin students", err);
+      }
+    };
+
+    const fetchStaff = async () => {
+      try {
+        const data = await adminDb.listStaff(profile.centerId || "center-001");
+        const mapped: AdminStaff[] = data.map((s: any) => ({
+          id: s.id,
+          name: s.name,
+          subRole: s.subRole,
+          role: s.role,
+          email: s.email,
+          studentsAssigned: s.studentsAssigned,
+          status: s.status
+        }));
+        setStaff(mapped);
+      } catch (err) {
+        console.error("Failed to fetch admin staff", err);
+      }
+    };
+
+    fetchStudents();
+    fetchStaff();
+  }, [profile]);
+
   useEffect(() => {
     if (!profile) return;
     try {
@@ -212,7 +248,7 @@ export default function AdminDashboard() {
   }, [invoices, payments]);
 
   // --- Handlers ---
-  const handleAddStudent = (e: React.FormEvent) => {
+  const handleAddStudent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!studentForm.firstName || !studentForm.lastName) {
       toast.error("Please fill in the student's name");
@@ -221,18 +257,36 @@ export default function AdminDashboard() {
 
     const fullName = `${studentForm.firstName} ${studentForm.lastName}`.trim();
     const ageNum = parseInt(studentForm.age) || 6;
+    const dob = new Date(Date.now() - ageNum * 365.25 * 24 * 3600 * 1000).toISOString();
 
-    const newStudent: AdminStudent = {
-      id: Date.now(),
-      name: fullName,
-      age: ageNum,
-      diagnosis: studentForm.diagnosis,
-      therapist: studentForm.therapist,
-      feeStatus: "pending",
-      status: "Active"
-    };
+    try {
+      const newId = await studentsDb.create({
+        name: fullName,
+        dob: dob,
+        diagnosis: studentForm.diagnosis,
+        centerId: profile?.centerId || "center-001",
+        teacherId: "", 
+        therapistIds: [], 
+        enrollmentDate: new Date().toISOString(),
+        iepStatus: "Active",
+        photoUrl: "",
+        parentId: "",
+        guardianName: studentForm.guardianName,
+        contactNo: studentForm.contactNo,
+        notes: studentForm.notes
+      } as any);
 
-    setStudents([newStudent, ...students]);
+      const newStudent: AdminStudent = {
+        id: newId,
+        name: fullName,
+        age: ageNum,
+        diagnosis: studentForm.diagnosis,
+        therapist: studentForm.therapist,
+        feeStatus: "pending",
+        status: "Active"
+      };
+
+      setStudents([newStudent, ...students]);
     setIsAddStudentOpen(false);
     setStudentForm({
       firstName: "",
@@ -245,50 +299,81 @@ export default function AdminDashboard() {
       therapist: "Sara Raza",
       notes: ""
     });
-    toast.success(`${fullName} has been added successfully!`);
-  };
-
-  const handleDeleteStudent = (id: number, name: string) => {
-    if (confirm(`Are you sure you want to remove ${name}?`)) {
-      setStudents(students.filter(s => s.id !== id));
-      toast.success("Student removed");
+    toast.success("Student added successfully");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to add student");
     }
   };
 
-  const handleAddStaff = (e: React.FormEvent) => {
+  const handleDeleteStudent = async (id: string | number, name: string) => {
+    if (confirm(`Are you sure you want to remove ${name}?`)) {
+      try {
+        await studentsDb.delete(id.toString());
+        setStudents(students.filter(s => s.id !== id));
+        toast.success("Student removed");
+      } catch (err) {
+        console.error(err);
+        toast.error("Failed to remove student");
+      }
+    }
+  };
+
+  const handleAddStaff = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!staffForm.name || !staffForm.email) {
       toast.error("Please fill in the name and email fields");
       return;
     }
 
-    const newMember: AdminStaff = {
-      id: Date.now(),
-      name: staffForm.name,
-      subRole: staffForm.subRole || "Specialist",
-      role: staffForm.role,
-      email: staffForm.email,
-      studentsAssigned: staffForm.studentsAssigned,
-      status: staffForm.status
-    };
+    try {
+      const newId = await adminDb.addStaff({
+        name: staffForm.name,
+        subRole: staffForm.subRole || "Specialist",
+        role: staffForm.role,
+        email: staffForm.email,
+        studentsAssigned: staffForm.studentsAssigned,
+        status: staffForm.status,
+        centerId: profile?.centerId || "center-001"
+      });
 
-    setStaff([...staff, newMember]);
-    setIsAddStaffOpen(false);
-    setStaffForm({
-      name: "",
-      subRole: "",
-      role: "Teacher",
-      email: "",
-      studentsAssigned: 0,
-      status: "Active"
-    });
-    toast.success(`${newMember.name} has been added as a staff member!`);
+      const newMember: AdminStaff = {
+        id: newId,
+        name: staffForm.name,
+        subRole: staffForm.subRole || "Specialist",
+        role: staffForm.role,
+        email: staffForm.email,
+        studentsAssigned: staffForm.studentsAssigned,
+        status: staffForm.status
+      };
+
+      setStaff([...staff, newMember]);
+      setIsAddStaffOpen(false);
+      setStaffForm({
+        name: "",
+        subRole: "",
+        role: "Teacher",
+        email: "",
+        studentsAssigned: 0,
+        status: "Active"
+      });
+      toast.success(`${newMember.name} has been added as a staff member!`);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to add staff member");
+    }
   };
 
-  const handleDeleteStaff = (id: number, name: string) => {
+  const handleDeleteStaff = async (id: string | number, name: string) => {
     if (confirm(`Are you sure you want to delete staff member ${name}?`)) {
-      setStaff(staff.filter(st => st.id !== id));
-      toast.success("Staff member removed");
+      try {
+        await adminDb.deleteStaff(id.toString());
+        setStaff(staff.filter(st => st.id !== id));
+        toast.success("Staff member removed");
+      } catch (err) {
+        console.error(err);
+        toast.error("Failed to remove staff member");
+      }
     }
   };
 

@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { format } from "date-fns";
 import { useAuth } from "@/lib/auth-context";
-import { dailyCareApi } from "@/lib/api";
+import { dailyCareDb } from "@/lib/firestore-api";
 import { DailyCareJournal, MealStatus, MoodType, ActivityLevel } from "@/types";
 import toast from "react-hot-toast";
 
@@ -53,10 +53,14 @@ export default function JournalForm({ studentId, studentName, date }: Props) {
     e.preventDefault();
     setSaving(true);
     try {
-      await dailyCareApi.submit({ studentId, date, ...form, submittedBy: profile?.uid || "unknown" });
+      await dailyCareDb.submit(
+        { studentId, date, ...form },
+        profile?.uid ?? "unknown"
+      );
       toast.success(`✅ Journal submitted for ${studentName}!`);
-    } catch {
-      toast.success(`✅ Journal saved (demo mode)!`); // mock success in placeholder mode
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to submit journal. Please try again.");
     }
     setSaving(false);
   };

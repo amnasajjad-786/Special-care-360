@@ -2,25 +2,12 @@
 import { useEffect, useState } from "react";
 import { format } from "date-fns";
 import { useAuth } from "@/lib/auth-context";
-import { dailyCareApi, studentsApi } from "@/lib/api";
+import { dailyCareDb, studentsDb } from "@/lib/firestore-api";
 import { DailyCareJournal } from "@/types";
 import JournalForm from "@/components/daily-care/JournalForm";
 import DailyDigest from "@/components/daily-care/DailyDigest";
 
-const MOCK_STUDENTS = [
-  { id: "s1", name: "Ali Hassan", parentId: "parent-001" },
-  { id: "s2", name: "Sara Ahmed" },
-  { id: "s3", name: "Omar Malik" },
-  { id: "s4", name: "Zara Khan" },
-];
-
-const MOCK_JOURNAL: DailyCareJournal = {
-  studentId: "s1", date: format(new Date(), "yyyy-MM-dd"),
-  meals: { breakfast: { ate: "fully", notes: "Enjoyed oatmeal" }, lunch: { ate: "partially", notes: "Left some rice" }, snack: { ate: "fully", notes: "Loved the banana" } },
-  hygiene: { teethBrushed: true, handsWashed: true, diaperAssisted: false, hairCombed: true },
-  moodTimeline: [{ slot: "Morning", mood: "happy" }, { slot: "Midday", mood: "neutral" }, { slot: "After Lunch", mood: "happy" }, { slot: "End of Day", mood: "tired" }],
-  physicalActivity: "Active", activityNotes: "Outdoor play & ball games", incidents: "", teacherNotes: "Ali had a great day! Very engaged during circle time.", submittedBy: "teacher-001", submittedAt: new Date().toISOString(),
-};
+import toast from "react-hot-toast";
 
 export default function DailyCarePage() {
   const { profile } = useAuth();
@@ -36,22 +23,18 @@ export default function DailyCarePage() {
   useEffect(() => {
     const loadStudents = async () => {
       try {
-        const res = await studentsApi.list();
-        const allowed = profile?.role === "parent"
-          ? res.data.filter((s: any) => s.parentId === profile.uid)
-          : res.data;
+        const allowed = await studentsDb.list(
+          profile?.centerId ?? "center-001",
+          profile?.role,
+          profile?.uid
+        );
         setStudents(allowed);
         if (allowed.length > 0) {
           setSelectedStudent(allowed[0]);
         }
-      } catch {
-        const allowed = profile?.role === "parent"
-          ? MOCK_STUDENTS.filter((s) => s.parentId === profile.uid)
-          : MOCK_STUDENTS;
-        setStudents(allowed);
-        if (allowed.length > 0) {
-          setSelectedStudent(allowed[0]);
-        }
+      } catch (err) {
+        console.error("Failed to load students:", err);
+        toast.error("Failed to load students");
       }
     };
     if (profile) {
@@ -64,10 +47,11 @@ export default function DailyCarePage() {
     const fetchJournal = async () => {
       setLoading(true);
       try {
-        const res = await dailyCareApi.get(selectedStudent.id, date);
-        setExistingJournal(res.data || null);
-      } catch {
-        setExistingJournal(MOCK_JOURNAL);
+        const data = await dailyCareDb.get(selectedStudent.id, date);
+        setExistingJournal((data as DailyCareJournal) || null);
+      } catch (err) {
+        console.error("Failed to load journal:", err);
+        setExistingJournal(null);
       }
       setLoading(false);
     };
@@ -129,7 +113,13 @@ export default function DailyCarePage() {
           {Array.from({ length: 4 }).map((_, i) => <div key={i} className="skeleton" style={{ height: "120px", borderRadius: "16px" }} />)}
         </div>
       ) : profile?.role === "parent" ? (
-        <DailyDigest journal={existingJournal || MOCK_JOURNAL} studentName={selectedStudent.name} />
+        existingJournal
+          ? <DailyDigest journal={existingJournal} studentName={selectedStudent.name} />
+          : <div className="glass-card animate-fade-in" style={{ padding: "48px", textAlign: "center" }}>
+              <div style={{ fontSize: "48px", marginBottom: "12px" }}>📋</div>
+              <h3 style={{ margin: 0, color: "var(--primary-dark)" }}>No Journal Yet</h3>
+              <p style={{ color: "var(--text-secondary)", marginTop: "8px" }}>The teacher hasn&apos;t submitted a care journal for this date yet.</p>
+            </div>
       ) : (
         <JournalForm studentId={selectedStudent.id} studentName={selectedStudent.name} date={date} />
       )}
