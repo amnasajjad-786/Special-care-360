@@ -1,0 +1,107 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper functions ────────────────────────────────────────────────────
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function getRole() {
+      return getUserData().role;
+    }
+
+    function getCenterId() {
+      return getUserData().centerId;
+    }
+
+    function isApproved() {
+      return getUserData().status == 'approved';
+    }
+
+    function isAdmin()     { return isAuthenticated() && isApproved() && getRole() == 'admin'; }
+    function isTeacher()   { return isAuthenticated() && isApproved() && getRole() == 'teacher'; }
+    function isTherapist() { return isAuthenticated() && isApproved() && getRole() == 'therapist'; }
+    function isParent()    { return isAuthenticated() && isApproved() && getRole() == 'parent'; }
+    function isStaff()     { return isAdmin() || isTeacher() || isTherapist(); }
+
+
+    // ── Users ───────────────────────────────────────────────────────────────
+    match /users/{userId} {
+      // Anyone can read their own profile
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      // Users can create and update their own profile (for registration)
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+
+    // ── Students ────────────────────────────────────────────────────────────
+    match /students/{studentId} {
+      // Staff can read all students in their center; parents only their child
+      allow read: if isStaff() && resource.data.centerId == getCenterId()
+                  || (isParent() && resource.data.parentId == request.auth.uid);
+      allow create: if isAdmin();
+      allow update: if isAdmin() || isTherapist();
+      allow delete: if isAdmin();
+
+      // Medical Profile sub-collection
+      match /medicalProfile/{doc} {
+        allow read:  if isStaff() || isParent();
+        allow write: if isAdmin() || isTherapist();
+      }
+
+      // Care Plan sub-collection
+      match /carePlan/{doc} {
+        allow read:  if isStaff() || isParent();
+        allow write: if isAdmin() || isTherapist() || isTeacher();
+      }
+    }
+
+
+    // ── Daily Care Journals ─────────────────────────────────────────────────
+    match /dailyCareJournals/{journalId} {
+      // Staff can read; parents read journals for their child by checking studentId
+      allow read: if isTeacher() || isAdmin() || isTherapist()
+                  || (isParent() && get(/databases/$(database)/documents/students/$(resource.data.studentId)).data.parentId == request.auth.uid);
+      allow create: if isTeacher() || isAdmin();
+      allow update: if isTeacher() || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+
+    // ── ABC Behavioral Incidents ────────────────────────────────────────────
+    match /abcIncidents/{incidentId} {
+      allow read:   if isStaff();
+      allow create: if isTeacher() || isTherapist() || isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+
+    // ── Panic Alerts ────────────────────────────────────────────────────────
+    match /panicAlerts/{alertId} {
+      allow read:   if isAdmin();
+      allow create: if isStaff();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+
+    // ── Notifications ───────────────────────────────────────────────────────
+    match /notifications/{notifId} {
+      // Users can only read their own notifications
+      allow read:   if isAuthenticated() && resource.data.recipientId == request.auth.uid;
+      // Authenticated approved users can create notifications (frontend writes these directly)
+      allow create: if isAuthenticated() && isApproved();
+      // Users can mark their own as read
+      allow update: if isAuthenticated() && resource.data.recipientId == request.auth.uid;
+      allow delete: if false;
+    }
+  }
+}
