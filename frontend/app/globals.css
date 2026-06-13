@@ -300,7 +300,11 @@
 /* ─── Panic Button Floating ──────────────────────────────────────────────── */
 .panic-float {
   position: fixed;
+<<<<<<< HEAD
   top: 90px;
+=======
+  bottom: 28px;
+>>>>>>> 47a58b15e5a94d28bf01459f0341b5fa930906d2
   right: 28px;
   z-index: 9999;
   width: 68px;

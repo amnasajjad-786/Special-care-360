@@ -353,6 +353,7 @@ export const panicDb = {
       }
     } catch (_) {}
 
+<<<<<<< HEAD
     // Trigger the backend API to handle email alerts
     try {
       const { api } = await import("./api");
@@ -369,6 +370,8 @@ export const panicDb = {
       console.warn("[Panic] Backend not reachable or failed to send email alert:", e);
     }
 
+=======
+>>>>>>> 47a58b15e5a94d28bf01459f0341b5fa930906d2
     return alertId;
   },
 
