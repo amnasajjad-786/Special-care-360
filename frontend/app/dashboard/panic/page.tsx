@@ -28,6 +28,11 @@ export default function PanicPage() {
   const [location, setLocation] = useState("");
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const filteredStudents = students.filter(s =>
+    s.name.toLowerCase().includes(searchQuery.trim().toLowerCase())
+  );
 
   useEffect(() => {
     if (profile) {
@@ -79,7 +84,7 @@ export default function PanicPage() {
           <div style={{ marginTop: "24px", padding: "16px", background: "rgba(229,62,62,0.06)", borderRadius: "12px", border: "1px solid rgba(229,62,62,0.2)", textAlign: "left" }}>
             <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--danger)", marginBottom: "8px", textTransform: "uppercase" }}>Alert Summary</div>
             <div style={{ fontSize: "0.88rem", color: "var(--text-primary)", lineHeight: 1.7 }}>
-              <div><b>Student:</b> {selectedStudent.name}</div>
+              <div><b>Student:</b> {selectedStudent?.name || "Loading..."}</div>
               <div><b>Emergency:</b> {emergencyType}</div>
               <div><b>Location:</b> {location}</div>
               <div><b>Reported by:</b> {profile?.name}</div>
@@ -128,25 +133,41 @@ export default function PanicPage() {
       {step === 1 && (
         <div className="glass-card animate-fade-in" style={{ padding: "32px" }}>
           <h3 style={{ margin: "0 0 6px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1.1rem" }}>Step 1: Select Student</h3>
-          <p style={{ margin: "0 0 20px", color: "var(--text-secondary)", fontSize: "0.85rem" }}>Who is the emergency about?</p>
-          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-            {students.map(s => (
-              <button key={s.id} onClick={() => setStudentId(s.id)}
-                style={{
-                  padding: "16px 20px", borderRadius: "12px", cursor: "pointer", textAlign: "left",
-                  border: studentId === s.id ? "2px solid var(--danger)" : "2px solid transparent",
-                  background: studentId === s.id ? "rgba(229,62,62,0.06)" : "rgba(255,255,255,0.5)",
-                  transition: "all 0.2s", display: "flex", alignItems: "center", gap: "14px",
-                }}>
-                <div style={{ width: "40px", height: "40px", borderRadius: "50%", background: studentId === s.id ? "var(--danger)" : "rgba(0,0,0,0.08)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: studentId === s.id ? "white" : "var(--text-secondary)", fontSize: "16px" }}>
-                  {s.name.charAt(0)}
-                </div>
-                <span style={{ fontWeight: 600, color: studentId === s.id ? "var(--danger)" : "var(--text-primary)" }}>{s.name}</span>
-                {studentId === s.id && <span style={{ marginLeft: "auto", color: "var(--danger)", fontSize: "1.2rem" }}>✓</span>}
-              </button>
-            ))}
+          <p style={{ margin: "0 0 16px", color: "var(--text-secondary)", fontSize: "0.85rem" }}>Who is the emergency about?</p>
+          
+          <input
+            type="text"
+            className="glass-input"
+            placeholder="🔍 Search student by name..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            style={{ marginBottom: "16px" }}
+          />
+
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px", maxHeight: "280px", overflowY: "auto", paddingRight: "4px" }}>
+            {filteredStudents.length === 0 ? (
+              <div style={{ padding: "20px", textAlign: "center", color: "var(--text-secondary)", fontSize: "0.9rem" }}>
+                {searchQuery ? `No students found matching "${searchQuery}"` : "No students available"}
+              </div>
+            ) : (
+              filteredStudents.map(s => (
+                <button key={s.id} onClick={() => setStudentId(s.id)}
+                  style={{
+                    padding: "16px 20px", borderRadius: "12px", cursor: "pointer", textAlign: "left",
+                    border: studentId === s.id ? "2px solid var(--danger)" : "2px solid transparent",
+                    background: studentId === s.id ? "rgba(229,62,62,0.06)" : "rgba(255,255,255,0.5)",
+                    transition: "all 0.2s", display: "flex", alignItems: "center", gap: "14px",
+                  }}>
+                  <div style={{ width: "40px", height: "40px", borderRadius: "50%", background: studentId === s.id ? "var(--danger)" : "rgba(0,0,0,0.08)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: studentId === s.id ? "white" : "var(--text-secondary)", fontSize: "16px" }}>
+                    {s.name.charAt(0)}
+                  </div>
+                  <span style={{ fontWeight: 600, color: studentId === s.id ? "var(--danger)" : "var(--text-primary)" }}>{s.name}</span>
+                  {studentId === s.id && <span style={{ marginLeft: "auto", color: "var(--danger)", fontSize: "1.2rem" }}>✓</span>}
+                </button>
+              ))
+            )}
           </div>
-          <button className="btn-danger" onClick={() => setStep(2)} style={{ width: "100%", marginTop: "20px", padding: "14px" }}>Next →</button>
+          <button className="btn-danger" onClick={() => studentId ? setStep(2) : toast.error("Please select a student")} style={{ width: "100%", marginTop: "20px", padding: "14px" }}>Next →</button>
         </div>
       )}
 
@@ -214,7 +235,7 @@ export default function PanicPage() {
           <div style={{ padding: "16px", background: "rgba(229,62,62,0.05)", borderRadius: "12px", border: "1px solid rgba(229,62,62,0.2)", marginBottom: "20px" }}>
             <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--danger)", marginBottom: "8px", textTransform: "uppercase" }}>Alert Summary</div>
             <div style={{ fontSize: "0.88rem", color: "var(--text-primary)", lineHeight: 1.8 }}>
-              <div><b>Student:</b> {selectedStudent.name}</div>
+              <div><b>Student:</b> {selectedStudent?.name || "Loading..."}</div>
               <div><b>Emergency:</b> {emergencyType}</div>
               <div><b>Location:</b> {location || "(not set)"}</div>
             </div>
