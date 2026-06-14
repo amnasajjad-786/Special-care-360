@@ -16,7 +16,7 @@ const ROLES = [
 
 export default function LoginPage() {
   const router = useRouter();
-  const { profile, loading: authLoading, login, register, logout } = useAuth();
+  const { profile, loading: authLoading, login, loginWithGoogle, register, logout } = useAuth();
 
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
   const [showRegister, setShowRegister] = useState(false);
@@ -104,18 +104,92 @@ export default function LoginPage() {
     }
   };
 
+  const handleGoogleSignIn = async () => {
+    if (!selectedRole) {
+      toast.error("Please select a role to continue");
+      return;
+    }
+    setLoading(true);
+    try {
+      const resolvedProfile = await loginWithGoogle(selectedRole);
+      toast.success("Welcome!");
+      router.push(`/dashboard/${resolvedProfile.role}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Google sign in failed";
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleRegister = async () => {
+    setLoading(true);
+    try {
+      const resolvedProfile = await loginWithGoogle(regRole);
+      toast.success(
+        resolvedProfile.status === "approved"
+          ? "Account created and logged in!"
+          : "Registration submitted! Awaiting admin approval."
+      );
+      if (resolvedProfile.status === "approved") {
+        router.push(`/dashboard/${resolvedProfile.role}`);
+      } else {
+        setShowRegister(false);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Google registration failed";
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!regName || !regEmail || !regPassword) {
       toast.error("Please fill all fields");
       return;
     }
+
+    // Validation checks
+    const emailLower = regEmail.trim().toLowerCase();
+    if (!emailLower.endsWith("@specialcare360.com")) {
+      toast.error("Manual registration requires a @specialcare360.com email address");
+      return;
+    }
+
+    if (regPassword.length < 8) {
+      toast.error("Password must be at least 8 characters long");
+      return;
+    }
+    if (!/[A-Z]/.test(regPassword)) {
+      toast.error("Password must contain at least 1 uppercase letter");
+      return;
+    }
+    if (!/[a-z]/.test(regPassword)) {
+      toast.error("Password must contain at least 1 lowercase letter");
+      return;
+    }
+    if (!/\d/.test(regPassword)) {
+      toast.error("Password must contain at least 1 number");
+      return;
+    }
+    if (!/[^A-Za-z0-9]/.test(regPassword)) {
+      toast.error("Password must contain at least 1 special character");
+      return;
+    }
+
     setLoading(true);
     try {
       await register({ name: regName, email: regEmail, password: regPassword, role: regRole, centerId: regCenterId });
       toast.success(regRole === "admin" ? "Account created! Logging you in…" : "Registration submitted! Awaiting admin approval.");
       if (regRole === "admin") router.push("/dashboard/admin");
-      else setShowRegister(false);
+      else {
+        setRegName("");
+        setRegEmail("");
+        setRegPassword("");
+        setShowRegister(false);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Registration failed";
       toast.error(msg.includes("email-already-in-use") ? "Email already registered" : msg);
@@ -270,6 +344,46 @@ export default function LoginPage() {
                   >
                     {loading ? "Signing in…" : `Sign in as ${ROLES.find(r => r.id === selectedRole)?.label.split(" ")[0]}`}
                   </button>
+
+                  <div style={{ display: "flex", alignItems: "center", margin: "10px 0" }}>
+                    <hr style={{ flex: 1, border: "0.5px solid rgba(255, 255, 255, 0.15)" }} />
+                    <span style={{ padding: "0 10px", fontSize: "0.8rem", color: "var(--text-secondary)" }}>OR</span>
+                    <hr style={{ flex: 1, border: "0.5px solid rgba(255, 255, 255, 0.15)" }} />
+                  </div>
+
+                  <button
+                    id="google-login"
+                    type="button"
+                    className="btn-secondary"
+                    onClick={handleGoogleSignIn}
+                    disabled={loading}
+                    style={{
+                      width: "100%",
+                      padding: "14px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "8px",
+                      background: "rgba(255, 255, 255, 0.05)",
+                      color: "white",
+                      border: "1px solid rgba(255, 255, 255, 0.15)",
+                      borderRadius: "12px",
+                      cursor: "pointer",
+                      fontWeight: 600,
+                      fontSize: "0.9rem",
+                      transition: "all 0.2s ease",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255, 255, 255, 0.05)"; }}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24">
+                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22c-.62-.62-1.05-1.37-1.18-2.63zm0 0"/>
+                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                    </svg>
+                    Continue with Google
+                  </button>
                 </form>
               )}
 
@@ -308,6 +422,11 @@ export default function LoginPage() {
                 <div key={id}>
                   <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "5px" }}>{label}</label>
                   <input id={id} type={type} className="glass-input" value={val} onChange={(e) => setter(e.target.value)} placeholder={placeholder} required />
+                  {id === "reg-password" && (
+                    <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginTop: "4px", paddingLeft: "4px", lineHeight: 1.3 }}>
+                      Password requirements: At least 8 characters, 1 uppercase, 1 lowercase, 1 number, and 1 special character.
+                    </div>
+                  )}
                 </div>
               ))}
 
@@ -335,6 +454,46 @@ export default function LoginPage() {
                 style={{ width: "100%", marginTop: "4px", padding: "14px" }}
               >
                 {loading ? "Registering…" : "Create Account"}
+              </button>
+
+              <div style={{ display: "flex", alignItems: "center", margin: "10px 0" }}>
+                <hr style={{ flex: 1, border: "0.5px solid rgba(255, 255, 255, 0.15)" }} />
+                <span style={{ padding: "0 10px", fontSize: "0.8rem", color: "var(--text-secondary)" }}>OR</span>
+                <hr style={{ flex: 1, border: "0.5px solid rgba(255, 255, 255, 0.15)" }} />
+              </div>
+
+              <button
+                id="google-register"
+                type="button"
+                className="btn-secondary"
+                onClick={handleGoogleRegister}
+                disabled={loading}
+                style={{
+                  width: "100%",
+                  padding: "14px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "8px",
+                  background: "rgba(255, 255, 255, 0.05)",
+                  color: "white",
+                  border: "1px solid rgba(255, 255, 255, 0.15)",
+                  borderRadius: "12px",
+                  cursor: "pointer",
+                  fontWeight: 600,
+                  fontSize: "0.9rem",
+                  transition: "all 0.2s ease",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255, 255, 255, 0.05)"; }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24">
+                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22c-.62-.62-1.05-1.37-1.18-2.63zm0 0"/>
+                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                </svg>
+                Sign up with Google
               </button>
 
               <p style={{ textAlign: "center", marginTop: "4px", fontSize: "0.85rem", color: "var(--text-secondary)" }}>

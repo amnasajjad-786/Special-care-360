@@ -13,6 +13,8 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
+  GoogleAuthProvider,
+  signInWithPopup,
 } from "firebase/auth";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "./firebase";
@@ -23,6 +25,7 @@ interface AuthContextType {
   profile: UserProfile | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<UserProfile | null>;
+  loginWithGoogle: (role: string) => Promise<UserProfile>;
   register: (data: RegisterData) => Promise<void>;
   logout: () => Promise<void>;
   getIdToken: () => Promise<string | null>;
@@ -67,6 +70,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return resolvedProfile;
   };
 
+  // ── Login with Google ──────────────────────────────────────────────────────
+  const loginWithGoogle = async (role: string): Promise<UserProfile> => {
+    const provider = new GoogleAuthProvider();
+    const cred = await signInWithPopup(auth, provider);
+    const userRef = doc(db, "users", cred.user.uid);
+    const snap = await getDoc(userRef);
+
+    if (snap.exists()) {
+      const existingProfile = snap.data() as UserProfile;
+      setProfile(existingProfile);
+      return existingProfile;
+    } else {
+      const profileData: UserProfile = {
+        uid:      cred.user.uid,
+        name:     cred.user.displayName || cred.user.email?.split("@")[0] || "Google User",
+        email:    cred.user.email || "",
+        role:     role as UserProfile["role"],
+        centerId: "center-001",
+        status:   role === "admin" ? "approved" : "pending",
+      };
+      await setDoc(userRef, {
+        ...profileData,
+        createdAt: serverTimestamp(),
+      });
+      setProfile(profileData);
+      return profileData;
+    }
+  };
+
   // ── Register ───────────────────────────────────────────────────────────────
   const register = async (data: RegisterData): Promise<void> => {
     const cred = await createUserWithEmailAndPassword(auth, data.email, data.password);
@@ -101,7 +133,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, login, register, logout, getIdToken }}>
+    <AuthContext.Provider value={{ user, profile, loading, login, loginWithGoogle, register, logout, getIdToken }}>
       {children}
     </AuthContext.Provider>
   );
