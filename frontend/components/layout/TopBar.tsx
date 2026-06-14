@@ -4,7 +4,7 @@ import { useAuth } from "@/lib/auth-context";
 import { usePathname, useRouter } from "next/navigation";
 import { useSidebar } from "@/app/dashboard/layout";
 import { useEffect, useState } from "react";
-import { collection, query, where, onSnapshot } from "firebase/firestore";
+import { collection, query, where, onSnapshot, doc, updateDoc, orderBy, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import toast from "react-hot-toast";
 import { Bell, Settings, LogOut } from "lucide-react";
@@ -27,6 +27,21 @@ interface NotificationItem {
   read: boolean;
 }
 
+function getDefaultMocks(role: string): NotificationItem[] {
+  if (role === "parent") {
+    return [
+      { id: "mock-n1", type: "journal", title: "Daily Care Submitted", body: "Ms. Fatima Khan submitted Ahmed's journal.", time: "5m ago", read: false },
+      { id: "mock-n2", type: "system", title: "IEP Goal Updated", body: "Dr. Zara Ahmed updated verbal communication goal.", time: "2h ago", read: false },
+      { id: "mock-n3", type: "system", title: "Weekly Newsletter", body: "Special Care 360 Weekly Digest is available.", time: "1d ago", read: true },
+    ];
+  } else {
+    return [
+      { id: "mock-s1", type: "system", title: "System Check", body: "Database backups completed successfully.", time: "1h ago", read: true },
+      { id: "mock-s2", type: "system", title: "Staff Meeting", body: "Monthly center meeting Friday at 3:00 PM.", time: "4h ago", read: true }
+    ];
+  }
+}
+
 export default function TopBar() {
   const { profile, logout } = useAuth();
   const pathname = usePathname();
@@ -47,61 +62,60 @@ export default function TopBar() {
   const roleColor = roleColors[profile?.role || "admin"] || "#7bc4c4";
   const today = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 
-  // ─── Load notifications (Live Firestore alerts for staff + Mock updates for parents) ───
+  // ─── Load notifications (Live Firestore notifications for all users) ───
   useEffect(() => {
     if (!profile) return;
 
-    if (profile.role === "parent") {
-      // Parents mock notifications
-      setNotifications([
-        { id: "n1", type: "journal", title: "Daily Care Submitted", body: "Ms. Fatima Khan submitted Ali's journal.", time: "5m ago", read: false },
-        { id: "n2", type: "system", title: "IEP Goal Updated", body: "Dr. Zara Ahmed updated verbal communication goal.", time: "2h ago", read: false },
-        { id: "n3", type: "system", title: "Weekly Newsletter", body: "Special Care 360 Weekly Digest is available.", time: "1d ago", read: true },
-      ]);
-    } else {
-      // Admins/Teachers/Therapists live active panic alerts
-      try {
-        const q = query(
-          collection(db, "panicAlerts"),
-          where("status", "==", "active"),
-          where("centerId", "==", profile.centerId || "center-001")
-        );
-        const unsub = onSnapshot(q, (snap) => {
-          const alerts: NotificationItem[] = snap.docs.map(doc => {
-            const data = doc.data();
-            return {
-              id: doc.id,
-              type: "alert",
-              title: `Emergency: ${data.emergencyType}`,
-              body: `${data.reportedBy?.name || "Staff"} reported at ${data.location || "unknown location"}`,
-              time: "Just now",
-              read: false
-            };
-          });
-
-          // Add some default general system notifications if list is empty
-          if (alerts.length === 0) {
-            setNotifications([
-              { id: "s1", type: "system", title: "System Check", body: "Database backups completed successfully.", time: "1h ago", read: true },
-              { id: "s2", type: "system", title: "Staff Meeting", body: "Monthly center meeting Friday at 3:00 PM.", time: "4h ago", read: true }
-            ]);
-          } else {
-            setNotifications(alerts);
+    try {
+      const q = query(
+        collection(db, "notifications"),
+        where("recipientId", "==", profile.uid),
+        orderBy("createdAt", "desc"),
+        limit(20)
+      );
+      
+      const unsub = onSnapshot(q, (snap) => {
+        const items: NotificationItem[] = snap.docs.map(doc => {
+          const data = doc.data();
+          
+          let timeStr = "Just now";
+          if (data.createdAt) {
+            try {
+              const date = data.createdAt.toDate ? data.createdAt.toDate() : new Date(data.createdAt);
+              const diffMs = Date.now() - date.getTime();
+              const diffMins = Math.floor(diffMs / 60000);
+              const diffHours = Math.floor(diffMins / 60);
+              const diffDays = Math.floor(diffHours / 24);
+              
+              if (diffMins < 1) timeStr = "Just now";
+              else if (diffMins < 60) timeStr = `${diffMins}m ago`;
+              else if (diffHours < 24) timeStr = `${diffHours}h ago`;
+              else timeStr = `${diffDays}d ago`;
+            } catch (_) {}
           }
-        }, () => {
-          // Fallback mock alerts if Firestore is not configured
-          setNotifications([
-            { id: "a1", type: "alert", title: "Demo Emergency Alert", body: "Meltdown reported in Classroom A", time: "10m ago", read: false },
-            { id: "s1", type: "system", title: "System Check", body: "Database backups completed successfully.", time: "1h ago", read: true }
-          ]);
+          
+          return {
+            id: doc.id,
+            type: data.type || "system",
+            title: data.type === "panic_alert" ? "Panic Alert 🚨" : data.type === "daily_journal" ? "Daily Journal 📓" : "Notification",
+            body: data.message || "",
+            time: timeStr,
+            read: !!data.read,
+          };
         });
-        return unsub;
-      } catch {
-        setNotifications([
-          { id: "a1", type: "alert", title: "Demo Emergency Alert", body: "Meltdown reported in Classroom A", time: "10m ago", read: false },
-          { id: "s1", type: "system", title: "System Check", body: "Database backups completed successfully.", time: "1h ago", read: true }
-        ]);
-      }
+        
+        if (items.length === 0) {
+          setNotifications(getDefaultMocks(profile.role));
+        } else {
+          setNotifications(items);
+        }
+      }, () => {
+        setNotifications(getDefaultMocks(profile.role));
+      });
+      return unsub;
+    } catch (err) {
+      console.warn("Firestore listener failed for notifications:", err);
+      setNotifications(getDefaultMocks(profile.role));
     }
   }, [profile]);
 
@@ -126,9 +140,21 @@ export default function TopBar() {
     router.push("/");
   };
 
-  const markAllRead = () => {
+  const markAllRead = async () => {
+    const unread = notifications.filter(n => !n.read);
+    if (unread.length === 0) return;
+    
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
     toast.success("All notifications marked as read");
+    
+    try {
+      for (const item of unread) {
+        if (item.id.startsWith("mock-")) continue;
+        await updateDoc(doc(db, "notifications", item.id), { read: true });
+      }
+    } catch (err) {
+      console.error("Failed to mark notifications read in database:", err);
+    }
   };
 
   const handleSettingsClick = () => {
