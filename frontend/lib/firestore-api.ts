@@ -210,6 +210,11 @@ export const dailyCareDb = {
     const snap = await getDocs(q);
     return snap.docs.map((d) => d.data());
   },
+
+  delete: async (studentId: string, date: string): Promise<void> => {
+    const docId = `${date}_${studentId}`;
+    await deleteDoc(doc(db, "dailyCareJournals", docId));
+  },
 };
 
 // ─── ABC Tracker ──────────────────────────────────────────────────────────────

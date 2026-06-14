@@ -17,8 +17,40 @@ export default function DailyCarePage() {
   const [date, setDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [existingJournal, setExistingJournal] = useState<DailyCareJournal | null>(null);
   const [loading, setLoading] = useState(false);
+  const [history, setHistory] = useState<DailyCareJournal[]>([]);
 
   const isTeacher = profile?.role === "teacher" || profile?.role === "admin";
+
+  const fetchHistory = async () => {
+    if (!selectedStudent) return;
+    try {
+      const logs = await dailyCareDb.history(selectedStudent.id);
+      setHistory(logs as DailyCareJournal[]);
+    } catch (err) {
+      console.error("Failed to load history:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchHistory();
+  }, [selectedStudent?.id, existingJournal]);
+
+  const handleDeleteJournal = async () => {
+    if (!selectedStudent || !existingJournal) return;
+    if (confirm(`Are you sure you want to delete the daily care log for ${selectedStudent.name} on ${date}?`)) {
+      setLoading(true);
+      try {
+        await dailyCareDb.delete(selectedStudent.id, date);
+        setExistingJournal(null);
+        toast.success("Daily care log deleted successfully");
+        fetchHistory();
+      } catch (err) {
+        console.error("Failed to delete journal:", err);
+        toast.error("Failed to delete journal");
+      }
+      setLoading(false);
+    }
+  };
 
   // Load students list dynamically
   useEffect(() => {
@@ -90,11 +122,33 @@ export default function DailyCarePage() {
             <input id="dc-date-select" type="date" className="glass-input" value={date} max={format(new Date(), "yyyy-MM-dd")} onChange={e => setDate(e.target.value)} style={{ minWidth: "160px" }} />
           </div>
         </div>
-        <div style={{ display: "flex", gap: "8px" }}>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
           <span className={`chip ${existingJournal ? "chip-success" : "chip-warning"}`} style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
             {existingJournal ? <CheckCircle size={14} /> : <Clock size={14} />}
             {existingJournal ? "Submitted" : "Pending"}
           </span>
+          {isTeacher && existingJournal && (
+            <button
+              id="dc-delete-btn"
+              onClick={handleDeleteJournal}
+              style={{
+                background: "rgba(229, 62, 62, 0.1)",
+                color: "var(--danger)",
+                border: "none",
+                borderRadius: "8px",
+                padding: "6px 12px",
+                fontSize: "0.75rem",
+                fontWeight: 700,
+                cursor: "pointer",
+                transition: "all 0.2s",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px"
+              }}
+            >
+              Delete Log
+            </button>
+          )}
           {isTeacher && <span className="chip chip-info">Teacher View</span>}
           {profile?.role === "parent" && <span className="chip chip-purple">Parent View</span>}
         </div>
@@ -125,8 +179,46 @@ export default function DailyCarePage() {
               <p style={{ color: "var(--text-secondary)", marginTop: "8px" }}>The teacher hasn&apos;t submitted a care journal for this date yet.</p>
             </div>
       ) : (
-        <JournalForm studentId={selectedStudent.id} studentName={selectedStudent.name} date={date} />
+        <JournalForm studentId={selectedStudent.id} studentName={selectedStudent.name} date={date} initialData={existingJournal} />
       )}
+
+      {/* ── History Section (Last 15 Days) ── */}
+      <div className="glass-card animate-fade-in" style={{ padding: "24px", marginTop: "24px" }}>
+        <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem", display: "flex", alignItems: "center", gap: "8px" }}>
+          <ClipboardList size={18} /> Journal History (Last 15 Days)
+        </h3>
+        
+        {history.length === 0 ? (
+          <p style={{ color: "var(--text-secondary)", fontSize: "0.88rem", margin: 0 }}>No history logs found for this student.</p>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "12px" }}>
+            {history.slice(0, 15).map((h) => (
+              <div
+                key={h.date}
+                onClick={() => setDate(h.date)}
+                style={{
+                  padding: "14px",
+                  borderRadius: "12px",
+                  background: date === h.date ? "rgba(123, 196, 196, 0.15)" : "rgba(255, 255, 255, 0.5)",
+                  border: date === h.date ? "2px solid var(--accent-teal)" : "2px solid rgba(0,0,0,0.05)",
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                }}
+              >
+                <div style={{ fontWeight: 700, fontSize: "0.85rem", color: "var(--primary-dark)" }}>
+                  {format(new Date(h.date + "T00:00:00"), "MMM dd, yyyy")}
+                </div>
+                <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", marginTop: "4px" }}>
+                  Mood: <span style={{ textTransform: "capitalize", fontWeight: 600 }}>{h.moodTimeline?.[0]?.mood || "neutral"}</span>
+                </div>
+                <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                  Activity: <span style={{ fontWeight: 600 }}>{h.physicalActivity || "Moderate"}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

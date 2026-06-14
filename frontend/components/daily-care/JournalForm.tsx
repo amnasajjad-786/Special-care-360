@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { format } from "date-fns";
 import { useAuth } from "@/lib/auth-context";
 import { dailyCareDb } from "@/lib/firestore-api";
@@ -48,12 +48,34 @@ const EMPTY_JOURNAL: Omit<DailyCareJournal, "studentId" | "date" | "submittedBy"
   teacherNotes: "",
 };
 
-interface Props { studentId: string; studentName: string; date: string; }
+interface Props { 
+  studentId: string; 
+  studentName: string; 
+  date: string; 
+  initialData?: DailyCareJournal | null;
+}
 
-export default function JournalForm({ studentId, studentName, date }: Props) {
+export default function JournalForm({ studentId, studentName, date, initialData }: Props) {
   const { profile } = useAuth();
   const [form, setForm] = useState(EMPTY_JOURNAL);
   const [saving, setSaving] = useState(false);
+
+  // Sync form with initialData if loaded
+  useEffect(() => {
+    if (initialData) {
+      setForm({
+        meals: initialData.meals || EMPTY_JOURNAL.meals,
+        hygiene: initialData.hygiene || EMPTY_JOURNAL.hygiene,
+        moodTimeline: initialData.moodTimeline || EMPTY_JOURNAL.moodTimeline,
+        physicalActivity: initialData.physicalActivity || EMPTY_JOURNAL.physicalActivity,
+        activityNotes: initialData.activityNotes || EMPTY_JOURNAL.activityNotes,
+        incidents: initialData.incidents || EMPTY_JOURNAL.incidents,
+        teacherNotes: initialData.teacherNotes || EMPTY_JOURNAL.teacherNotes,
+      });
+    } else {
+      setForm(EMPTY_JOURNAL);
+    }
+  }, [initialData, studentId, date]);
 
   const setMeal = (meal: "breakfast" | "lunch" | "snack", key: "ate" | "notes", value: string) =>
     setForm(f => ({ ...f, meals: { ...f.meals, [meal]: { ...f.meals[meal], [key]: value } } }));
