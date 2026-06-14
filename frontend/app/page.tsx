@@ -116,7 +116,11 @@ export default function LoginPage() {
       router.push(`/dashboard/${resolvedProfile.role}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Google sign in failed";
-      toast.error(msg);
+      if (msg.includes("operation-not-allowed")) {
+        toast.error("Google Sign-In is not enabled in your Firebase Console. Go to Authentication > Sign-in method and enable Google.");
+      } else {
+        toast.error(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -138,7 +142,11 @@ export default function LoginPage() {
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Google registration failed";
-      toast.error(msg);
+      if (msg.includes("operation-not-allowed")) {
+        toast.error("Google Sign-In is not enabled in your Firebase Console. Go to Authentication > Sign-in method and enable Google.");
+      } else {
+        toast.error(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -155,6 +163,10 @@ export default function LoginPage() {
     const emailLower = regEmail.trim().toLowerCase();
     if (!emailLower.endsWith("@specialcare360.com")) {
       toast.error("Manual registration requires a @specialcare360.com email address");
+      return;
+    }
+    if (/^\d/.test(emailLower)) {
+      toast.error("Email address cannot start with a number");
       return;
     }
 
@@ -364,17 +376,24 @@ export default function LoginPage() {
                       alignItems: "center",
                       justifyContent: "center",
                       gap: "8px",
-                      background: "rgba(255, 255, 255, 0.05)",
-                      color: "white",
-                      border: "1px solid rgba(255, 255, 255, 0.15)",
+                      background: "white",
+                      color: "var(--primary-dark)",
+                      border: "1px solid rgba(61, 79, 107, 0.25)",
                       borderRadius: "12px",
                       cursor: "pointer",
                       fontWeight: 600,
                       fontSize: "0.9rem",
                       transition: "all 0.2s ease",
+                      boxShadow: "0 2px 8px rgba(61, 79, 107, 0.08)",
                     }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)"; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255, 255, 255, 0.05)"; }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = "#f7f9fa";
+                      e.currentTarget.style.borderColor = "rgba(61, 79, 107, 0.4)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "white";
+                      e.currentTarget.style.borderColor = "rgba(61, 79, 107, 0.25)";
+                    }}
                   >
                     <svg width="18" height="18" viewBox="0 0 24 24">
                       <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -475,17 +494,24 @@ export default function LoginPage() {
                   alignItems: "center",
                   justifyContent: "center",
                   gap: "8px",
-                  background: "rgba(255, 255, 255, 0.05)",
-                  color: "white",
-                  border: "1px solid rgba(255, 255, 255, 0.15)",
+                  background: "white",
+                  color: "var(--primary-dark)",
+                  border: "1px solid rgba(61, 79, 107, 0.25)",
                   borderRadius: "12px",
                   cursor: "pointer",
                   fontWeight: 600,
                   fontSize: "0.9rem",
                   transition: "all 0.2s ease",
+                  boxShadow: "0 2px 8px rgba(61, 79, 107, 0.08)",
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255, 255, 255, 0.05)"; }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "#f7f9fa";
+                  e.currentTarget.style.borderColor = "rgba(61, 79, 107, 0.4)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "white";
+                  e.currentTarget.style.borderColor = "rgba(61, 79, 107, 0.25)";
+                }}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24">
                   <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
