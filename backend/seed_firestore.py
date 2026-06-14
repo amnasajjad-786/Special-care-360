@@ -147,7 +147,9 @@ for s in STUDENTS:
             {"id": "g2", "title": "Independent dressing", "status": "Mastered", "progressPercent": 100},
             {"id": "g3", "title": "Social interaction with peers", "status": "In Progress", "progressPercent": 35},
             {"id": "g4", "title": "Following 2-step instructions", "status": "Regressed", "progressPercent": 20},
-        ] if sid == "student-001" else []
+            {"id": "g5", "title": "Fine motor skills development", "status": "Not Started", "progressPercent": 0},
+            {"id": "g6", "title": "Emotional regulation strategies", "status": "In Progress", "progressPercent": 40},
+        ]
     })
 
     print(f"  ✅ Student: {s['name']}")
@@ -238,6 +240,64 @@ for date, notes in [(today, "Ahmed had a great day! Very engaged during circle t
         "submittedAt": datetime.now(timezone.utc).isoformat(),
     })
 print(f"  ✅ Daily care journals seeded for today and yesterday")
+
+# ── 5. Staff ──────────────────────────────────────────────────────────────────
+STAFF = [
+    {
+        "name": "Sara Raza",
+        "subRole": "Speech Therapist",
+        "role": "Therapist",
+        "email": "sara@sc360.pk",
+        "studentsAssigned": 12,
+        "status": "Active",
+        "centerId": "center-001",
+    },
+    {
+        "name": "M. Kamran",
+        "subRole": "Special Educator",
+        "role": "Teacher",
+        "email": "kamran@sc360.pk",
+        "studentsAssigned": 15,
+        "status": "Active",
+        "centerId": "center-001",
+    },
+    {
+        "name": "Aisha Noor",
+        "subRole": "Physiotherapist",
+        "role": "Therapist",
+        "email": "aisha@sc360.pk",
+        "studentsAssigned": 9,
+        "status": "Active",
+        "centerId": "center-001",
+    },
+]
+
+for s in STAFF:
+    db.collection("staff").add(s)
+print(f"  ✅ {len(STAFF)} staff members seeded")
+
+# ── 6. Fee Management ───────────────────────────────────────────────────────────
+INVOICES = [
+  { "studentName": "Ali Hassan", "amount": 12000, "month": "June 2025", "issued": "01 Jun", "status": "overdue", "centerId": "center-001" },
+  { "studentName": "Zara Khan", "amount": 15000, "month": "June 2025", "issued": "01 Jun", "status": "pending", "centerId": "center-001" },
+  { "studentName": "Ahmed Raza", "amount": 15000, "month": "June 2025", "issued": "01 Jun", "status": "paid", "centerId": "center-001" },
+  { "studentName": "Fatima Noor", "amount": 18000, "month": "June 2025", "issued": "01 Jun", "status": "paid", "centerId": "center-001" },
+  { "studentName": "Bilal Ahmed", "amount": 15000, "month": "May 2025", "issued": "01 May", "status": "pending", "centerId": "center-001" },
+]
+
+PAYMENTS = [
+  { "studentName": "Ahmed Raza", "amount": 15000, "method": "Bank Transfer", "date": "03 Jun 2025", "recordedBy": "Admin", "centerId": "center-001" },
+  { "studentName": "Fatima Noor", "amount": 18000, "method": "Cash", "date": "02 Jun 2025", "recordedBy": "Admin", "centerId": "center-001" },
+  { "studentName": "Hina Malik", "amount": 12000, "method": "EasyPaisa", "date": "01 Jun 2025", "recordedBy": "Admin", "centerId": "center-001" },
+]
+
+for inv in INVOICES:
+    db.collection("invoices").add(inv)
+print(f"  ✅ {len(INVOICES)} invoices seeded")
+
+for pay in PAYMENTS:
+    db.collection("payments").add(pay)
+print(f"  ✅ {len(PAYMENTS)} payments seeded")
 
 
 print("\n✅ Firestore seeding complete!")

@@ -39,7 +39,7 @@ export default function Sidebar() {
       const q = query(
         collection(db, "panicAlerts"),
         where("status", "==", "active"),
-        where("centerId", "==", profile.centerId || "demo-center-001")
+        where("centerId", "==", profile.centerId || "center-001")
       );
       const unsub = onSnapshot(q, (snap) => {
         setAlertCount(snap.size);

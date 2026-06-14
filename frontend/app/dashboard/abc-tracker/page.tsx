@@ -10,6 +10,7 @@ import LogIncidentModal from "@/components/abc-tracker/LogIncidentModal";
 import { useAuth } from "@/lib/auth-context";
 
 import toast from "react-hot-toast";
+import ReactMarkdown from "react-markdown";
 
 export default function ABCTrackerPage() {
   const { profile } = useAuth();
@@ -20,6 +21,12 @@ export default function ABCTrackerPage() {
   const [heatmap, setHeatmap] = useState<HeatmapCell[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+
+  // AI Insights State
+  const [aiReport, setAiReport] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [showAiModal, setShowAiModal] = useState(false);
+  const [btnHover, setBtnHover] = useState(false);
 
   const canWrite = profile?.role ? ["teacher", "therapist", "admin"].includes(profile.role) : false;
 
@@ -80,6 +87,27 @@ export default function ABCTrackerPage() {
     }
   };
 
+  const generateAiReport = async () => {
+    if (!selectedStudent) return;
+    setAiLoading(true);
+    setShowAiModal(true);
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/ai-insights/abc/${selectedStudent.id}`);
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.detail || "Failed to fetch AI insights");
+      }
+      const data = await res.json();
+      setAiReport(data.report);
+    } catch (err: any) {
+      console.error("AI Gen Error:", err);
+      toast.error(err.message || "AI generation failed. Make sure Gemini API Key is set.");
+      setShowAiModal(false);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   if (!selectedStudent) {
     return (
       <div className="glass-card animate-fade-in" style={{ padding: "40px", textAlign: "center" }}>
@@ -108,9 +136,31 @@ export default function ABCTrackerPage() {
         </div>
         <div style={{ flex: 1 }} />
         {canWrite && (
-          <button id="abc-log-btn" className="btn-primary" onClick={() => setShowModal(true)} style={{ padding: "10px 20px" }}>
-            + Log Incident
-          </button>
+          <div style={{ display: "flex", gap: "12px" }}>
+            <button 
+              className="btn-primary" 
+              onClick={generateAiReport}
+              onMouseEnter={() => setBtnHover(true)}
+              onMouseLeave={() => setBtnHover(false)}
+              style={{ 
+                padding: "10px 20px", 
+                background: btnHover 
+                  ? "linear-gradient(135deg, #4f46e5 0%, #4338ca 100%)" 
+                  : "linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)", 
+                boxShadow: btnHover
+                  ? "0 6px 20px rgba(99, 102, 241, 0.5)"
+                  : "0 4px 14px rgba(99, 102, 241, 0.3)",
+                transform: btnHover ? "translateY(-1px)" : "none",
+                transition: "all 0.2s ease",
+                border: "none",
+              }}
+            >
+              🪄 Generate Deep AI Report
+            </button>
+            <button id="abc-log-btn" className="btn-primary" onClick={() => setShowModal(true)} style={{ padding: "10px 20px" }}>
+              + Log Incident
+            </button>
+          </div>
         )}
       </div>
 
@@ -218,6 +268,95 @@ export default function ABCTrackerPage() {
       </div>
 
       {showModal && <LogIncidentModal onClose={() => setShowModal(false)} onSaved={handleSaved} />}
+
+      {/* AI Report Modal */}
+      {showAiModal && (
+        <div style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(30,40,60,0.5)", backdropFilter: "blur(4px)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000 }}>
+          <div className="glass-card animate-slide-up" style={{ width: "90%", maxWidth: "800px", maxHeight: "85vh", display: "flex", flexDirection: "column", background: "linear-gradient(135deg, rgba(255,255,255,0.95), rgba(240,245,255,0.95))" }}>
+            <div style={{ padding: "24px 30px", borderBottom: "1px solid rgba(0,0,0,0.05)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h2 style={{ margin: 0, color: "var(--primary-dark)", display: "flex", alignItems: "center", gap: "10px" }}>
+                <span>🤖</span> Deep Behavioral Analysis
+              </h2>
+              <button onClick={() => setShowAiModal(false)} style={{ background: "none", border: "none", fontSize: "1.5rem", cursor: "pointer", color: "var(--text-secondary)" }}>&times;</button>
+            </div>
+            <div style={{ padding: "30px", overflowY: "auto", flex: 1 }}>
+              {aiLoading ? (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "300px", gap: "20px" }}>
+                  <div className="spinner" style={{ width: "48px", height: "48px", border: "5px solid rgba(123,196,196,0.3)", borderTopColor: "var(--accent-teal)", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
+                  <p style={{ color: "var(--text-secondary)", fontWeight: 600, fontSize: "1.1rem" }}>Analyzing {selectedStudent?.name}&apos;s behavioral patterns...</p>
+                  <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                </div>
+              ) : (
+                <div className="markdown-content" style={{ lineHeight: 1.7, color: "var(--text-primary)", fontSize: "0.95rem" }}>
+                  {/* @ts-ignore - ReactMarkdown types can sometimes clash with React 19 */}
+                  <ReactMarkdown>{aiReport || "No report generated."}</ReactMarkdown>
+                  <style>{`
+                    .markdown-content h3 {
+                      font-size: 1.15rem;
+                      font-weight: 700;
+                      color: var(--primary-dark);
+                      margin-top: 22px;
+                      margin-bottom: 8px;
+                      border-bottom: 1px solid rgba(61, 79, 107, 0.15);
+                      padding-bottom: 6px;
+                    }
+                    .markdown-content p {
+                      margin-bottom: 12px;
+                    }
+                    .markdown-content ul, .markdown-content ol {
+                      padding-left: 20px;
+                      margin-bottom: 16px;
+                      list-style-position: outside;
+                    }
+                    .markdown-content ul {
+                      list-style-type: disc;
+                    }
+                    .markdown-content ol {
+                      list-style-type: decimal;
+                    }
+                    .markdown-content li {
+                      margin-bottom: 8px;
+                    }
+                    .markdown-content strong {
+                      font-weight: 700;
+                      color: var(--primary-dark);
+                    }
+                  `}</style>
+                </div>
+              )}
+            </div>
+            {/* Modal Footer */}
+            <div style={{ padding: "16px 30px", borderTop: "1px solid rgba(61, 79, 107, 0.08)", display: "flex", justifyContent: "flex-end", gap: "12px", background: "rgba(61, 79, 107, 0.02)" }}>
+              <button className="btn-ghost" onClick={() => setShowAiModal(false)}>Close</button>
+              {!aiLoading && aiReport && (
+                <button 
+                  className="btn-primary" 
+                  onClick={async () => {
+                    try {
+                      // Fetch current Care Plan to avoid overwriting existing goals
+                      const existing = await studentsDb.getCarePlan(selectedStudent.id);
+                      await studentsDb.updateCarePlan(selectedStudent.id, { 
+                        ...existing,
+                        lastAiReport: { 
+                          report: aiReport, 
+                          timestamp: new Date().toISOString() 
+                        } 
+                      });
+                      toast.success("AI Report saved to Care Plan!");
+                    } catch (err) {
+                      console.error("Save error:", err);
+                      toast.error("Failed to save report to Care Plan.");
+                    }
+                  }}
+                  style={{ padding: "10px 20px" }}
+                >
+                  💾 Save to Care Plan
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

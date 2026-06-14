@@ -127,6 +127,41 @@
   transform: none;
 }
 
+/* ─── AI Button ──────────────────────────────────────────────────────────── */
+.btn-ai {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  padding: 0.75rem 1.5rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  box-shadow: 0 4px 15px rgba(139, 92, 246, 0.4);
+}
+
+.btn-ai:hover {
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #db2777 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(139, 92, 246, 0.6);
+}
+
+.btn-ai:active {
+  transform: translateY(0);
+  box-shadow: 0 4px 10px rgba(139, 92, 246, 0.4);
+}
+
+.btn-ai:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
 /* ─── Danger Button ──────────────────────────────────────────────────────── */
 .btn-danger {
   background: var(--danger);
@@ -300,11 +335,7 @@
 /* ─── Panic Button Floating ──────────────────────────────────────────────── */
 .panic-float {
   position: fixed;
-<<<<<<< HEAD
-  top: 90px;
-=======
   bottom: 28px;
->>>>>>> 47a58b15e5a94d28bf01459f0341b5fa930906d2
   right: 28px;
   z-index: 9999;
   width: 68px;

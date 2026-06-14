@@ -66,6 +66,10 @@ export interface IEPGoal {
 
 export interface CarePlan {
   goals: IEPGoal[];
+  lastAiReport?: {
+    report: string;
+    timestamp: string;
+  };
 }
 
 // ─── Daily Care ────────────────────────────────────────────────────────────

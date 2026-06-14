@@ -63,7 +63,7 @@ export default function TopBar() {
         const q = query(
           collection(db, "panicAlerts"),
           where("status", "==", "active"),
-          where("centerId", "==", profile.centerId || "demo-center-001")
+          where("centerId", "==", profile.centerId || "center-001")
         );
         const unsub = onSnapshot(q, (snap) => {
           const alerts: NotificationItem[] = snap.docs.map(doc => {

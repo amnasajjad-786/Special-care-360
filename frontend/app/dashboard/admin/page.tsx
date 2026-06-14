@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useAuth } from "@/lib/auth-context";
 import toast from "react-hot-toast";
-import { collection, query, where, onSnapshot } from "firebase/firestore";
+import { collection, query, where, onSnapshot, doc, deleteDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { studentsDb, adminDb } from "@/lib/firestore-api";
 import {
@@ -69,19 +69,9 @@ interface AdminStaff {
 
 const INITIAL_STUDENTS: AdminStudent[] = [];
 
-const INITIAL_INVOICES: AdminInvoice[] = [
-  { id: "INV-1024", studentName: "Ali Hassan", amount: 12000, month: "June 2025", issued: "01 Jun", status: "overdue" },
-  { id: "INV-1023", studentName: "Zara Khan", amount: 15000, month: "June 2025", issued: "01 Jun", status: "pending" },
-  { id: "INV-1022", studentName: "Ahmed Raza", amount: 15000, month: "June 2025", issued: "01 Jun", status: "paid" },
-  { id: "INV-1021", studentName: "Fatima Noor", amount: 18000, month: "June 2025", issued: "01 Jun", status: "paid" },
-  { id: "INV-1020", studentName: "Bilal Ahmed", amount: 15000, month: "May 2025", issued: "01 May", status: "pending" },
-];
+const INITIAL_INVOICES: AdminInvoice[] = [];
 
-const INITIAL_PAYMENTS: AdminPayment[] = [
-  { id: "RCP-045", studentName: "Ahmed Raza", amount: 15000, method: "Bank Transfer", date: "03 Jun 2025", recordedBy: "Admin" },
-  { id: "RCP-044", studentName: "Fatima Noor", amount: 18000, method: "Cash", date: "02 Jun 2025", recordedBy: "Admin" },
-  { id: "RCP-043", studentName: "Hina Malik", amount: 12000, method: "EasyPaisa", date: "01 Jun 2025", recordedBy: "Admin" },
-];
+const INITIAL_PAYMENTS: AdminPayment[] = [];
 
 const INITIAL_STAFF: AdminStaff[] = [];
 
@@ -96,6 +86,8 @@ export default function AdminDashboard() {
   const [invoices, setInvoices] = useState<AdminInvoice[]>(INITIAL_INVOICES);
   const [payments, setPayments] = useState<AdminPayment[]>(INITIAL_PAYMENTS);
   const [staff, setStaff] = useState<AdminStaff[]>(INITIAL_STAFF);
+  const [pendingUsers, setPendingUsers] = useState<any[]>([]);
+  const [selectedPendingUser, setSelectedPendingUser] = useState<any | null>(null);
 
   // --- Search & Filters ---
   const [studentSearch, setStudentSearch] = useState("");
@@ -204,8 +196,38 @@ export default function AdminDashboard() {
       }
     };
 
+    const fetchFees = async () => {
+      try {
+        const cid = profile.centerId || "center-001";
+        const invData = await adminDb.listInvoices(cid);
+        const payData = await adminDb.listPayments(cid);
+        
+        setInvoices(invData.map((d: any) => ({
+          id: d.id, studentName: d.studentName, amount: d.amount, month: d.month, issued: d.issued, status: d.status
+        })));
+        
+        setPayments(payData.map((d: any) => ({
+          id: d.id, studentName: d.studentName, amount: d.amount, method: d.method, date: d.date, recordedBy: d.recordedBy
+        })));
+      } catch (err) {
+        console.error("Failed to fetch fee data", err);
+      }
+    };
+
+    const fetchPendingUsers = async () => {
+      try {
+        const cid = profile.centerId || "center-001";
+        const data = await adminDb.listPendingUsers(cid);
+        setPendingUsers(data);
+      } catch (err) {
+        console.error("Failed to fetch pending users", err);
+      }
+    };
+
     fetchStudents();
     fetchStaff();
+    fetchFees();
+    fetchPendingUsers();
   }, [profile]);
 
   useEffect(() => {
@@ -214,7 +236,7 @@ export default function AdminDashboard() {
       const q = query(
         collection(db, "panicAlerts"),
         where("status", "==", "active"),
-        where("centerId", "==", profile.centerId || "demo-center-001")
+        where("centerId", "==", profile.centerId || "center-001")
       );
       const unsub = onSnapshot(
         q,
@@ -256,7 +278,11 @@ export default function AdminDashboard() {
     }
 
     const fullName = `${studentForm.firstName} ${studentForm.lastName}`.trim();
-    const ageNum = parseInt(studentForm.age) || 6;
+    const ageNum = parseInt(studentForm.age);
+    if (isNaN(ageNum) || ageNum < 0 || ageNum > 12) {
+      toast.error("Student age must be between 0 and 12 years.");
+      return;
+    }
     const dob = new Date(Date.now() - ageNum * 365.25 * 24 * 3600 * 1000).toISOString();
 
     try {
@@ -266,7 +292,7 @@ export default function AdminDashboard() {
         diagnosis: studentForm.diagnosis,
         centerId: profile?.centerId || "center-001",
         teacherId: "", 
-        therapistIds: [], 
+        therapistIds: studentForm.therapist ? [studentForm.therapist] : [], 
         enrollmentDate: new Date().toISOString(),
         iepStatus: "Active",
         photoUrl: "",
@@ -315,6 +341,31 @@ export default function AdminDashboard() {
       } catch (err) {
         console.error(err);
         toast.error("Failed to remove student");
+      }
+    }
+  };
+
+  const handleApproveUser = async (uid: string, name: string) => {
+    try {
+      await adminDb.approveUser(uid);
+      setPendingUsers(pendingUsers.filter(u => u.id !== uid));
+      toast.success(`${name} has been approved successfully!`);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to approve user");
+    }
+  };
+
+  const handleRejectUser = async (uid: string, name: string) => {
+    if (confirm(`Are you sure you want to reject the registration request for ${name}?`)) {
+      try {
+        await deleteDoc(doc(db, "users", uid));
+        setPendingUsers(pendingUsers.filter(u => u.id !== uid));
+        setSelectedPendingUser(null);
+        toast.success(`Registration request for ${name} rejected.`);
+      } catch (err) {
+        console.error(err);
+        toast.error("Failed to reject user");
       }
     }
   };
@@ -377,56 +428,90 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleAddInvoice = (e: React.FormEvent) => {
+  const handleAddInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!invoiceForm.studentName || !invoiceForm.amount) {
       toast.error("Please select a student and enter an amount");
       return;
     }
 
-    const newInvoice: AdminInvoice = {
-      id: `INV-${Math.floor(1000 + Math.random() * 9000)}`,
-      studentName: invoiceForm.studentName,
-      amount: parseFloat(invoiceForm.amount),
-      month: invoiceForm.month,
-      issued: new Date().toLocaleDateString("en-US", { day: "2-digit", month: "short" }),
-      status: "pending"
-    };
+    try {
+      const issuedDate = new Date().toLocaleDateString("en-US", { day: "2-digit", month: "short" });
+      
+      const newId = await adminDb.addInvoice({
+        studentName: invoiceForm.studentName,
+        amount: parseFloat(invoiceForm.amount),
+        month: invoiceForm.month,
+        issued: issuedDate,
+        status: "pending",
+        centerId: profile?.centerId || "center-001"
+      });
 
-    setInvoices([newInvoice, ...invoices]);
-    setIsAddInvoiceOpen(false);
-    setInvoiceForm({
-      studentName: "",
-      month: "June 2025",
-      amount: "",
-      dueDate: "",
-      notes: ""
-    });
-    toast.success("Invoice generated successfully!");
+      const newInvoice: AdminInvoice = {
+        id: newId,
+        studentName: invoiceForm.studentName,
+        amount: parseFloat(invoiceForm.amount),
+        month: invoiceForm.month,
+        issued: issuedDate,
+        status: "pending"
+      };
+
+      setInvoices([newInvoice, ...invoices]);
+      setIsAddInvoiceOpen(false);
+      setInvoiceForm({
+        studentName: "",
+        month: "June 2025",
+        amount: "",
+        dueDate: "",
+        notes: ""
+      });
+      toast.success("Invoice generated successfully!");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to generate invoice");
+    }
   };
 
-  const handleMarkPaid = (invoiceId: string) => {
+  const handleMarkPaid = async (invoiceId: string) => {
     const inv = invoices.find(i => i.id === invoiceId);
     if (!inv) return;
 
-    // Update invoice status
-    setInvoices(invoices.map(i => i.id === invoiceId ? { ...i, status: "paid" } : i));
+    try {
+      // Update invoice status in DB
+      await adminDb.updateInvoiceStatus(invoiceId, "paid");
 
-    // Add payment entry
-    const newPayment: AdminPayment = {
-      id: `RCP-${Math.floor(100 + Math.random() * 900)}`,
-      studentName: inv.studentName,
-      amount: inv.amount,
-      method: "Bank Transfer",
-      date: new Date().toLocaleDateString("en-US", { day: "2-digit", month: "short", year: "numeric" }),
-      recordedBy: profile?.name || "Admin"
-    };
-    setPayments([newPayment, ...payments]);
+      // Add payment entry to DB
+      const payDate = new Date().toLocaleDateString("en-US", { day: "2-digit", month: "short", year: "numeric" });
+      const payId = await adminDb.addPayment({
+        studentName: inv.studentName,
+        amount: inv.amount,
+        method: "Bank Transfer",
+        date: payDate,
+        recordedBy: profile?.name || "Admin",
+        centerId: profile?.centerId || "center-001"
+      });
 
-    // Also update student feeStatus
-    setStudents(students.map(s => s.name === inv.studentName ? { ...s, feeStatus: "paid" } : s));
+      // Update Local State
+      setInvoices(invoices.map(i => i.id === invoiceId ? { ...i, status: "paid" } : i));
+      
+      const newPayment: AdminPayment = {
+        id: payId,
+        studentName: inv.studentName,
+        amount: inv.amount,
+        method: "Bank Transfer",
+        date: payDate,
+        recordedBy: profile?.name || "Admin"
+      };
+      setPayments([newPayment, ...payments]);
 
-    toast.success(`Payment recorded for ${inv.studentName}!`);
+      // Also update student feeStatus
+      setStudents(students.map(s => s.name === inv.studentName ? { ...s, feeStatus: "paid" } : s));
+
+      toast.success(`Payment recorded for ${inv.studentName}!`);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to record payment");
+    }
   };
 
   const handleSaveFeeConfig = (e: React.FormEvent) => {
@@ -455,6 +540,17 @@ export default function AdminDashboard() {
       return matchQuery && matchDiagnosis && matchStatus;
     });
   }, [students, studentSearch, diagnosisFilter, statusFilter]);
+
+  const formatRequestDate = (createdAt: any) => {
+    if (!createdAt) return "Unknown date";
+    if (typeof createdAt.toDate === "function") {
+      return createdAt.toDate().toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    }
+    if (createdAt.seconds) {
+      return new Date(createdAt.seconds * 1000).toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    }
+    return new Date(createdAt).toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  };
 
   // Color mappings
   const diagnosisColors: Record<string, string> = {
@@ -673,6 +769,55 @@ export default function AdminDashboard() {
                 </div>
 
               </div>
+            </div>
+
+            {/* Pending Approvals Widget */}
+            <div className="glass-card" style={{ padding: "24px" }}>
+              <h3 style={{ fontSize: "1.1rem", fontWeight: 700, marginBottom: "16px", color: "var(--primary-dark)", display: "flex", alignItems: "center", gap: "8px" }}>
+                <span>👤</span> Pending Approvals
+              </h3>
+              {pendingUsers.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "30px 0", color: "var(--text-secondary)" }}>
+                  <div style={{ fontSize: "2rem", marginBottom: "8px" }}>✅</div>
+                  <div style={{ fontSize: "0.85rem", fontWeight: 500 }}>No pending registration requests</div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "12px", maxHeight: "280px", overflowY: "auto" }}>
+                  {pendingUsers.map((u, idx) => (
+                    <div key={u.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingBottom: "12px", borderBottom: idx < pendingUsers.length - 1 ? "1px solid rgba(0,0,0,0.05)" : "none" }}>
+                      <div 
+                        onClick={() => setSelectedPendingUser(u)}
+                        style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer", transition: "opacity 0.2s" }}
+                        onMouseOver={(e) => { e.currentTarget.style.opacity = "0.75"; }}
+                        onMouseOut={(e) => { e.currentTarget.style.opacity = "1"; }}
+                        title="Click to view registration details"
+                      >
+                        <div style={{
+                          width: "36px", height: "36px", borderRadius: "50%",
+                          background: "var(--accent-lavender)", color: "white",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          fontWeight: 700, fontSize: "0.85rem"
+                        }}>
+                          {u.name ? u.name.split(" ").map((w: any) => w[0]).join("").slice(0, 2).toUpperCase() : "?"}
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>{u.name}</div>
+                          <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                            {u.email} · <span style={{ textTransform: "capitalize", fontWeight: 600, color: "var(--primary-dark)" }}>{u.role}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <button 
+                        className="btn-primary" 
+                        onClick={() => handleApproveUser(u.id, u.name)} 
+                        style={{ padding: "6px 12px", fontSize: "0.75rem", background: "var(--accent-teal)" }}
+                      >
+                        Approve
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
           </div>
@@ -1151,12 +1296,14 @@ export default function AdminDashboard() {
                   />
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                  <label style={{ fontSize: "0.75rem", fontWeight: 600 }}>Age</label>
+                  <label style={{ fontSize: "0.75rem", fontWeight: 600 }}>Age (0-12)</label>
                   <input
                     type="number"
                     className="glass-input"
                     placeholder="e.g. 8"
                     required
+                    min="0"
+                    max="12"
                     value={studentForm.age}
                     onChange={e => setStudentForm({ ...studentForm, age: e.target.value })}
                   />
@@ -1499,6 +1646,77 @@ export default function AdminDashboard() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* E. PENDING USER DETAILS MODAL */}
+      {selectedPendingUser && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setSelectedPendingUser(null)}>
+          <div className="modal-box glass-card animate-fade-in" style={{ width: "420px", padding: "28px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+              <h3 style={{ fontSize: "1.2rem", fontWeight: 700, color: "var(--primary-dark)", margin: 0 }}>Registration Request Details</h3>
+              <button onClick={() => setSelectedPendingUser(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)" }}>
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div style={{ textAlign: "center", marginBottom: "24px" }}>
+              <div style={{
+                width: "64px", height: "64px", borderRadius: "50%",
+                background: "var(--accent-lavender)", color: "white",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontWeight: 700, fontSize: "1.5rem", margin: "0 auto 12px",
+                boxShadow: "0 4px 12px rgba(155, 142, 196, 0.2)"
+              }}>
+                {selectedPendingUser.name ? selectedPendingUser.name.split(" ").map((w: any) => w[0]).join("").slice(0, 2).toUpperCase() : "?"}
+              </div>
+              <h2 style={{ fontSize: "1.25rem", fontWeight: 800, color: "var(--primary-dark)", margin: "0 0 4px" }}>
+                {selectedPendingUser.name}
+              </h2>
+              <span className="chip chip-purple" style={{ textTransform: "capitalize", fontWeight: 700, fontSize: "0.78rem" }}>
+                {selectedPendingUser.role}
+              </span>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px", background: "rgba(255,255,255,0.3)", padding: "16px", borderRadius: "12px", border: "1px solid rgba(255,255,255,0.5)", marginBottom: "24px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 600 }}>Email Address</span>
+                <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--primary-dark)", wordBreak: "break-all" }}>{selectedPendingUser.email}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 600 }}>Center ID</span>
+                <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--primary-dark)" }}>{selectedPendingUser.centerId}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 600 }}>Request Date</span>
+                <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--primary-dark)" }}>
+                  {selectedPendingUser.createdAt ? formatRequestDate(selectedPendingUser.createdAt) : "Just now"}
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+              <button 
+                type="button" 
+                className="btn-ghost" 
+                onClick={() => handleRejectUser(selectedPendingUser.id, selectedPendingUser.name)}
+                style={{ background: "rgba(229,62,62,0.08)", color: "#e53e3e", border: "1px solid rgba(229,62,62,0.15)" }}
+              >
+                Reject Request
+              </button>
+              <button 
+                type="button" 
+                className="btn-primary" 
+                onClick={async () => {
+                  await handleApproveUser(selectedPendingUser.id, selectedPendingUser.name);
+                  setSelectedPendingUser(null);
+                }}
+                style={{ background: "var(--accent-teal)" }}
+              >
+                Approve Request
+              </button>
+            </div>
           </div>
         </div>
       )}

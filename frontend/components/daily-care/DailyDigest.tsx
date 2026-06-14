@@ -3,7 +3,7 @@ import { DailyCareJournal, MoodType } from "@/types";
 
 const MOOD_EMOJIS: Record<MoodType, string> = { happy: "😊", neutral: "😐", sad: "😢", agitated: "😤", tired: "😴" };
 const MOOD_COLORS: Record<MoodType, string> = { happy: "#38a169", neutral: "#718096", sad: "#3182ce", agitated: "#e53e3e", tired: "#805ad5" };
-const ATE_LABELS: Record<string, string> = { fully: "✅ Fully", partially: "⚠️ Partially", refused: "❌ Refused" };
+const ATE_LABELS: Record<string, string> = { fully: "✅ Fully", partially: "⚠️ Partially", refused: "❌ Refused", none: "❌ Did not eat" };
 const MEAL_ICONS: Record<string, string> = { breakfast: "🍳", lunch: "🍱", snack: "🍎" };
 
 interface Props { journal: DailyCareJournal; studentName: string; }

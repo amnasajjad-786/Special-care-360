@@ -29,7 +29,7 @@ export default function LoginPage() {
   const [regEmail, setRegEmail] = useState("");
   const [regPassword, setRegPassword] = useState("");
   const [regRole, setRegRole] = useState("teacher");
-  const [regCenterId, setRegCenterId] = useState("demo-center-001");
+  const [regCenterId, setRegCenterId] = useState("center-001");
 
   // Redirect if already logged in AND approved
   useEffect(() => {
@@ -297,7 +297,7 @@ export default function LoginPage() {
                 { id: "reg-name", label: "Full Name", val: regName, setter: setRegName, type: "text", placeholder: "Dr. Amna Raza" },
                 { id: "reg-email", label: "Email", val: regEmail, setter: setRegEmail, type: "email", placeholder: "you@example.com" },
                 { id: "reg-password", label: "Password", val: regPassword, setter: setRegPassword, type: "password", placeholder: "••••••••" },
-                { id: "reg-centerid", label: "Center ID", val: regCenterId, setter: setRegCenterId, type: "text", placeholder: "demo-center-001" },
+                { id: "reg-centerid", label: "Center ID", val: regCenterId, setter: setRegCenterId, type: "text", placeholder: "center-001" },
               ].map(({ id, label, val, setter, type, placeholder }) => (
                 <div key={id}>
                   <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "5px" }}>{label}</label>

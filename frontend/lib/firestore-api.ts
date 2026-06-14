@@ -51,10 +51,28 @@ export const studentsDb = {
       where("centerId", "==", centerId)
     );
     const snap = await getDocs(q);
-    const students: StudentDoc[] = snap.docs.map((d) => ({
-      id: d.id,
-      ...(d.data() as Omit<StudentDoc, "id">),
-    }));
+
+    // Build a lookup map of all user and staff IDs to their names
+    const nameMap: Record<string, string> = {};
+    try {
+      const usersSnap = await getDocs(collection(db, "users"));
+      usersSnap.forEach(d => { nameMap[d.id] = d.data().name; });
+      const staffSnap = await getDocs(collection(db, "staff"));
+      staffSnap.forEach(d => { nameMap[d.id] = d.data().name; });
+    } catch (e) {
+      console.error("Failed to build name map:", e);
+    }
+
+    const students: StudentDoc[] = snap.docs.map((d) => {
+      const data = d.data() as Omit<StudentDoc, "id">;
+      return {
+        id: d.id,
+        ...data,
+        teacherId: nameMap[data.teacherId] || data.teacherId,
+        therapistIds: (data.therapistIds || []).map(tId => nameMap[tId] || tId),
+      };
+    });
+
     if (role === "parent" && uid) {
       return students.filter((s) => s.parentId === uid);
     }
@@ -68,6 +86,12 @@ export const studentsDb = {
   },
 
   create: async (data: Omit<StudentDoc, "id">): Promise<string> => {
+    if (data.dob) {
+      const age = Math.floor((Date.now() - new Date(data.dob).getTime()) / (365.25 * 24 * 3600 * 1000));
+      if (age < 0 || age > 12) {
+        throw new Error("Student age must be between 0 and 12 years.");
+      }
+    }
     const studentId = uuidv4();
     await setDoc(doc(db, "students", studentId), {
       ...data,
@@ -92,6 +116,12 @@ export const studentsDb = {
   },
 
   update: async (studentId: string, data: Partial<StudentDoc>): Promise<void> => {
+    if (data.dob) {
+      const age = Math.floor((Date.now() - new Date(data.dob).getTime()) / (365.25 * 24 * 3600 * 1000));
+      if (age < 0 || age > 12) {
+        throw new Error("Student age must be between 0 and 12 years.");
+      }
+    }
     await updateDoc(doc(db, "students", studentId), {
       ...data,
       updatedAt: serverTimestamp(),
@@ -353,7 +383,6 @@ export const panicDb = {
       }
     } catch (_) {}
 
-<<<<<<< HEAD
     // Trigger the backend API to handle email alerts
     try {
       const { api } = await import("./api");
@@ -369,9 +398,6 @@ export const panicDb = {
     } catch (e) {
       console.warn("[Panic] Backend not reachable or failed to send email alert:", e);
     }
-
-=======
->>>>>>> 47a58b15e5a94d28bf01459f0341b5fa930906d2
     return alertId;
   },
 
@@ -472,5 +498,44 @@ export const adminDb = {
 
   deleteStaff: async (staffId: string): Promise<void> => {
     await deleteDoc(doc(db, "staff", staffId));
+  },
+
+  // --- Fee Management ---
+  listInvoices: async (centerId: string) => {
+    const q = query(
+      collection(db, "invoices"),
+      where("centerId", "==", centerId)
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  },
+
+  addInvoice: async (data: Record<string, unknown>): Promise<string> => {
+    const docRef = await addDoc(collection(db, "invoices"), {
+      ...data,
+      createdAt: serverTimestamp(),
+    });
+    return docRef.id;
+  },
+
+  updateInvoiceStatus: async (invoiceId: string, status: string): Promise<void> => {
+    await updateDoc(doc(db, "invoices", invoiceId), { status });
+  },
+
+  listPayments: async (centerId: string) => {
+    const q = query(
+      collection(db, "payments"),
+      where("centerId", "==", centerId)
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  },
+
+  addPayment: async (data: Record<string, unknown>): Promise<string> => {
+    const docRef = await addDoc(collection(db, "payments"), {
+      ...data,
+      createdAt: serverTimestamp(),
+    });
+    return docRef.id;
   },
 };

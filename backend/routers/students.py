@@ -23,6 +23,22 @@ def check_student_access(student_id: str, current_user: dict):
         raise HTTPException(status_code=403, detail="Unauthorized student access")
 
 
+def validate_age(dob: str):
+    if not dob:
+        return
+    try:
+        date_part = dob.split("T")[0]
+        dob_date = datetime.strptime(date_part, "%Y-%m-%d")
+        today = datetime.now()
+        age = today.year - dob_date.year - ((today.month, today.day) < (dob_date.month, dob_date.day))
+        if age < 0 or age > 12:
+            raise HTTPException(status_code=400, detail="Student age must be between 0 and 12 years.")
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=400, detail="Invalid Date of Birth format. Expected YYYY-MM-DD.")
+
+
 @router.get("")
 async def list_students(
     centerId: str = Query("demo-center-001"),
@@ -52,6 +68,7 @@ async def create_student(
     current_user: dict = Depends(get_current_user)
 ):
     require_role(current_user, ["admin"])
+    validate_age(body.dob)
     db         = get_db()
     student_id = str(uuid.uuid4())
     data       = body.model_dump()
@@ -79,6 +96,8 @@ async def update_student(
     current_user: dict = Depends(get_current_user)
 ):
     require_role(current_user, ["admin", "therapist"])
+    if body.dob is not None:
+        validate_age(body.dob)
     db      = get_db()
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     updates["updatedAt"] = datetime.now(timezone.utc).isoformat()

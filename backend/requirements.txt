@@ -3,13 +3,7 @@ uvicorn[standard]==0.29.0
 firebase-admin==6.5.0
 python-jose[cryptography]==3.3.0
 python-multipart==0.0.9
-<<<<<<< HEAD
-pydantic<2.0.0
-httpx==0.27.0
-python-dotenv==1.0.1
-
-=======
 pydantic==2.7.1
 httpx==0.27.0
 python-dotenv==1.0.1
->>>>>>> 47a58b15e5a94d28bf01459f0341b5fa930906d2
+google-generativeai>=0.5.0

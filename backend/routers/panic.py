@@ -51,16 +51,12 @@ async def create_panic_alert(
     except Exception as e:
         print(f"[Panic] Notification error (non-critical): {e}")
 
-<<<<<<< HEAD
     # Send email notifications to admins
     try:
         from utils.email_util import send_panic_email_alert
         send_panic_email_alert(data)
     except Exception as e:
         print(f"[Panic] Email send error (non-critical): {e}")
-
-=======
->>>>>>> 47a58b15e5a94d28bf01459f0341b5fa930906d2
     return {"message": "Panic alert sent", "id": alert_id}
 
 
