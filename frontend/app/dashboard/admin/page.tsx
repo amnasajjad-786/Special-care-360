@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useAuth } from "@/lib/auth-context";
 import toast from "react-hot-toast";
-import { collection, query, where, onSnapshot, doc, deleteDoc } from "firebase/firestore";
+import { collection, query, where, onSnapshot, doc, deleteDoc, orderBy, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { studentsDb, adminDb } from "@/lib/firestore-api";
 import {
@@ -153,6 +153,32 @@ export default function AdminDashboard() {
 
   // --- Dynamic active alert count from Firestore (with demo fallback) --------
   const [activeAlertsCount, setActiveAlertsCount] = useState(2);
+  const [recentAlerts, setRecentAlerts] = useState<any[]>([
+    {
+      id: "mock-1",
+      emergencyType: "Panic Button triggered",
+      location: "Room 3",
+      timestamp: new Date().toISOString(),
+      studentId: "student-001",
+      reportedBy: { name: "Ahmed Raza" }
+    },
+    {
+      id: "mock-2",
+      emergencyType: "Regression detected in motor skills",
+      location: "Therapy Room",
+      timestamp: new Date(Date.now() - 3600000).toISOString(),
+      studentId: "student-004",
+      reportedBy: { name: "Zara Khan" }
+    },
+    {
+      id: "mock-3",
+      emergencyType: "Invoice #1024 marked overdue",
+      location: "Reception",
+      timestamp: new Date(Date.now() - 86400000).toISOString(),
+      studentId: "student-002",
+      reportedBy: { name: "Ali Hassan" }
+    }
+  ]);
 
   // --- Fetch Students from Firestore ---
   useEffect(() => {
@@ -247,6 +273,31 @@ export default function AdminDashboard() {
     } catch {
       // Firebase not configured
       setActiveAlertsCount(2);
+    }
+  }, [profile]);
+
+  useEffect(() => {
+    if (!profile) return;
+    try {
+      const q = query(
+        collection(db, "panicAlerts"),
+        where("centerId", "==", profile.centerId || "center-001"),
+        orderBy("timestamp", "desc"),
+        limit(5)
+      );
+      const unsub = onSnapshot(
+        q,
+        (snap) => {
+          const alerts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          setRecentAlerts(alerts);
+        },
+        () => {
+          // Fallback handled by initial state
+        }
+      );
+      return unsub;
+    } catch (err) {
+      console.warn("Firebase not configured for recent alerts", err);
     }
   }, [profile]);
 
@@ -741,41 +792,39 @@ export default function AdminDashboard() {
               <h3 style={{ fontSize: "1.1rem", fontWeight: 700, marginBottom: "16px", color: "var(--primary-dark)" }}>Recent Incident Alerts</h3>
               <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
                 
-                <div style={{ display: "flex", gap: "12px", alignItems: "flex-start", paddingBottom: "10px", borderBottom: "1px solid rgba(0,0,0,0.05)" }}>
-                  <div style={{ padding: "8px", background: "rgba(229, 62, 62, 0.12)", color: "var(--danger)", borderRadius: "8px" }}>
-                    <AlertTriangle size={18} />
+                {recentAlerts.length === 0 ? (
+                  <div style={{ padding: "10px 0", color: "var(--text-secondary)", fontSize: "0.88rem" }}>
+                    No recent incident alerts.
                   </div>
-                  <div>
-                    <div style={{ fontSize: "0.88rem", fontWeight: 600 }}>Panic Button triggered — Room 3</div>
-                    <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginTop: "2px" }}>
-                      Today, 10:42 AM · Ahmed Raza
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", gap: "12px", alignItems: "flex-start", paddingBottom: "10px", borderBottom: "1px solid rgba(0,0,0,0.05)" }}>
-                  <div style={{ padding: "8px", background: "rgba(214, 158, 46, 0.12)", color: "var(--warning)", borderRadius: "8px" }}>
-                    <AlertTriangle size={18} />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: "0.88rem", fontWeight: 600 }}>Regression detected in motor skills</div>
-                    <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginTop: "2px" }}>
-                      Today, 09:15 AM · Zara Khan
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}>
-                  <div style={{ padding: "8px", background: "rgba(123, 196, 196, 0.15)", color: "var(--accent-teal)", borderRadius: "8px" }}>
-                    <Clock size={18} />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: "0.88rem", fontWeight: 600 }}>Invoice #1024 marked overdue</div>
-                    <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginTop: "2px" }}>
-                      Yesterday · Ali Hassan
-                    </div>
-                  </div>
-                </div>
+                ) : (
+                  recentAlerts.map((alert) => {
+                    const studentName = students.find(s => s.id === alert.studentId)?.name || alert.reportedBy?.name || "Unknown";
+                    const isToday = alert.timestamp && new Date(alert.timestamp).toDateString() === new Date().toDateString();
+                    const dateStr = alert.timestamp ? new Date(alert.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "";
+                    const relativeDay = alert.timestamp ? new Date(alert.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric' }) : "Today";
+                    
+                    return (
+                      <div key={alert.id} style={{ display: "flex", gap: "12px", alignItems: "flex-start", paddingBottom: "10px", borderBottom: "1px solid rgba(0,0,0,0.05)" }}>
+                        <div style={{
+                          padding: "8px",
+                          background: alert.status === "resolved" ? "rgba(56, 161, 105, 0.12)" : "rgba(229, 62, 62, 0.12)",
+                          color: alert.status === "resolved" ? "var(--success)" : "var(--danger)",
+                          borderRadius: "8px"
+                        }}>
+                          <AlertTriangle size={18} />
+                        </div>
+                        <div>
+                          <div style={{ fontSize: "0.88rem", fontWeight: 600 }}>
+                            {alert.emergencyType} — {alert.location}
+                          </div>
+                          <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginTop: "2px" }}>
+                            {isToday ? `Today, ${dateStr}` : relativeDay} · {studentName} {alert.status === "resolved" ? "(Resolved)" : ""}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
 
               </div>
             </div>
