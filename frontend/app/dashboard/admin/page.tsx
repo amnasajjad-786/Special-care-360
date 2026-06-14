@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import toast from "react-hot-toast";
 import { collection, query, where, onSnapshot, doc, deleteDoc, orderBy, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { studentsDb, adminDb } from "@/lib/firestore-api";
+import { studentsDb, adminDb, dailyCareDb, abcDb } from "@/lib/firestore-api";
 import {
   LayoutDashboard,
   Users,
@@ -25,7 +25,11 @@ import {
   FileSpreadsheet,
   UserPlus,
   CheckCircle,
-  HelpCircle
+  HelpCircle,
+  ArrowLeft,
+  Calendar,
+  FileText,
+  ChevronRight
 } from "lucide-react";
 
 // --- Mock initial data matching HTML mockup ---
@@ -80,6 +84,12 @@ const DIAGNOSES_OPTIONS = ["Autism", "Down Syndrome", "ADHD", "Cerebral Palsy", 
 export default function AdminDashboard() {
   const { profile } = useAuth();
   const [activeTab, setActiveTab] = useState<"dashboard" | "students" | "fees" | "staff" | "reports">("dashboard");
+
+  // --- Reports State ---
+  const [selectedReportType, setSelectedReportType] = useState<"progress" | "fees" | "behavior" | "attendance" | null>(null);
+  const [selectedReportStudentId, setSelectedReportStudentId] = useState<string | null>(null);
+  const [reportData, setReportData] = useState<any>(null);
+  const [reportLoading, setReportLoading] = useState(false);
 
   // --- Core States ---
   const [students, setStudents] = useState<AdminStudent[]>(INITIAL_STUDENTS);
@@ -300,6 +310,55 @@ export default function AdminDashboard() {
       console.warn("Firebase not configured for recent alerts", err);
     }
   }, [profile]);
+
+  // --- Fetch report details dynamically when a student and report type is selected ---
+  useEffect(() => {
+    if (!selectedReportStudentId || !selectedReportType) {
+      setReportData(null);
+      return;
+    }
+
+    const fetchReport = async () => {
+      setReportLoading(true);
+      try {
+        if (selectedReportType === "progress") {
+          const [carePlan, journals] = await Promise.all([
+            studentsDb.getCarePlan(selectedReportStudentId),
+            dailyCareDb.history(selectedReportStudentId)
+          ]);
+          setReportData({ carePlan, journals });
+        } else if (selectedReportType === "behavior") {
+          const [patterns, incidents] = await Promise.all([
+            abcDb.getPatterns(selectedReportStudentId),
+            abcDb.listIncidents(selectedReportStudentId, 15)
+          ]);
+          setReportData({ patterns, incidents });
+        } else if (selectedReportType === "fees") {
+          const stud = students.find(s => s.id === selectedReportStudentId);
+          const studentName = stud ? stud.name : "";
+          const studentInvoices = invoices.filter(i => i.studentName === studentName);
+          const studentPayments = payments.filter(p => p.studentName === studentName);
+          setReportData({ invoices: studentInvoices, payments: studentPayments });
+        } else if (selectedReportType === "attendance") {
+          const mockAttendance = [
+            { date: "2026-06-12", status: "Present", checkIn: "08:45 AM", checkOut: "01:30 PM" },
+            { date: "2026-06-11", status: "Present", checkIn: "08:50 AM", checkOut: "01:45 PM" },
+            { date: "2026-06-10", status: "Absent", checkIn: "—", checkOut: "—" },
+            { date: "2026-06-09", status: "Present", checkIn: "08:40 AM", checkOut: "01:30 PM" },
+            { date: "2026-06-08", status: "Present", checkIn: "08:55 AM", checkOut: "01:40 PM" },
+          ];
+          setReportData({ attendance: mockAttendance });
+        }
+      } catch (err) {
+        console.error("Failed to fetch report data:", err);
+        toast.error("Failed to generate report.");
+      } finally {
+        setReportLoading(false);
+      }
+    };
+
+    fetchReport();
+  }, [selectedReportStudentId, selectedReportType, invoices, payments, students]);
 
   const feeStats = useMemo(() => {
     let collected = 0;
@@ -1250,72 +1309,452 @@ export default function AdminDashboard() {
 
       {/* 5. REPORTS TAB */}
       {activeTab === "reports" && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "16px" }}>
-          
-          <div 
-            className="glass-card" 
-            style={{ padding: "24px", cursor: "pointer", display: "flex", gap: "16px", alignItems: "center", transition: "all 0.2s" }}
-            onClick={() => generateReport("Student Progress Report")}
-          >
-            <div style={{ width: "48px", height: "48px", borderRadius: "10px", background: "rgba(123, 196, 196, 0.2)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--accent-teal)" }}>
-              <Users size={24} />
-            </div>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>Student Progress Report</div>
-              <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginTop: "4px" }}>
-                Monthly milestones, achievements &amp; IEP goals
+        <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+          {selectedReportType === null ? (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "16px" }}>
+              <div 
+                className="glass-card" 
+                style={{ padding: "24px", cursor: "pointer", display: "flex", gap: "16px", alignItems: "center", transition: "all 0.2s" }}
+                onClick={() => { setSelectedReportType("progress"); setSelectedReportStudentId(students[0]?.id ? String(students[0].id) : null); }}
+              >
+                <div style={{ width: "48px", height: "48px", borderRadius: "10px", background: "rgba(123, 196, 196, 0.2)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--accent-teal)" }}>
+                  <Users size={24} />
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>Student Progress Report</div>
+                  <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginTop: "4px" }}>
+                    Monthly milestones, achievements &amp; IEP goals
+                  </div>
+                </div>
+              </div>
+
+              <div 
+                className="glass-card" 
+                style={{ padding: "24px", cursor: "pointer", display: "flex", gap: "16px", alignItems: "center", transition: "all 0.2s" }}
+                onClick={() => { setSelectedReportType("fees"); setSelectedReportStudentId(students[0]?.id ? String(students[0].id) : null); }}
+              >
+                <div style={{ width: "48px", height: "48px", borderRadius: "10px", background: "rgba(214, 158, 46, 0.15)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--warning)" }}>
+                  <Receipt size={24} />
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>Fee Collection Report</div>
+                  <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginTop: "4px" }}>
+                    Outstanding dues, receipts, &amp; monthly projections
+                  </div>
+                </div>
+              </div>
+
+              <div 
+                className="glass-card" 
+                style={{ padding: "24px", cursor: "pointer", display: "flex", gap: "16px", alignItems: "center", transition: "all 0.2s" }}
+                onClick={() => { setSelectedReportType("behavior"); setSelectedReportStudentId(students[0]?.id ? String(students[0].id) : null); }}
+              >
+                <div style={{ width: "48px", height: "48px", borderRadius: "10px", background: "rgba(229, 62, 62, 0.12)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--danger)" }}>
+                  <AlertTriangle size={24} />
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>Behavioral Incident Report</div>
+                  <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginTop: "4px" }}>
+                    Active trigger warnings, ABC history logs &amp; panic counts
+                  </div>
+                </div>
+              </div>
+
+              <div 
+                className="glass-card" 
+                style={{ padding: "24px", cursor: "pointer", display: "flex", gap: "16px", alignItems: "center", transition: "all 0.2s" }}
+                onClick={() => { setSelectedReportType("attendance"); setSelectedReportStudentId(students[0]?.id ? String(students[0].id) : null); }}
+              >
+                <div style={{ width: "48px", height: "48px", borderRadius: "10px", background: "rgba(155, 142, 196, 0.15)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--accent-lavender)" }}>
+                  <FileSpreadsheet size={24} />
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>Attendance &amp; Scheduling</div>
+                  <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginTop: "4px" }}>
+                    Student daily session check-ins &amp; therapist hours
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-
-          <div 
-            className="glass-card" 
-            style={{ padding: "24px", cursor: "pointer", display: "flex", gap: "16px", alignItems: "center", transition: "all 0.2s" }}
-            onClick={() => generateReport("Fee Collection Report")}
-          >
-            <div style={{ width: "48px", height: "48px", borderRadius: "10px", background: "rgba(214, 158, 46, 0.15)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--warning)" }}>
-              <Receipt size={24} />
-            </div>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>Fee Collection Report</div>
-              <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginTop: "4px" }}>
-                Outstanding dues, receipts, &amp; monthly projections
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              {/* Workspace Header */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "12px", borderBottom: "1px solid rgba(0,0,0,0.08)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                  <button 
+                    onClick={() => { setSelectedReportType(null); setSelectedReportStudentId(null); }}
+                    style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", color: "var(--primary-dark)", fontWeight: 600, gap: "6px" }}
+                  >
+                    <ArrowLeft size={16} /> Back to Reports
+                  </button>
+                  <span style={{ color: "var(--text-secondary)" }}>|</span>
+                  <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, color: "var(--primary-dark)" }}>
+                    {selectedReportType === "progress" && "Student Progress Report Center"}
+                    {selectedReportType === "behavior" && "Behavioral Incident Report Center"}
+                    {selectedReportType === "fees" && "Student Fee Ledger & Reports"}
+                    {selectedReportType === "attendance" && "Attendance & Session Scheduling"}
+                  </h3>
+                </div>
+                {selectedReportStudentId && reportData && !reportLoading && (
+                  <button 
+                    className="btn-ghost" 
+                    onClick={() => window.print()}
+                    style={{ padding: "8px 16px", display: "flex", alignItems: "center", gap: "6px", background: "rgba(255,255,255,0.7)" }}
+                  >
+                    <Printer size={15} /> Print Report
+                  </button>
+                )}
               </div>
-            </div>
-          </div>
 
-          <div 
-            className="glass-card" 
-            style={{ padding: "24px", cursor: "pointer", display: "flex", gap: "16px", alignItems: "center", transition: "all 0.2s" }}
-            onClick={() => generateReport("Behavioral Incident Report")}
-          >
-            <div style={{ width: "48px", height: "48px", borderRadius: "10px", background: "rgba(229, 62, 62, 0.12)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--danger)" }}>
-              <AlertTriangle size={24} />
-            </div>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>Behavioral Incident Report</div>
-              <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginTop: "4px" }}>
-                Active trigger warnings, ABC history logs &amp; panic counts
+              {/* Workspace Body */}
+              <div style={{ display: "flex", gap: "20px", minHeight: "500px" }}>
+                {/* Left Student Selector */}
+                <div className="glass-card" style={{ width: "240px", padding: "16px", display: "flex", flexDirection: "column", gap: "10px", flexShrink: 0 }}>
+                  <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "4px" }}>
+                    Select Student
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px", overflowY: "auto", maxHeight: "450px" }}>
+                    {students.map((s) => (
+                      <button
+                        key={s.id}
+                        onClick={() => setSelectedReportStudentId(String(s.id))}
+                        style={{
+                          padding: "10px 12px",
+                          borderRadius: "8px",
+                          border: "none",
+                          textAlign: "left",
+                          cursor: "pointer",
+                          background: selectedReportStudentId === String(s.id) ? "var(--accent-teal)" : "rgba(255,255,255,0.4)",
+                          color: selectedReportStudentId === String(s.id) ? "white" : "var(--text-primary)",
+                          fontWeight: selectedReportStudentId === String(s.id) ? 700 : 500,
+                          fontSize: "0.85rem",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          transition: "all 0.2s"
+                        }}
+                      >
+                        <span>{s.name}</span>
+                        <ChevronRight size={14} style={{ opacity: selectedReportStudentId === String(s.id) ? 1 : 0.4 }} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Right Report Detail View */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {!selectedReportStudentId ? (
+                    <div className="glass-card" style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px", textAlign: "center" }}>
+                      <FileText size={48} style={{ color: "var(--text-secondary)", marginBottom: "12px", opacity: 0.7 }} />
+                      <h4 style={{ margin: 0, color: "var(--primary-dark)" }}>No Student Selected</h4>
+                      <p style={{ color: "var(--text-secondary)", fontSize: "0.88rem", marginTop: "6px" }}>
+                        Choose a student from the sidebar to generate and display their report.
+                      </p>
+                    </div>
+                  ) : reportLoading ? (
+                    <div className="glass-card" style={{ padding: "40px", display: "flex", flexDirection: "column", gap: "16px" }}>
+                      <div className="skeleton" style={{ height: "40px", borderRadius: "8px", width: "40%" }} />
+                      <div className="skeleton" style={{ height: "24px", borderRadius: "8px", width: "60%" }} />
+                      <div style={{ height: "1px", background: "rgba(0,0,0,0.06)", margin: "8px 0" }} />
+                      <div className="skeleton" style={{ height: "120px", borderRadius: "12px" }} />
+                      <div className="skeleton" style={{ height: "120px", borderRadius: "12px" }} />
+                    </div>
+                  ) : reportData ? (
+                    <div className="glass-card animate-fade-in" style={{ padding: "30px", background: "white", minHeight: "100%" }}>
+                      
+                      {/* Report Title */}
+                      <div style={{ borderBottom: "2px solid var(--primary-dark)", paddingBottom: "16px", marginBottom: "20px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                          <div>
+                            <h2 style={{ margin: 0, fontSize: "1.4rem", fontWeight: 800, color: "var(--primary-dark)" }}>
+                              {selectedReportType === "progress" && "INDIVIDUAL PROGRESS REPORT"}
+                              {selectedReportType === "behavior" && "BEHAVIORAL INCIDENT REPORT"}
+                              {selectedReportType === "fees" && "STUDENT ACCOUNT LEDGER"}
+                              {selectedReportType === "attendance" && "ATTENDANCE RECORD SUMMARY"}
+                            </h2>
+                            <p style={{ margin: "4px 0 0", fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 500 }}>
+                              SPECIAL CARE 360 · MULTI-DISCIPLINARY EDUCATION HUB
+                            </p>
+                          </div>
+                          <div style={{ textAlign: "right" }}>
+                            <div style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text-primary)" }}>REPORT ID: #SC-{selectedReportStudentId.slice(0,6).toUpperCase()}</div>
+                            <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", marginTop: "2px" }}>
+                              Date: {new Date().toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Student Profile Info */}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px", padding: "16px", background: "rgba(61,79,107,0.04)", borderRadius: "12px", marginBottom: "24px" }}>
+                        <div>
+                          <div style={{ fontSize: "0.68rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase" }}>Student Name</div>
+                          <div style={{ fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.95rem" }}>
+                            {students.find(s => String(s.id) === selectedReportStudentId)?.name || "Unknown"}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: "0.68rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase" }}>Age / Diagnosis</div>
+                          <div style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.9rem" }}>
+                            {students.find(s => String(s.id) === selectedReportStudentId)?.age} yrs · {students.find(s => String(s.id) === selectedReportStudentId)?.diagnosis}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: "0.68rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase" }}>Assigned Therapist</div>
+                          <div style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.9rem" }}>
+                            {students.find(s => String(s.id) === selectedReportStudentId)?.therapist || "None assigned"}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Report Specific Details */}
+                      {selectedReportType === "progress" && (
+                        <div>
+                          <h4 style={{ margin: "0 0 12px", color: "var(--primary-dark)", fontSize: "0.95rem", fontWeight: 700, display: "flex", alignItems: "center", gap: "6px" }}>
+                            <CheckCircle size={16} style={{ color: "var(--accent-teal)" }} /> IEP Goals &amp; Milestone Progress
+                          </h4>
+                          
+                          {/* IEP Goals Progress Bar list */}
+                          {(!reportData.carePlan || !reportData.carePlan.goals || reportData.carePlan.goals.length === 0) ? (
+                            <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>No IEP goals configured for this student.</p>
+                          ) : (
+                            <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "24px" }}>
+                              {reportData.carePlan.goals.map((g: any) => (
+                                <div key={g.id} style={{ padding: "12px 14px", background: "rgba(255,255,255,0.7)", border: "1px solid rgba(0,0,0,0.06)", borderRadius: "8px" }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                                    <span style={{ fontWeight: 600, fontSize: "0.85rem", color: "var(--text-primary)" }}>{g.title}</span>
+                                    <span className={`chip ${g.status === "Mastered" ? "chip-success" : g.status === "In Progress" ? "chip-info" : g.status === "Regressed" ? "chip-danger" : "chip-gray"}`} style={{ fontSize: "0.68rem", padding: "2px 8px" }}>
+                                      {g.status} ({g.progressPercent}%)
+                                    </span>
+                                  </div>
+                                  <div style={{ height: "6px", background: "rgba(0,0,0,0.05)", borderRadius: "3px", overflow: "hidden" }}>
+                                    <div style={{ width: `${g.progressPercent}%`, height: "100%", background: g.status === "Mastered" ? "var(--success)" : g.status === "Regressed" ? "var(--danger)" : "var(--accent-teal)" }} />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          <h4 style={{ margin: "0 0 12px", color: "var(--primary-dark)", fontSize: "0.95rem", fontWeight: 700, display: "flex", alignItems: "center", gap: "6px" }}>
+                            <Clock size={16} style={{ color: "var(--accent-lavender)" }} /> Daily Care Journal Summary (Last 15 Days)
+                          </h4>
+                          {(!reportData.journals || reportData.journals.length === 0) ? (
+                            <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>No daily care logs registered in the last 15 days.</p>
+                          ) : (
+                            <div>
+                              <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)", margin: "0 0 12px" }}>
+                                Showing the last {reportData.journals.length} submitted daily journals.
+                              </p>
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                                {reportData.journals.slice(0, 4).map((j: any) => (
+                                  <div key={j.date} style={{ padding: "12px", borderRadius: "10px", background: "rgba(0,0,0,0.02)", border: "1px solid rgba(0,0,0,0.04)" }}>
+                                    <div style={{ fontWeight: 700, fontSize: "0.8rem", color: "var(--primary-dark)" }}>{new Date(j.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
+                                    <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginTop: "4px" }}>
+                                      <b>Mood:</b> <span style={{ textTransform: "capitalize" }}>{j.moodTimeline?.[0]?.mood || "neutral"}</span>
+                                    </div>
+                                    <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>
+                                      <b>Meals:</b> Breakfast: {j.meals?.breakfast?.ate}, Lunch: {j.meals?.lunch?.ate}
+                                    </div>
+                                    {j.teacherNotes && (
+                                      <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", fontStyle: "italic", marginTop: "4px", background: "rgba(255,255,255,0.8)", padding: "4px 6px", borderRadius: "4px" }}>
+                                        &ldquo;{j.teacherNotes.slice(0, 60)}{j.teacherNotes.length > 60 && "..."}&rdquo;
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {selectedReportType === "behavior" && reportData.patterns && (
+                        <div>
+                          <h4 style={{ margin: "0 0 12px", color: "var(--primary-dark)", fontSize: "0.95rem", fontWeight: 700 }}>
+                            ABC Behavioral Pattern Analysis
+                          </h4>
+                          
+                          {/* Pattern Analytics Grid */}
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "10px", marginBottom: "20px" }}>
+                            <div style={{ padding: "12px", background: "rgba(229,62,62,0.04)", borderRadius: "8px", border: "1px solid rgba(229,62,62,0.1)" }}>
+                              <div style={{ fontSize: "0.68rem", color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase" }}>Total Incidents</div>
+                              <div style={{ fontSize: "1.1rem", fontWeight: 800, color: "var(--danger)", marginTop: "2px" }}>{reportData.patterns.totalIncidents}</div>
+                            </div>
+                            <div style={{ padding: "12px", background: "rgba(255,255,255,0.7)", borderRadius: "8px", border: "1px solid rgba(0,0,0,0.06)" }}>
+                              <div style={{ fontSize: "0.68rem", color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase" }}>Avg Severity</div>
+                              <div style={{ fontSize: "1.1rem", fontWeight: 800, color: "var(--primary-dark)", marginTop: "2px" }}>{reportData.patterns.avgSeverity}/5</div>
+                            </div>
+                            <div style={{ padding: "12px", background: "rgba(255,255,255,0.7)", borderRadius: "8px", border: "1px solid rgba(0,0,0,0.06)" }}>
+                              <div style={{ fontSize: "0.68rem", color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase" }}>Top Trigger</div>
+                              <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--primary-dark)", marginTop: "4px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{reportData.patterns.topAntecedents[0]?.tag || "—"}</div>
+                            </div>
+                            <div style={{ padding: "12px", background: "rgba(255,255,255,0.7)", borderRadius: "8px", border: "1px solid rgba(0,0,0,0.06)" }}>
+                              <div style={{ fontSize: "0.68rem", color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase" }}>Top Behavior</div>
+                              <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--primary-dark)", marginTop: "4px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{reportData.patterns.topBehaviors[0]?.tag || "—"}</div>
+                            </div>
+                          </div>
+
+                          <h4 style={{ margin: "0 0 12px", color: "var(--primary-dark)", fontSize: "0.95rem", fontWeight: 700, display: "flex", alignItems: "center", gap: "6px" }}>
+                            <AlertTriangle size={16} style={{ color: "var(--danger)" }} /> Recent ABC Incidents
+                          </h4>
+                          {reportData.incidents.length === 0 ? (
+                            <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>No behavioral logs recorded for this student.</p>
+                          ) : (
+                            <div style={{ overflowX: "auto" }}>
+                              <table className="data-table" style={{ width: "100%", borderCollapse: "collapse" }}>
+                                <thead>
+                                  <tr style={{ background: "rgba(0,0,0,0.02)", borderBottom: "1px solid rgba(0,0,0,0.08)" }}>
+                                    <th style={{ padding: "8px", fontSize: "0.75rem", textAlign: "left" }}>Date</th>
+                                    <th style={{ padding: "8px", fontSize: "0.75rem", textAlign: "left" }}>Antecedent (Trigger)</th>
+                                    <th style={{ padding: "8px", fontSize: "0.75rem", textAlign: "left" }}>Behavior Observed</th>
+                                    <th style={{ padding: "8px", fontSize: "0.75rem", textAlign: "left" }}>Severity</th>
+                                    <th style={{ padding: "8px", fontSize: "0.75rem", textAlign: "left" }}>Location</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {reportData.incidents.slice(0, 6).map((inc: any) => (
+                                    <tr key={inc.id} style={{ borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
+                                      <td style={{ padding: "8px", fontSize: "0.78rem", whiteSpace: "nowrap" }}>{new Date(inc.timestamp).toLocaleDateString()}</td>
+                                      <td style={{ padding: "8px", fontSize: "0.78rem" }}>{inc.antecedent?.text}</td>
+                                      <td style={{ padding: "8px", fontSize: "0.78rem" }}>{inc.behavior?.text}</td>
+                                      <td style={{ padding: "8px", fontSize: "0.78rem", fontWeight: 700, color: inc.severity >= 4 ? "var(--danger)" : "var(--warning)" }}>{inc.severity}/5</td>
+                                      <td style={{ padding: "8px", fontSize: "0.78rem", color: "var(--text-secondary)" }}>{inc.location}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {selectedReportType === "fees" && reportData.invoices && (
+                        <div>
+                          <h4 style={{ margin: "0 0 12px", color: "var(--primary-dark)", fontSize: "0.95rem", fontWeight: 700 }}>
+                            Ledger Account Balance &amp; Transactions
+                          </h4>
+
+                          {/* Invoice Summary */}
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px", marginBottom: "24px" }}>
+                            <div style={{ padding: "14px", background: "rgba(56, 161, 105, 0.05)", border: "1px solid rgba(56, 161, 105, 0.15)", borderRadius: "10px" }}>
+                              <div style={{ fontSize: "0.68rem", color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase" }}>Total Payments Received</div>
+                              <div style={{ fontSize: "1.2rem", fontWeight: 800, color: "var(--success)", marginTop: "2px" }}>
+                                ₨ {reportData.payments.reduce((sum: number, p: any) => sum + p.amount, 0).toLocaleString()}
+                              </div>
+                            </div>
+                            <div style={{ padding: "14px", background: "rgba(229, 62, 62, 0.05)", border: "1px solid rgba(229, 62, 62, 0.15)", borderRadius: "10px" }}>
+                              <div style={{ fontSize: "0.68rem", color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase" }}>Outstanding Overdue Dues</div>
+                              <div style={{ fontSize: "1.2rem", fontWeight: 800, color: "var(--danger)", marginTop: "2px" }}>
+                                ₨ {reportData.invoices.filter((i: any) => i.status === "overdue").reduce((sum: number, i: any) => sum + i.amount, 0).toLocaleString()}
+                              </div>
+                            </div>
+                            <div style={{ padding: "14px", background: "rgba(214, 158, 46, 0.05)", border: "1px solid rgba(214, 158, 46, 0.15)", borderRadius: "10px" }}>
+                              <div style={{ fontSize: "0.68rem", color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase" }}>Pending Invoices</div>
+                              <div style={{ fontSize: "1.2rem", fontWeight: 800, color: "var(--warning)", marginTop: "2px" }}>
+                                ₨ {reportData.invoices.filter((i: any) => i.status === "pending").reduce((sum: number, i: any) => sum + i.amount, 0).toLocaleString()}
+                              </div>
+                            </div>
+                          </div>
+
+                          <h4 style={{ margin: "0 0 12px", color: "var(--primary-dark)", fontSize: "0.95rem", fontWeight: 700 }}>
+                            Transaction Records
+                          </h4>
+                          {reportData.invoices.length === 0 && reportData.payments.length === 0 ? (
+                            <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>No financial logs recorded for this student.</p>
+                          ) : (
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
+                              <div>
+                                <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", marginBottom: "8px" }}>Invoices Issued</div>
+                                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                                  {reportData.invoices.map((inv: any) => (
+                                    <div key={inv.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: "rgba(0,0,0,0.02)", border: "1px solid rgba(0,0,0,0.04)", borderRadius: "8px", fontSize: "0.82rem" }}>
+                                      <div>
+                                        <div style={{ fontWeight: 600 }}>{inv.month}</div>
+                                        <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)" }}>Issued: {inv.issued}</div>
+                                      </div>
+                                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                        <span style={{ fontWeight: 700 }}>₨ {inv.amount.toLocaleString()}</span>
+                                        {feeStatusLabels[inv.status as "paid" | "pending" | "overdue"]}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+
+                              <div>
+                                <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", marginBottom: "8px" }}>Payments Logged</div>
+                                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                                  {reportData.payments.length === 0 ? (
+                                    <p style={{ color: "var(--text-secondary)", fontSize: "0.8rem", margin: 0 }}>No payments registered.</p>
+                                  ) : (
+                                    reportData.payments.map((p: any) => (
+                                      <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: "rgba(56, 161, 105, 0.02)", border: "1px solid rgba(56, 161, 105, 0.1)", borderRadius: "8px", fontSize: "0.82rem" }}>
+                                        <div>
+                                          <div style={{ fontWeight: 600, color: "var(--success)" }}>Paid (via {p.method})</div>
+                                          <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)" }}>Date: {p.date}</div>
+                                        </div>
+                                        <span style={{ fontWeight: 700, color: "var(--success)" }}>₨ {p.amount.toLocaleString()}</span>
+                                      </div>
+                                    ))
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {selectedReportType === "attendance" && reportData.attendance && (
+                        <div>
+                          <h4 style={{ margin: "0 0 12px", color: "var(--primary-dark)", fontSize: "0.95rem", fontWeight: 700, display: "flex", alignItems: "center", gap: "6px" }}>
+                            <Calendar size={16} style={{ color: "var(--accent-teal)" }} /> Session Check-In History
+                          </h4>
+                          <div style={{ overflowX: "auto" }}>
+                            <table className="data-table" style={{ width: "100%", borderCollapse: "collapse" }}>
+                              <thead>
+                                <tr style={{ background: "rgba(0,0,0,0.02)", borderBottom: "1px solid rgba(0,0,0,0.08)" }}>
+                                  <th style={{ padding: "8px", fontSize: "0.75rem", textAlign: "left" }}>Session Date</th>
+                                  <th style={{ padding: "8px", fontSize: "0.75rem", textAlign: "left" }}>Attendance Status</th>
+                                  <th style={{ padding: "8px", fontSize: "0.75rem", textAlign: "left" }}>Check-In Time</th>
+                                  <th style={{ padding: "8px", fontSize: "0.75rem", textAlign: "left" }}>Check-Out Time</th>
+                                  <th style={{ padding: "8px", fontSize: "0.75rem", textAlign: "left" }}>Therapeutic Hours</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {reportData.attendance.map((att: any, idx: number) => (
+                                  <tr key={idx} style={{ borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
+                                    <td style={{ padding: "8px", fontSize: "0.8rem", fontWeight: 600 }}>
+                                      {new Date(att.date + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
+                                    </td>
+                                    <td style={{ padding: "8px", fontSize: "0.8rem" }}>
+                                      <span className={`chip ${att.status === "Present" ? "chip-success" : "chip-danger"}`} style={{ fontSize: "0.68rem", padding: "2px 8px" }}>
+                                        {att.status}
+                                      </span>
+                                    </td>
+                                    <td style={{ padding: "8px", fontSize: "0.8rem", color: "var(--text-primary)" }}>{att.checkIn}</td>
+                                    <td style={{ padding: "8px", fontSize: "0.8rem", color: "var(--text-primary)" }}>{att.checkOut}</td>
+                                    <td style={{ padding: "8px", fontSize: "0.8rem", fontWeight: 600 }}>{att.status === "Present" ? "4.7 hrs" : "0 hrs"}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Footer Notes */}
+                      <div style={{ marginTop: "40px", paddingTop: "14px", borderTop: "1px solid rgba(0,0,0,0.06)", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.72rem", color: "var(--text-secondary)" }}>
+                        <div>Generated automatically by Special Care 360 System.</div>
+                        <div style={{ fontWeight: 600 }}>CONFIDENTIAL · FOR INTERNAL CLINICAL USE ONLY</div>
+                      </div>
+
+                    </div>
+                  ) : null}
+                </div>
               </div>
-            </div>
-          </div>
 
-          <div 
-            className="glass-card" 
-            style={{ padding: "24px", cursor: "pointer", display: "flex", gap: "16px", alignItems: "center", transition: "all 0.2s" }}
-            onClick={() => generateReport("Attendance & Scheduling Report")}
-          >
-            <div style={{ width: "48px", height: "48px", borderRadius: "10px", background: "rgba(155, 142, 196, 0.15)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--accent-lavender)" }}>
-              <FileSpreadsheet size={24} />
             </div>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>Attendance &amp; Scheduling</div>
-              <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginTop: "4px" }}>
-                Student daily session check-ins &amp; therapist hours
-              </div>
-            </div>
-          </div>
-
+          )}
         </div>
       )}
 

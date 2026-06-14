@@ -145,6 +145,40 @@ export const studentsDb = {
       { ...data, updatedAt: serverTimestamp() },
       { merge: true }
     );
+
+    // Notify parent and assigned staff
+    try {
+      const student = await studentsDb.get(studentId);
+      if (student) {
+        // 1. Notify Parent
+        if (student.parentId) {
+          await addDoc(collection(db, "notifications"), {
+            recipientId: student.parentId,
+            type: "medical_update",
+            title: "Medical Profile Updated 🩺",
+            message: `Medical profile for ${student.name} was updated.`,
+            read: false,
+            createdAt: serverTimestamp(),
+          });
+        }
+        // 2. Notify assigned staff
+        const staffRecipients = new Set<string>();
+        if (student.teacherId) staffRecipients.add(student.teacherId);
+        if (student.therapistIds) {
+          student.therapistIds.forEach(id => staffRecipients.add(id));
+        }
+        for (const recipientId of staffRecipients) {
+          await addDoc(collection(db, "notifications"), {
+            recipientId,
+            type: "medical_update",
+            title: "Medical Profile Updated 🩺",
+            message: `Medical profile for ${student.name} was updated.`,
+            read: false,
+            createdAt: serverTimestamp(),
+          });
+        }
+      }
+    } catch (_) {}
   },
 
   getCarePlan: async (studentId: string) => {
@@ -160,6 +194,40 @@ export const studentsDb = {
       data,
       { merge: true }
     );
+
+    // Notify parent and assigned staff
+    try {
+      const student = await studentsDb.get(studentId);
+      if (student) {
+        // 1. Notify Parent
+        if (student.parentId) {
+          await addDoc(collection(db, "notifications"), {
+            recipientId: student.parentId,
+            type: "care_plan_update",
+            title: "Care Plan Updated 🎯",
+            message: `The Care Plan goals for ${student.name} have been updated.`,
+            read: false,
+            createdAt: serverTimestamp(),
+          });
+        }
+        // 2. Notify assigned staff
+        const staffRecipients = new Set<string>();
+        if (student.teacherId) staffRecipients.add(student.teacherId);
+        if (student.therapistIds) {
+          student.therapistIds.forEach(id => staffRecipients.add(id));
+        }
+        for (const recipientId of staffRecipients) {
+          await addDoc(collection(db, "notifications"), {
+            recipientId,
+            type: "care_plan_update",
+            title: "Care Plan Updated 🎯",
+            message: `Care Plan for ${student.name} was updated.`,
+            read: false,
+            createdAt: serverTimestamp(),
+          });
+        }
+      }
+    } catch (_) {}
   },
 };
 
@@ -229,6 +297,45 @@ export const abcDb = {
       createdAt: serverTimestamp(),
       timestamp: new Date().toISOString(),
     });
+
+    // Notify parent and assigned staff
+    try {
+      const student = await studentsDb.get(data.studentId as string);
+      if (student) {
+        // 1. Notify Parent
+        if (student.parentId) {
+          await addDoc(collection(db, "notifications"), {
+            recipientId: student.parentId,
+            type: "behavior_incident",
+            title: "Behavior Incident ⚠️",
+            message: `New behavior incident logged for ${student.name}: ${(data.behavior as any)?.text || "Behavior incident"}.`,
+            read: false,
+            createdAt: serverTimestamp(),
+          });
+        }
+        // 2. Notify assigned staff (excluding the logger)
+        const staffRecipients = new Set<string>();
+        if (student.teacherId && student.teacherId !== loggedBy) {
+          staffRecipients.add(student.teacherId);
+        }
+        if (student.therapistIds) {
+          student.therapistIds.forEach(id => {
+            if (id !== loggedBy) staffRecipients.add(id);
+          });
+        }
+        for (const recipientId of staffRecipients) {
+          await addDoc(collection(db, "notifications"), {
+            recipientId,
+            type: "behavior_incident",
+            title: "Behavior Incident ⚠️",
+            message: `${student.name} had a behavioral incident logged by staff.`,
+            read: false,
+            createdAt: serverTimestamp(),
+          });
+        }
+      }
+    } catch (_) {}
+
     return incidentId;
   },
 
@@ -367,21 +474,38 @@ export const panicDb = {
     };
     await setDoc(doc(db, "panicAlerts", alertId), alertData);
 
-    // Notify all admins in the same center
+    // Notify all staff (admins, teachers, therapists) in the same center
     try {
-      const adminsSnap = await getDocs(
+      const staffSnap = await getDocs(
         query(
           collection(db, "users"),
           where("centerId", "==", data.centerId),
-          where("role", "==", "admin")
+          where("role", "in", ["admin", "teacher", "therapist"])
         )
       );
-      for (const adminDoc of adminsSnap.docs) {
+      for (const staffDoc of staffSnap.docs) {
         await addDoc(collection(db, "notifications"), {
-          recipientId: adminDoc.id,
+          recipientId: staffDoc.id,
           type: "panic_alert",
           alertId,
+          title: "Panic Alert 🚨",
           message: `PANIC ALERT: ${data.emergencyType} in ${data.location}`,
+          read: false,
+          createdAt: serverTimestamp(),
+        });
+      }
+    } catch (_) {}
+
+    // Notify student's parent
+    try {
+      const student = await studentsDb.get(data.studentId as string);
+      if (student?.parentId) {
+        await addDoc(collection(db, "notifications"), {
+          recipientId: student.parentId,
+          type: "panic_alert",
+          alertId,
+          title: "Emergency Alert 🚨",
+          message: `An emergency alert has been raised for your child ${student.name}: ${data.emergencyType} in ${data.location}`,
           read: false,
           createdAt: serverTimestamp(),
         });

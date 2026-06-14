@@ -25,7 +25,7 @@ const ROLE_PATHS: Record<string, string[]> = {
   admin:     ["/dashboard/admin", "/dashboard/students", "/dashboard/daily-care", "/dashboard/abc-tracker", "/dashboard/panic"],
   teacher:   ["/dashboard/students", "/dashboard/daily-care", "/dashboard/abc-tracker", "/dashboard/panic"],
   therapist: ["/dashboard/students", "/dashboard/abc-tracker", "/dashboard/panic"],
-  parent:    ["/dashboard/students", "/dashboard/daily-care", "/dashboard/abc-tracker"],
+  parent:    ["/dashboard/students", "/dashboard/daily-care", "/dashboard/abc-tracker", "/dashboard/fees"],
 };
 
 export default function DashboardLayout({

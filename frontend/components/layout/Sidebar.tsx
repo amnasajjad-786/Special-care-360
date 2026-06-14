@@ -8,7 +8,7 @@ import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import toast from "react-hot-toast";
 import { useSidebar } from "@/app/dashboard/layout";
-import { Users, BookOpen, Brain, Bell, Key, AlertTriangle, LogOut } from "lucide-react";
+import { Users, BookOpen, Brain, Bell, Key, AlertTriangle, LogOut, Receipt } from "lucide-react";
 
 interface NavItem {
   href: string;
@@ -21,6 +21,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/students",    icon: Users, label: "Students",    roles: ["admin","teacher","therapist","parent"] },
   { href: "/dashboard/daily-care",  icon: BookOpen, label: "Daily Care",  roles: ["admin","teacher","parent"] },
   { href: "/dashboard/abc-tracker", icon: Brain, label: "ABC Tracker", roles: ["admin","teacher","therapist","parent"] },
+  { href: "/dashboard/fees",        icon: Receipt, label: "Fees & Billing", roles: ["parent"] },
   { href: "/dashboard/admin/alerts",icon: Bell, label: "Alerts",      roles: ["admin"] },
   { href: "/dashboard/admin",       icon: Key, label: "Admin Panel", roles: ["admin"] },
   { href: "/dashboard/panic",       icon: AlertTriangle, label: "Panic Alert", roles: ["teacher","therapist"] },

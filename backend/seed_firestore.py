@@ -284,12 +284,17 @@ INVOICES = [
   { "studentName": "Ahmed Raza", "amount": 15000, "month": "June 2025", "issued": "01 Jun", "status": "paid", "centerId": "center-001" },
   { "studentName": "Fatima Noor", "amount": 18000, "month": "June 2025", "issued": "01 Jun", "status": "paid", "centerId": "center-001" },
   { "studentName": "Bilal Ahmed", "amount": 15000, "month": "May 2025", "issued": "01 May", "status": "pending", "centerId": "center-001" },
+  { "studentName": "Ahmed Hassan", "amount": 15000, "month": "July 2025", "issued": "01 Jul", "status": "pending", "centerId": "center-001" },
+  { "studentName": "Ahmed Hassan", "amount": 15000, "month": "June 2025", "issued": "01 Jun", "status": "paid", "centerId": "center-001" },
+  { "studentName": "Ahmed Hassan", "amount": 15000, "month": "May 2025", "issued": "01 May", "status": "paid", "centerId": "center-001" },
 ]
 
 PAYMENTS = [
   { "studentName": "Ahmed Raza", "amount": 15000, "method": "Bank Transfer", "date": "03 Jun 2025", "recordedBy": "Admin", "centerId": "center-001" },
   { "studentName": "Fatima Noor", "amount": 18000, "method": "Cash", "date": "02 Jun 2025", "recordedBy": "Admin", "centerId": "center-001" },
   { "studentName": "Hina Malik", "amount": 12000, "method": "EasyPaisa", "date": "01 Jun 2025", "recordedBy": "Admin", "centerId": "center-001" },
+  { "studentName": "Ahmed Hassan", "amount": 15000, "method": "Bank Transfer", "date": "04 Jun 2025", "recordedBy": "Admin", "centerId": "center-001" },
+  { "studentName": "Ahmed Hassan", "amount": 15000, "method": "Bank Transfer", "date": "02 May 2025", "recordedBy": "Admin", "centerId": "center-001" },
 ]
 
 for inv in INVOICES:
@@ -299,6 +304,91 @@ print(f"  {len(INVOICES)} invoices seeded")
 for pay in PAYMENTS:
     db.collection("payments").add(pay)
 print(f"  {len(PAYMENTS)} payments seeded")
+
+
+# ── 7. Notifications ───────────────────────────────────────────────────────────
+NOTIFICATIONS = [
+    # Parent (Ali Hassan)
+    {
+        "recipientId": "SypFxQwk4NZ95lAh9aznOu4Zk2G3",
+        "type": "daily_journal",
+        "title": "Daily Care Submitted",
+        "message": "Ms. Fatima Khan submitted Ahmed's journal.",
+        "read": False,
+        "createdAt": datetime.now(timezone.utc) - timedelta(minutes=5),
+    },
+    {
+        "recipientId": "SypFxQwk4NZ95lAh9aznOu4Zk2G3",
+        "type": "care_plan_update",
+        "title": "IEP Goal Updated",
+        "message": "Dr. Zara Ahmed updated verbal communication goal.",
+        "read": False,
+        "createdAt": datetime.now(timezone.utc) - timedelta(hours=2),
+    },
+    {
+        "recipientId": "SypFxQwk4NZ95lAh9aznOu4Zk2G3",
+        "type": "system",
+        "title": "Weekly Newsletter",
+        "message": "Special Care 360 Weekly Digest is available.",
+        "read": True,
+        "createdAt": datetime.now(timezone.utc) - timedelta(days=1),
+    },
+    # Admin (Dr. Amna Raza)
+    {
+        "recipientId": "OUsJTDmRYtd1EUK9Ywsr36gz50t2",
+        "type": "system",
+        "title": "System Check",
+        "message": "Database backups completed successfully.",
+        "read": True,
+        "createdAt": datetime.now(timezone.utc) - timedelta(hours=1),
+    },
+    {
+        "recipientId": "OUsJTDmRYtd1EUK9Ywsr36gz50t2",
+        "type": "system",
+        "title": "Staff Meeting",
+        "message": "Monthly center meeting Friday at 3:00 PM.",
+        "read": True,
+        "createdAt": datetime.now(timezone.utc) - timedelta(hours=4),
+    },
+    # Teacher (Ms. Fatima Khan)
+    {
+        "recipientId": "45qodSioggZKyyw72gkPt1vrlFv2",
+        "type": "system",
+        "title": "System Check",
+        "message": "Database backups completed successfully.",
+        "read": True,
+        "createdAt": datetime.now(timezone.utc) - timedelta(hours=1),
+    },
+    {
+        "recipientId": "45qodSioggZKyyw72gkPt1vrlFv2",
+        "type": "system",
+        "title": "Staff Meeting",
+        "message": "Monthly center meeting Friday at 3:00 PM.",
+        "read": True,
+        "createdAt": datetime.now(timezone.utc) - timedelta(hours=4),
+    },
+    # Therapist (Dr. Zara Ahmed)
+    {
+        "recipientId": "cxcgtI5tqmdwxhoW7sK3C96q6sw2",
+        "type": "system",
+        "title": "System Check",
+        "message": "Database backups completed successfully.",
+        "read": True,
+        "createdAt": datetime.now(timezone.utc) - timedelta(hours=1),
+    },
+    {
+        "recipientId": "cxcgtI5tqmdwxhoW7sK3C96q6sw2",
+        "type": "system",
+        "title": "Staff Meeting",
+        "message": "Monthly center meeting Friday at 3:00 PM.",
+        "read": True,
+        "createdAt": datetime.now(timezone.utc) - timedelta(hours=4),
+    },
+]
+
+for notif in NOTIFICATIONS:
+    db.collection("notifications").add(notif)
+print(f"  {len(NOTIFICATIONS)} notifications seeded")
 
 
 print("\nFirestore seeding complete!")

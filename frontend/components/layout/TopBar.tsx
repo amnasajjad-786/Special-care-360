@@ -4,7 +4,7 @@ import { useAuth } from "@/lib/auth-context";
 import { usePathname, useRouter } from "next/navigation";
 import { useSidebar } from "@/app/dashboard/layout";
 import { useEffect, useState } from "react";
-import { collection, query, where, onSnapshot, doc, updateDoc, orderBy, limit } from "firebase/firestore";
+import { collection, query, where, onSnapshot, doc, updateDoc, orderBy, limit, addDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import toast from "react-hot-toast";
 import { Bell, Settings, LogOut } from "lucide-react";
@@ -69,20 +69,55 @@ export default function TopBar() {
     try {
       const q = query(
         collection(db, "notifications"),
-        where("recipientId", "==", profile.uid),
-        orderBy("createdAt", "desc"),
-        limit(20)
+        where("recipientId", "==", profile.uid)
       );
       
       const unsub = onSnapshot(q, (snap) => {
-        const items: NotificationItem[] = snap.docs.map(doc => {
+        if (snap.empty) {
+          // Auto-seed mock notifications in Firestore so they are real and interactive
+          const mocks = getDefaultMocks(profile.role);
+          mocks.forEach(async (m) => {
+            try {
+              let createdAtDate = new Date();
+              if (m.time.includes("m")) {
+                const mins = parseInt(m.time);
+                createdAtDate = new Date(Date.now() - mins * 60000);
+              } else if (m.time.includes("h")) {
+                const hrs = parseInt(m.time);
+                createdAtDate = new Date(Date.now() - hrs * 3600000);
+              } else if (m.time.includes("d")) {
+                const days = parseInt(m.time);
+                createdAtDate = new Date(Date.now() - days * 86400000);
+              }
+              
+              await addDoc(collection(db, "notifications"), {
+                recipientId: profile.uid,
+                type: m.type === "journal" ? "daily_journal" : m.type,
+                title: m.title,
+                message: m.body,
+                read: m.read,
+                createdAt: createdAtDate.toISOString(),
+              });
+            } catch (err) {
+              console.warn("Failed to auto-seed mock notification:", err);
+            }
+          });
+          return;
+        }
+
+        interface MappedNotif extends NotificationItem {
+          _rawDate: Date;
+        }
+
+        const items: MappedNotif[] = snap.docs.map(doc => {
           const data = doc.data();
           
           let timeStr = "Just now";
+          let parsedDate = new Date();
           if (data.createdAt) {
             try {
-              const date = data.createdAt.toDate ? data.createdAt.toDate() : new Date(data.createdAt);
-              const diffMs = Date.now() - date.getTime();
+              parsedDate = data.createdAt.toDate ? data.createdAt.toDate() : new Date(data.createdAt);
+              const diffMs = Date.now() - parsedDate.getTime();
               const diffMins = Math.floor(diffMs / 60000);
               const diffHours = Math.floor(diffMins / 60);
               const diffDays = Math.floor(diffHours / 24);
@@ -97,18 +132,27 @@ export default function TopBar() {
           return {
             id: doc.id,
             type: data.type || "system",
-            title: data.type === "panic_alert" ? "Panic Alert 🚨" : data.type === "daily_journal" ? "Daily Journal 📓" : "Notification",
+            title: data.title || (
+              data.type === "panic_alert" ? "Panic Alert 🚨" :
+              data.type === "daily_journal" ? "Daily Journal 📓" :
+              data.type === "behavior_incident" ? "Behavior Incident ⚠️" :
+              data.type === "care_plan_update" ? "Care Plan Updated 🎯" :
+              data.type === "medical_update" ? "Medical Profile Updated 🩺" :
+              "Notification"
+            ),
             body: data.message || "",
             time: timeStr,
             read: !!data.read,
+            _rawDate: parsedDate,
           };
         });
         
-        if (items.length === 0) {
-          setNotifications(getDefaultMocks(profile.role));
-        } else {
-          setNotifications(items);
-        }
+        // Sort latest first
+        items.sort((a, b) => b._rawDate.getTime() - a._rawDate.getTime());
+        // Limit to 20 items
+        const limitedItems: NotificationItem[] = items.slice(0, 20).map(({ _rawDate, ...rest }) => rest);
+        
+        setNotifications(limitedItems);
       }, () => {
         setNotifications(getDefaultMocks(profile.role));
       });
