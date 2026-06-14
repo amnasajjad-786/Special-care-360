@@ -17,7 +17,7 @@ from firebase_admin_init import init_firebase, get_db
 init_firebase()
 db = get_db()
 
-print("🌱 Seeding Firestore for Special Care 360...\n")
+print("Seeding Firestore for Special Care 360...\n")
 
 
 # ── 1. Users ──────────────────────────────────────────────────────────────────
@@ -58,7 +58,7 @@ USERS = [
 
 for u in USERS:
     db.collection("users").document(u["uid"]).set(u)
-    print(f"  ✅ User: {u['name']} ({u['role']})")
+    print(f"  User: {u['name']} ({u['role']})")
 
 
 # ── 2. Students ───────────────────────────────────────────────────────────────
@@ -152,7 +152,7 @@ for s in STUDENTS:
         ]
     })
 
-    print(f"  ✅ Student: {s['name']}")
+    print(f"  Student: {s['name']}")
 
 
 # ── 3. ABC Incidents ──────────────────────────────────────────────────────────
@@ -207,7 +207,7 @@ for inc in INCIDENTS:
     inc["id"] = iid
     inc["createdAt"] = datetime.now(timezone.utc).isoformat()
     db.collection("abcIncidents").document(iid).set(inc)
-print(f"  ✅ {len(INCIDENTS)} ABC incidents seeded")
+print(f"  {len(INCIDENTS)} ABC incidents seeded")
 
 
 # ── 4. Daily Care Journal ─────────────────────────────────────────────────────
@@ -239,7 +239,7 @@ for date, notes in [(today, "Ahmed had a great day! Very engaged during circle t
         "submittedBy": "45qodSioggZKyyw72gkPt1vrlFv2",
         "submittedAt": datetime.now(timezone.utc).isoformat(),
     })
-print(f"  ✅ Daily care journals seeded for today and yesterday")
+print(f"  Daily care journals seeded for today and yesterday")
 
 # ── 5. Staff ──────────────────────────────────────────────────────────────────
 STAFF = [
@@ -273,8 +273,9 @@ STAFF = [
 ]
 
 for s in STAFF:
-    db.collection("staff").add(s)
-print(f"  ✅ {len(STAFF)} staff members seeded")
+    doc_id = s["email"].replace(".", "_").replace("@", "_")
+    db.collection("staff").document(doc_id).set(s)
+print(f"  {len(STAFF)} staff members seeded")
 
 # ── 6. Fee Management ───────────────────────────────────────────────────────────
 INVOICES = [
@@ -293,16 +294,16 @@ PAYMENTS = [
 
 for inv in INVOICES:
     db.collection("invoices").add(inv)
-print(f"  ✅ {len(INVOICES)} invoices seeded")
+print(f"  {len(INVOICES)} invoices seeded")
 
 for pay in PAYMENTS:
     db.collection("payments").add(pay)
-print(f"  ✅ {len(PAYMENTS)} payments seeded")
+print(f"  {len(PAYMENTS)} payments seeded")
 
 
-print("\n✅ Firestore seeding complete!")
+print("\nFirestore seeding complete!")
 print("\nNext steps:")
-print("  1. Go to Firebase Console → Authentication → Users → Add User")
+print("  1. Go to Firebase Console -> Authentication -> Users -> Add User")
 print("     Create accounts for: admin@specialcare360.com, teacher@specialcare360.com,")
 print("                          therapist@specialcare360.com, parent@specialcare360.com")
 print("     Use password: SpecialCare2026!")
