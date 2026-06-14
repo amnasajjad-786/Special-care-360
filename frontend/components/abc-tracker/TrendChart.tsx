@@ -1,5 +1,6 @@
 "use client";
 import { ABCIncident } from "@/types";
+import { TrendingUp } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, CartesianGrid, Legend } from "recharts";
 import { format, parseISO } from "date-fns";
 
@@ -40,7 +41,9 @@ export default function TrendChart({ incidents }: Props) {
 
   return (
     <div className="glass-card" style={{ padding: "20px" }}>
-      <h3 style={{ margin: "0 0 4px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.95rem" }}>📈 Trend Frequency</h3>
+      <h3 style={{ margin: "0 0 4px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.95rem", display: "flex", alignItems: "center", gap: "8px" }}>
+        <TrendingUp size={18} /> Trend Frequency
+      </h3>
       <p style={{ margin: "0 0 16px", fontSize: "0.78rem", color: "var(--text-secondary)" }}>Daily incident count & severity over time</p>
       {chartData.length === 0 ? (
         <div style={{ height: "180px", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)", fontSize: "0.85rem" }}>No data yet</div>

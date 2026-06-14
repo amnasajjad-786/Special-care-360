@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { panicDb, studentsDb } from "@/lib/firestore-api";
 import toast from "react-hot-toast";
+import { AlertOctagon, AlertTriangle } from "lucide-react";
 
 
 const EMERGENCY_TYPES = ["Seizure", "Severe Meltdown", "Self-Injury", "Aggressive Behavior", "Medical Emergency", "Other"];
@@ -52,7 +53,11 @@ export default function PanicPage() {
         location,
       });
       setSent(true);
-      toast.error("🚨 Panic alert sent to all admins!", { duration: 5000, style: { background: "rgba(229,62,62,0.95)", color: "white", border: "none" } });
+      toast.error("Panic alert sent to all admins!", { 
+        duration: 5000, 
+        style: { background: "rgba(229,62,62,0.95)", color: "white", border: "none" },
+        icon: <AlertTriangle size={18} style={{ color: "white" }} />
+      });
     } catch (err) {
       console.error(err);
       toast.error("Failed to send alert. Please try again.");
@@ -64,7 +69,9 @@ export default function PanicPage() {
     return (
       <div style={{ maxWidth: "560px", margin: "60px auto" }}>
         <div className="glass-card animate-fade-in" style={{ padding: "48px", textAlign: "center" }}>
-          <div style={{ fontSize: "72px", marginBottom: "20px" }}>🚨</div>
+          <div style={{ display: "flex", justifyContent: "center", color: "var(--danger)", marginBottom: "20px" }}>
+            <AlertOctagon size={72} />
+          </div>
           <h2 style={{ margin: 0, fontSize: "1.6rem", fontWeight: 800, color: "var(--danger)" }}>Alert Sent!</h2>
           <p style={{ margin: "12px 0 0", color: "var(--text-secondary)", lineHeight: 1.6, fontSize: "0.95rem" }}>
             All admins have been notified. Stay with the student and follow the emergency protocol.
@@ -91,7 +98,7 @@ export default function PanicPage() {
     <div style={{ maxWidth: "640px", margin: "0 auto" }}>
       {/* Warning banner */}
       <div style={{ padding: "14px 20px", borderRadius: "12px", background: "rgba(229,62,62,0.08)", border: "1px solid rgba(229,62,62,0.25)", marginBottom: "24px", display: "flex", alignItems: "center", gap: "12px" }}>
-        <span style={{ fontSize: "24px" }}>⚠️</span>
+        <span style={{ display: "inline-flex", color: "var(--danger)" }}><AlertTriangle size={24} /></span>
         <div>
           <div style={{ fontWeight: 700, color: "var(--danger)", fontSize: "0.92rem" }}>Emergency Use Only</div>
           <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>Sending a panic alert immediately notifies all center admins.</div>
@@ -222,7 +229,11 @@ export default function PanicPage() {
               disabled={sending || !location}
               style={{ flex: 2, padding: "14px", fontSize: "1rem", fontWeight: 700 }}
             >
-              {sending ? "Sending…" : "🚨 SEND PANIC ALERT"}
+              {sending ? "Sending…" : (
+                <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+                  <AlertOctagon size={18} /> SEND PANIC ALERT
+                </span>
+              )}
             </button>
           </div>
         </div>

@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import { AlertTriangle, AlertOctagon } from "lucide-react";
 
 export default function PanicFloatingButton() {
   const { profile } = useAuth();
@@ -24,7 +25,7 @@ export default function PanicFloatingButton() {
         onClick={() => setShowModal(true)}
         title="Send Panic Alert"
       >
-        <span style={{ fontSize: "1.4rem" }}>⚠️</span>
+        <AlertTriangle size={20} />
         <span>PANIC</span>
       </button>
 
@@ -36,7 +37,9 @@ export default function PanicFloatingButton() {
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ textAlign: "center", marginBottom: "20px" }}>
-              <div style={{ fontSize: "52px", marginBottom: "12px" }}>🚨</div>
+              <div style={{ display: "flex", justifyContent: "center", color: "#c53030", marginBottom: "12px" }}>
+                <AlertOctagon size={52} />
+              </div>
               <h2 style={{ margin: 0, fontSize: "1.3rem", fontWeight: 800, color: "#c53030" }}>
                 Send Panic Alert?
               </h2>
@@ -59,7 +62,9 @@ export default function PanicFloatingButton() {
                 onClick={handleConfirm}
                 style={{ flex: 1, padding: "13px" }}
               >
-                ⚠️ Send Alert
+                <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
+                  <AlertTriangle size={15} /> Send Alert
+                </span>
               </button>
             </div>
           </div>

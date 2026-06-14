@@ -2,6 +2,7 @@
 
 import React from "react";
 import { HeatmapCell } from "@/types";
+import { Calendar } from "lucide-react";
 
 interface Props {
   data: HeatmapCell[];
@@ -46,9 +47,12 @@ export default function HeatmapGrid({ data }: Props) {
           fontWeight: 700,
           color: "var(--primary-dark)",
           fontSize: "0.95rem",
+          display: "flex",
+          alignItems: "center",
+          gap: "8px"
         }}
       >
-        📊 Incident Heatmap
+        <Calendar size={18} /> Incident Heatmap
       </h3>
 
       {/* Grid */}

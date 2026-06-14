@@ -6,6 +6,7 @@ import { panicDb, studentsDb } from "@/lib/firestore-api";
 import { PanicAlert } from "@/types";
 import { useAuth } from "@/lib/auth-context";
 import toast from "react-hot-toast";
+import { Zap, Frown, HeartPulse, AlertTriangle, AlertOctagon, CheckCircle, MapPin } from "lucide-react";
 
 function timeAgo(ts: string) {
   const diff = Date.now() - new Date(ts).getTime();
@@ -72,14 +73,21 @@ export default function AlertsPage() {
   const filtered = alerts.filter(a => filter === "all" ? true : a.status === filter);
   const activeCount = alerts.filter(a => a.status === "active").length;
 
-  const EMERGENCY_ICONS: Record<string, string> = { Seizure: "⚡", "Severe Meltdown": "😤", "Self-Injury": "🤕", "Aggressive Behavior": "⚠️", "Medical Emergency": "🏥", Other: "🚨" };
+  const EMERGENCY_ICONS: Record<string, React.ComponentType<{ size?: number; className?: string; style?: React.CSSProperties }>> = {
+    Seizure: Zap,
+    "Severe Meltdown": Frown,
+    "Self-Injury": HeartPulse,
+    "Aggressive Behavior": AlertTriangle,
+    "Medical Emergency": HeartPulse,
+    Other: AlertOctagon,
+  };
 
   return (
     <div>
       {/* Active alert banner */}
       {activeCount > 0 && (
         <div style={{ padding: "16px 20px", borderRadius: "12px", background: "rgba(229,62,62,0.1)", border: "2px solid rgba(229,62,62,0.35)", marginBottom: "24px", display: "flex", alignItems: "center", gap: "12px", animation: "pulse-ring 2s infinite" }}>
-          <span style={{ fontSize: "28px" }}>🚨</span>
+          <span style={{ display: "inline-flex", color: "var(--danger)" }}><AlertOctagon size={28} /></span>
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 800, color: "var(--danger)", fontSize: "1rem" }}>
               {activeCount} Active Emergency Alert{activeCount > 1 ? "s" : ""}
@@ -107,7 +115,7 @@ export default function AlertsPage() {
       {/* Alert cards */}
       {filtered.length === 0 ? (
         <div className="glass-card" style={{ padding: "60px", textAlign: "center" }}>
-          <div style={{ fontSize: "52px", marginBottom: "16px" }}>✅</div>
+          <div style={{ display: "flex", justifyContent: "center", color: "var(--success)", marginBottom: "16px" }}><CheckCircle size={52} /></div>
           <h2 style={{ margin: 0, color: "var(--primary-dark)" }}>No {filter !== "all" ? filter : ""} alerts</h2>
           <p style={{ color: "var(--text-secondary)", marginTop: "8px" }}>Everything is calm right now.</p>
         </div>
@@ -133,7 +141,10 @@ export default function AlertsPage() {
                     display: "flex", alignItems: "center", justifyContent: "center",
                     fontSize: "22px",
                   }}>
-                    {EMERGENCY_ICONS[alert.emergencyType] || "🚨"}
+                    {(() => {
+                      const IconComp = EMERGENCY_ICONS[alert.emergencyType] || AlertOctagon;
+                      return <IconComp size={24} style={{ color: isActive ? "var(--danger)" : "var(--text-secondary)" }} />;
+                    })()}
                   </div>
 
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -142,7 +153,7 @@ export default function AlertsPage() {
                         {alert.emergencyType}
                       </span>
                       <span className={`chip ${isActive ? "chip-danger" : "chip-gray"}`}>
-                        {isActive ? "🔴 ACTIVE" : "✅ Resolved"}
+                        {isActive ? "ACTIVE" : "Resolved"}
                       </span>
                       <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginLeft: "auto" }}>
                         {timeAgo(alert.timestamp)}
@@ -156,7 +167,7 @@ export default function AlertsPage() {
                       </div>
                       <div>
                         <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase" }}>Location</div>
-                        <div style={{ fontWeight: 600, fontSize: "0.88rem", color: "var(--text-primary)" }}>📍 {alert.location}</div>
+                        <div style={{ fontWeight: 600, fontSize: "0.88rem", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "4px" }}><MapPin size={14} style={{ color: "var(--text-secondary)" }} /> {alert.location}</div>
                       </div>
                       <div>
                         <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase" }}>Reported By</div>
@@ -170,7 +181,7 @@ export default function AlertsPage() {
 
                     {!isActive && alert.resolvedAt && (
                       <div style={{ fontSize: "0.78rem", color: "var(--success)", fontWeight: 600 }}>
-                        ✅ Resolved {timeAgo(alert.resolvedAt)}
+                        Resolved {timeAgo(alert.resolvedAt)}
                       </div>
                     )}
                   </div>
@@ -183,7 +194,7 @@ export default function AlertsPage() {
                       onClick={() => handleResolve(alert.id)}
                       style={{ flexShrink: 0, padding: "10px 18px", fontSize: "0.85rem" }}
                     >
-                      {resolving === alert.id ? "Resolving…" : "✅ Mark Resolved"}
+                      {resolving === alert.id ? "Resolving…" : "Mark Resolved"}
                     </button>
                   )}
                 </div>

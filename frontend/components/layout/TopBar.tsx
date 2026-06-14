@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import toast from "react-hot-toast";
+import { Bell, Settings, LogOut } from "lucide-react";
 
 const PAGE_TITLES: Record<string, string> = {
   "/dashboard/students":     "Students",
@@ -71,7 +72,7 @@ export default function TopBar() {
             return {
               id: doc.id,
               type: "alert",
-              title: `🚨 Emergency: ${data.emergencyType}`,
+              title: `Emergency: ${data.emergencyType}`,
               body: `${data.reportedBy?.name || "Staff"} reported at ${data.location || "unknown location"}`,
               time: "Just now",
               read: false
@@ -90,14 +91,14 @@ export default function TopBar() {
         }, () => {
           // Fallback mock alerts if Firestore is not configured
           setNotifications([
-            { id: "a1", type: "alert", title: "🚨 Demo Emergency Alert", body: "Meltdown reported in Classroom A", time: "10m ago", read: false },
+            { id: "a1", type: "alert", title: "Demo Emergency Alert", body: "Meltdown reported in Classroom A", time: "10m ago", read: false },
             { id: "s1", type: "system", title: "System Check", body: "Database backups completed successfully.", time: "1h ago", read: true }
           ]);
         });
         return unsub;
       } catch {
         setNotifications([
-          { id: "a1", type: "alert", title: "🚨 Demo Emergency Alert", body: "Meltdown reported in Classroom A", time: "10m ago", read: false },
+          { id: "a1", type: "alert", title: "Demo Emergency Alert", body: "Meltdown reported in Classroom A", time: "10m ago", read: false },
           { id: "s1", type: "system", title: "System Check", body: "Database backups completed successfully.", time: "1h ago", read: true }
         ]);
       }
@@ -188,7 +189,7 @@ export default function TopBar() {
           }}
           title="Notifications"
         >
-          🔔
+          <Bell size={18} style={{ color: "var(--primary-dark)" }} />
           {unreadCount > 0 && (
             <span style={{
               position: "absolute", top: "4px", right: "4px",
@@ -238,7 +239,7 @@ export default function TopBar() {
             <div style={{ maxHeight: "240px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "8px" }}>
               {notifications.length === 0 ? (
                 <div style={{ padding: "16px", textAlign: "center", color: "var(--text-secondary)", fontSize: "0.82rem" }}>
-                  All caught up! 🦋
+                  All caught up!
                 </div>
               ) : (
                 notifications.map(item => (
@@ -345,24 +346,26 @@ export default function TopBar() {
                 style={{
                   width: "100%", padding: "8px 10px", borderRadius: "8px", background: "none", border: "none",
                   textAlign: "left", fontSize: "0.82rem", color: "var(--text-primary)", fontWeight: 500,
-                  cursor: "pointer", transition: "background 0.2s"
+                  cursor: "pointer", transition: "background 0.2s",
+                  display: "flex", alignItems: "center", gap: "6px"
                 }}
                 onMouseOver={e => e.currentTarget.style.background = "rgba(0,0,0,0.04)"}
                 onMouseOut={e => e.currentTarget.style.background = "none"}
               >
-                ⚙️ Settings
+                <Settings size={15} /> Settings
               </button>
               <button
                 onClick={handleLogout}
                 style={{
                   width: "100%", padding: "8px 10px", borderRadius: "8px", background: "rgba(229,62,62,0.08)", border: "none",
                   textAlign: "left", fontSize: "0.82rem", color: "#e53e3e", fontWeight: 600,
-                  cursor: "pointer", transition: "background 0.2s"
+                  cursor: "pointer", transition: "background 0.2s",
+                  display: "flex", alignItems: "center", gap: "6px"
                 }}
                 onMouseOver={e => e.currentTarget.style.background = "rgba(229,62,62,0.14)"}
                 onMouseOut={e => e.currentTarget.style.background = "rgba(229,62,62,0.08)"}
               >
-                🚪 Logout
+                <LogOut size={15} /> Logout
               </button>
             </div>
           </div>

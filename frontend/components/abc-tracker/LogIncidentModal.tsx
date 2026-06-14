@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { abcDb, studentsDb } from "@/lib/firestore-api";
 import { useAuth } from "@/lib/auth-context";
 import toast from "react-hot-toast";
+import { Brain, Search, Zap, MessageSquare, BarChart, Plus } from "lucide-react";
 
 const ANTECEDENT_TAGS = ["Loud Noise", "Transition", "Crowded Space", "Denied Request", "Unexpected Change"];
 const BEHAVIOR_TAGS = ["Hitting", "Screaming", "Self-harm", "Crying", "Running away", "Withdrawal"];
@@ -90,7 +91,7 @@ export default function LogIncidentModal({ onClose, onSaved }: Props) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-box" style={{ width: "100%", maxWidth: "680px", padding: "32px" }} onClick={e => e.stopPropagation()}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "24px" }}>
-          <h2 style={{ margin: 0, fontWeight: 800, color: "var(--primary-dark)", fontSize: "1.2rem" }}>🧠 Log ABC Incident</h2>
+          <h2 style={{ margin: 0, fontWeight: 800, color: "var(--primary-dark)", fontSize: "1.2rem", display: "flex", alignItems: "center", gap: "8px" }}><Brain size={20} /> Log ABC Incident</h2>
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1.5rem", color: "var(--text-secondary)" }}>×</button>
         </div>
 
@@ -121,21 +122,21 @@ export default function LogIncidentModal({ onClose, onSaved }: Props) {
 
           {/* Antecedent */}
           <div style={{ padding: "16px", background: "rgba(123,196,196,0.06)", borderRadius: "12px", border: "1px solid rgba(123,196,196,0.2)" }}>
-            <div style={{ fontWeight: 700, color: "var(--accent-teal)", fontSize: "0.9rem", marginBottom: "10px" }}>🔍 A — Antecedent (What happened before?)</div>
+            <div style={{ fontWeight: 700, color: "var(--accent-teal)", fontSize: "0.9rem", marginBottom: "10px", display: "flex", alignItems: "center", gap: "6px" }}><Search size={16} /> A — Antecedent (What happened before?)</div>
             <textarea className="glass-input" rows={2} placeholder="Describe what happened before the behavior…" style={{ marginBottom: "10px", resize: "vertical" }} value={antText} onChange={e => setAntText(e.target.value)} />
             <TagSelector tags={ANTECEDENT_TAGS} selected={antTags} onToggle={toggleTag(setAntTags)} color="var(--accent-teal)" />
           </div>
 
           {/* Behavior */}
           <div style={{ padding: "16px", background: "rgba(232,165,152,0.06)", borderRadius: "12px", border: "1px solid rgba(232,165,152,0.2)" }}>
-            <div style={{ fontWeight: 700, color: "var(--accent-coral)", fontSize: "0.9rem", marginBottom: "10px" }}>⚡ B — Behavior (What did the student do?)</div>
+            <div style={{ fontWeight: 700, color: "var(--accent-coral)", fontSize: "0.9rem", marginBottom: "10px", display: "flex", alignItems: "center", gap: "6px" }}><Zap size={16} /> B — Behavior (What did the student do?)</div>
             <textarea className="glass-input" rows={2} placeholder="Describe the specific behavior observed…" style={{ marginBottom: "10px", resize: "vertical" }} value={behText} onChange={e => setBehText(e.target.value)} />
             <TagSelector tags={BEHAVIOR_TAGS} selected={behTags} onToggle={toggleTag(setBehTags)} color="var(--accent-coral)" />
           </div>
 
           {/* Consequence */}
           <div style={{ padding: "16px", background: "rgba(184,168,212,0.06)", borderRadius: "12px", border: "1px solid rgba(184,168,212,0.2)" }}>
-            <div style={{ fontWeight: 700, color: "var(--accent-lavender)", fontSize: "0.9rem", marginBottom: "10px" }}>💬 C — Consequence (How did staff respond?)</div>
+            <div style={{ fontWeight: 700, color: "var(--accent-lavender)", fontSize: "0.9rem", marginBottom: "10px", display: "flex", alignItems: "center", gap: "6px" }}><MessageSquare size={16} /> C — Consequence (How did staff respond?)</div>
             <textarea className="glass-input" rows={2} placeholder="Describe the staff response…" style={{ marginBottom: "10px", resize: "vertical" }} value={conText} onChange={e => setConText(e.target.value)} />
             <TagSelector tags={CONSEQUENCE_TAGS} selected={conTags} onToggle={toggleTag(setConTags)} color="var(--accent-lavender)" />
           </div>
@@ -143,7 +144,7 @@ export default function LogIncidentModal({ onClose, onSaved }: Props) {
           {/* Severity */}
           <div style={{ padding: "16px", background: "rgba(255,255,255,0.5)", borderRadius: "12px", border: "1px solid rgba(255,255,255,0.7)" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
-              <div style={{ fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.9rem" }}>📊 Severity</div>
+              <div style={{ fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.9rem", display: "flex", alignItems: "center", gap: "6px" }}><BarChart size={16} /> Severity</div>
               <span style={{ fontWeight: 800, fontSize: "1rem", color: severityColor }}>{severity}/5 — {severityLabel}</span>
             </div>
             <input type="range" min={1} max={5} value={severity} onChange={e => setSeverity(Number(e.target.value))} style={{ width: "100%" }} />
@@ -155,7 +156,11 @@ export default function LogIncidentModal({ onClose, onSaved }: Props) {
           <div style={{ display: "flex", gap: "12px" }}>
             <button type="button" className="btn-ghost" onClick={onClose} style={{ flex: 1, padding: "13px" }}>Cancel</button>
             <button id="abc-submit" type="submit" className="btn-primary" disabled={saving} style={{ flex: 2, padding: "13px" }}>
-              {saving ? "Saving…" : "📝 Log Incident"}
+              {saving ? "Saving…" : (
+                <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
+                  <Plus size={16} /> Log Incident
+                </span>
+              )}
             </button>
           </div>
         </form>

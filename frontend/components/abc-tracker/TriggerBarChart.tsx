@@ -1,6 +1,7 @@
 "use client";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { PatternAnalysis } from "@/types";
+import { Target } from "lucide-react";
 
 interface Props { patterns: PatternAnalysis | null; }
 
@@ -27,7 +28,9 @@ export default function TriggerBarChart({ patterns }: Props) {
 
   return (
     <div className="glass-card" style={{ padding: "20px" }}>
-      <h3 style={{ margin: "0 0 4px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.95rem" }}>🎯 Trigger Frequency</h3>
+      <h3 style={{ margin: "0 0 4px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.95rem", display: "flex", alignItems: "center", gap: "8px" }}>
+        <Target size={18} /> Trigger Frequency
+      </h3>
       <p style={{ margin: "0 0 14px", fontSize: "0.78rem", color: "var(--text-secondary)" }}>Top antecedents triggering incidents</p>
       {data.length === 0 ? (
         <div style={{ height: "180px", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)", fontSize: "0.85rem" }}>No trigger data yet</div>

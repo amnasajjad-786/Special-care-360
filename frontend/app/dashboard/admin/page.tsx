@@ -525,7 +525,7 @@ export default function AdminDashboard() {
     setTimeout(() => {
       toast.dismiss(reportToast);
       toast.success(`${type} generated & downloaded successfully!`, {
-        icon: "📄"
+        icon: <FileSpreadsheet size={18} style={{ color: "var(--accent-teal)" }} />
       });
     }, 1500);
   };
@@ -644,18 +644,25 @@ export default function AdminDashboard() {
             <div className="glass-card" style={{ padding: "20px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase" }}>Total Students</span>
-                <span style={{ fontSize: "1.2rem", background: "rgba(123, 196, 196, 0.2)", padding: "4px 8px", borderRadius: "8px" }}>👥</span>
+                <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", background: "rgba(123, 196, 196, 0.2)", padding: "6px", borderRadius: "8px" }}>
+                  <Users size={18} style={{ color: "#7bc4c4" }} />
+                </span>
               </div>
               <h2 style={{ fontSize: "2rem", fontWeight: 800, margin: "10px 0 5px 0", color: "var(--primary-dark)" }}>
                 {totalStudents}
               </h2>
-              <span style={{ fontSize: "0.78rem", color: "var(--success)" }}>🟢 Active enrollments</span>
+              <span style={{ fontSize: "0.78rem", color: "var(--success)", display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "var(--success)", display: "inline-block" }} />
+                Active enrollments
+              </span>
             </div>
 
             <div className="glass-card" style={{ padding: "20px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase" }}>Staff Members</span>
-                <span style={{ fontSize: "1.2rem", background: "rgba(155, 142, 196, 0.2)", padding: "4px 8px", borderRadius: "8px" }}>💼</span>
+                <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", background: "rgba(155, 142, 196, 0.2)", padding: "6px", borderRadius: "8px" }}>
+                  <Contact size={18} style={{ color: "#b8a8d4" }} />
+                </span>
               </div>
               <h2 style={{ fontSize: "2rem", fontWeight: 800, margin: "10px 0 5px 0", color: "var(--primary-dark)" }}>
                 {staffCount}
@@ -679,7 +686,9 @@ export default function AdminDashboard() {
             <div className="glass-card animate-pulse-ring" style={{ padding: "20px", border: "1px solid rgba(229, 62, 62, 0.3)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--danger)", textTransform: "uppercase" }}>Panic Alerts</span>
-                <span style={{ fontSize: "1.2rem", background: "rgba(229, 62, 62, 0.2)", padding: "4px 8px", borderRadius: "8px" }}>🚨</span>
+                <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", background: "rgba(229, 62, 62, 0.2)", padding: "6px", borderRadius: "8px" }}>
+                  <AlertTriangle size={18} style={{ color: "var(--danger)" }} />
+                </span>
               </div>
               <h2 style={{ fontSize: "2rem", fontWeight: 800, margin: "10px 0 5px 0", color: "var(--danger)" }}>
                 {activeAlertsCount}
@@ -774,11 +783,13 @@ export default function AdminDashboard() {
             {/* Pending Approvals Widget */}
             <div className="glass-card" style={{ padding: "24px" }}>
               <h3 style={{ fontSize: "1.1rem", fontWeight: 700, marginBottom: "16px", color: "var(--primary-dark)", display: "flex", alignItems: "center", gap: "8px" }}>
-                <span>👤</span> Pending Approvals
+                <UserPlus size={18} style={{ color: "var(--accent-teal)" }} /> Pending Approvals
               </h3>
               {pendingUsers.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "30px 0", color: "var(--text-secondary)" }}>
-                  <div style={{ fontSize: "2rem", marginBottom: "8px" }}>✅</div>
+                  <div style={{ display: "flex", justifyContent: "center", marginBottom: "8px", color: "var(--success)" }}>
+                    <CheckCircle size={32} />
+                  </div>
                   <div style={{ fontSize: "0.85rem", fontWeight: 500 }}>No pending registration requests</div>
                 </div>
               ) : (

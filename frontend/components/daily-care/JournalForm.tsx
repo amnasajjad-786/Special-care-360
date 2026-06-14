@@ -5,13 +5,28 @@ import { useAuth } from "@/lib/auth-context";
 import { dailyCareDb } from "@/lib/firestore-api";
 import { DailyCareJournal, MealStatus, MoodType, ActivityLevel } from "@/types";
 import toast from "react-hot-toast";
+import { 
+  Smile, 
+  Meh, 
+  Frown, 
+  Angry, 
+  Moon, 
+  Coffee, 
+  Utensils, 
+  Apple, 
+  Sparkles, 
+  Activity, 
+  AlertTriangle, 
+  FileText, 
+  Check 
+} from "lucide-react";
 
-const MOOD_EMOJIS: { value: MoodType; emoji: string; label: string; color: string }[] = [
-  { value: "happy",    emoji: "😊", label: "Happy",    color: "#38a169" },
-  { value: "neutral",  emoji: "😐", label: "Neutral",  color: "#718096" },
-  { value: "sad",      emoji: "😢", label: "Sad",      color: "#3182ce" },
-  { value: "agitated", emoji: "😤", label: "Agitated", color: "#e53e3e" },
-  { value: "tired",    emoji: "😴", label: "Tired",    color: "#805ad5" },
+const MOODS_LIST: { value: MoodType; icon: React.ComponentType<{ size?: number; className?: string }>; label: string; color: string }[] = [
+  { value: "happy",    icon: Smile, label: "Happy",    color: "#38a169" },
+  { value: "neutral",  icon: Meh, label: "Neutral",  color: "#718096" },
+  { value: "sad",      icon: Frown, label: "Sad",      color: "#3182ce" },
+  { value: "agitated", icon: Angry, label: "Agitated", color: "#e53e3e" },
+  { value: "tired",    icon: Moon, label: "Tired",    color: "#805ad5" },
 ];
 const MOOD_SLOTS = ["Morning", "Midday", "After Lunch", "End of Day"];
 const ATE_OPTIONS: { value: MealStatus; label: string }[] = [
@@ -57,7 +72,9 @@ export default function JournalForm({ studentId, studentName, date }: Props) {
         { studentId, date, ...form },
         profile?.uid ?? "unknown"
       );
-      toast.success(`✅ Journal submitted for ${studentName}!`);
+      toast.success(`Journal submitted for ${studentName}!`, {
+        icon: <Check size={18} style={{ color: "var(--success)" }} />
+      });
     } catch (err) {
       console.error(err);
       toast.error("Failed to submit journal. Please try again.");
@@ -65,18 +82,23 @@ export default function JournalForm({ studentId, studentName, date }: Props) {
     setSaving(false);
   };
 
-  const mealEmoji = { breakfast: "🍳", lunch: "🍱", snack: "🍎" };
+  const MEAL_ICONS = { breakfast: Coffee, lunch: Utensils, snack: Apple };
   const ateColor = { fully: "var(--success)", partially: "var(--warning)", refused: "var(--danger)" };
 
   return (
     <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
       {/* ── Meals ── */}
       <div className="glass-card" style={{ padding: "24px" }}>
-        <h3 style={{ margin: "0 0 18px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem" }}>🍽️ Meals</h3>
+        <h3 style={{ margin: "0 0 18px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem", display: "flex", alignItems: "center", gap: "8px" }}><Utensils size={18} /> Meals</h3>
         {(["breakfast", "lunch", "snack"] as const).map(meal => (
           <div key={meal} style={{ marginBottom: "18px", paddingBottom: "18px", borderBottom: meal !== "snack" ? "1px solid rgba(0,0,0,0.05)" : "none" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "10px" }}>
-              <span style={{ fontSize: "1.2rem" }}>{mealEmoji[meal]}</span>
+              <span style={{ display: "inline-flex", color: "var(--text-secondary)" }}>
+                {(() => {
+                  const IconComp = MEAL_ICONS[meal];
+                  return <IconComp size={18} />;
+                })()}
+              </span>
               <span style={{ fontWeight: 600, textTransform: "capitalize", color: "var(--text-primary)" }}>{meal}</span>
               <div style={{ display: "flex", gap: "8px", marginLeft: "auto" }}>
                 {ATE_OPTIONS.map(opt => (
@@ -101,13 +123,13 @@ export default function JournalForm({ studentId, studentName, date }: Props) {
 
       {/* ── Hygiene ── */}
       <div className="glass-card" style={{ padding: "24px" }}>
-        <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem" }}>🧹 Hygiene</h3>
+        <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem", display: "flex", alignItems: "center", gap: "8px" }}><Sparkles size={18} /> Hygiene</h3>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
           {([
-            { key: "teethBrushed", label: "🦷 Teeth Brushed" },
-            { key: "handsWashed", label: "🧼 Hands Washed" },
-            { key: "diaperAssisted", label: "🚿 Diaper/Bathroom Assisted" },
-            { key: "hairCombed", label: "💇 Hair Combed" },
+            { key: "teethBrushed", label: "Teeth Brushed" },
+            { key: "handsWashed", label: "Hands Washed" },
+            { key: "diaperAssisted", label: "Diaper/Bathroom Assisted" },
+            { key: "hairCombed", label: "Hair Combed" },
           ] as { key: keyof typeof form.hygiene; label: string }[]).map(({ key, label }) => (
             <label key={key} style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer", padding: "12px", borderRadius: "10px", background: form.hygiene[key] ? "rgba(56,161,105,0.08)" : "rgba(255,255,255,0.5)", border: `1px solid ${form.hygiene[key] ? "rgba(56,161,105,0.25)" : "transparent"}`, transition: "all 0.2s" }}>
               <input type="checkbox" className="custom-checkbox" checked={form.hygiene[key]} onChange={e => setHygiene(key, e.target.checked)} />
@@ -119,7 +141,7 @@ export default function JournalForm({ studentId, studentName, date }: Props) {
 
       {/* ── Mood Timeline ── */}
       <div className="glass-card" style={{ padding: "24px" }}>
-        <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem" }}>😊 Mood Timeline</h3>
+        <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem", display: "flex", alignItems: "center", gap: "8px" }}><Smile size={18} /> Mood Timeline</h3>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px" }}>
           {MOOD_SLOTS.map(slot => {
             const current = form.moodTimeline.find(m => m.slot === slot)?.mood || "neutral";
@@ -127,7 +149,7 @@ export default function JournalForm({ studentId, studentName, date }: Props) {
               <div key={slot} style={{ padding: "14px", background: "rgba(255,255,255,0.5)", borderRadius: "12px", border: "1px solid rgba(255,255,255,0.7)", textAlign: "center" }}>
                 <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-secondary)", marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.04em" }}>{slot}</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                  {MOOD_EMOJIS.map(m => (
+                  {MOODS_LIST.map(m => (
                     <button key={m.value} type="button" onClick={() => setMood(slot, m.value)}
                       style={{ padding: "6px", borderRadius: "8px", border: "2px solid", cursor: "pointer", transition: "all 0.15s",
                         borderColor: current === m.value ? m.color : "transparent",
@@ -135,7 +157,7 @@ export default function JournalForm({ studentId, studentName, date }: Props) {
                         display: "flex", alignItems: "center", gap: "6px", fontSize: "0.82rem",
                         color: current === m.value ? m.color : "var(--text-secondary)", fontWeight: current === m.value ? 700 : 400,
                       }}>
-                      <span style={{ fontSize: "1.1rem" }}>{m.emoji}</span>{m.label}
+                      <m.icon size={16} />{m.label}
                     </button>
                   ))}
                 </div>
@@ -147,7 +169,7 @@ export default function JournalForm({ studentId, studentName, date }: Props) {
 
       {/* ── Physical Activity ── */}
       <div className="glass-card" style={{ padding: "24px" }}>
-        <h3 style={{ margin: "0 0 14px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem" }}>🏃 Physical Activity</h3>
+        <h3 style={{ margin: "0 0 14px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem", display: "flex", alignItems: "center", gap: "8px" }}><Activity size={18} /> Physical Activity</h3>
         <div style={{ display: "flex", gap: "8px", marginBottom: "12px", flexWrap: "wrap" }}>
           {ACTIVITY_OPTIONS.map(opt => {
             const actColor = { Active: "var(--success)", Moderate: "var(--accent-teal)", Low: "var(--warning)", "Bed Rest": "var(--danger)" }[opt];
@@ -170,19 +192,23 @@ export default function JournalForm({ studentId, studentName, date }: Props) {
       {/* ── Incidents & Notes ── */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
         <div className="glass-card" style={{ padding: "24px" }}>
-          <h3 style={{ margin: "0 0 12px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem" }}>⚠️ Incidents</h3>
+          <h3 style={{ margin: "0 0 12px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem", display: "flex", alignItems: "center", gap: "8px" }}><AlertTriangle size={18} style={{ color: "var(--danger)" }} /> Incidents</h3>
           <textarea className="glass-input" rows={4} placeholder="Describe any incidents that occurred today…" style={{ resize: "vertical" }}
             value={form.incidents} onChange={e => setForm(f => ({ ...f, incidents: e.target.value }))} />
         </div>
         <div className="glass-card" style={{ padding: "24px" }}>
-          <h3 style={{ margin: "0 0 12px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem" }}>📝 Teacher Notes</h3>
+          <h3 style={{ margin: "0 0 12px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem", display: "flex", alignItems: "center", gap: "8px" }}><FileText size={18} /> Teacher Notes</h3>
           <textarea className="glass-input" rows={4} placeholder="General observations and notes for the day…" style={{ resize: "vertical" }}
             value={form.teacherNotes} onChange={e => setForm(f => ({ ...f, teacherNotes: e.target.value }))} />
         </div>
       </div>
 
-      <button id="journal-submit" type="submit" className="btn-primary" disabled={saving} style={{ padding: "15px", fontSize: "1rem", width: "100%" }}>
-        {saving ? "Submitting…" : `✅ Submit Journal for ${studentName} — ${date}`}
+      <button id="journal-submit" type="submit" className="btn-primary" disabled={saving} style={{ padding: "15px", fontSize: "1rem", width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+        {saving ? "Submitting…" : (
+          <>
+            <Check size={18} /> Submit Journal for {studentName} — {date}
+          </>
+        )}
       </button>
     </form>
   );

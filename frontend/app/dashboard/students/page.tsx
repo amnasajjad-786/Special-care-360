@@ -10,6 +10,7 @@ import MedicalTab from "@/components/students/MedicalTab";
 import CarePlanTab from "@/components/students/CarePlanTab";
 import EmergencyTab from "@/components/students/EmergencyTab";
 import toast from "react-hot-toast";
+import { User, Heart, Target, AlertTriangle } from "lucide-react";
 
 const TABS = ["Overview", "Medical", "Care Plan", "Emergency"];
 
@@ -131,7 +132,9 @@ export default function StudentsPage() {
         <div style={{ flex: 1, minWidth: 0 }}>
           {!selectedStudent ? (
             <div className="glass-card animate-fade-in" style={{ padding: "60px", textAlign: "center" }}>
-              <div style={{ fontSize: "52px", marginBottom: "16px" }}>👤</div>
+              <div style={{ display: "flex", justifyContent: "center", color: "var(--text-secondary)", marginBottom: "16px" }}>
+                <User size={52} />
+              </div>
               <h2 style={{ margin: 0, color: "var(--primary-dark)" }}>Select a Student</h2>
               <p style={{ color: "var(--text-secondary)", marginTop: "8px" }}>
                 Choose a student from the list to view their profile
@@ -148,7 +151,13 @@ export default function StudentsPage() {
                       className={`tab-item${activeTab === tab ? " active" : ""}`}
                       onClick={() => setActiveTab(tab)}
                     >
-                      {tab === "Overview" ? "👤" : tab === "Medical" ? "💊" : tab === "Care Plan" ? "🎯" : "🚨"} {tab}
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                        {tab === "Overview" && <User size={15} />}
+                        {tab === "Medical" && <Heart size={15} />}
+                        {tab === "Care Plan" && <Target size={15} />}
+                        {tab === "Emergency" && <AlertTriangle size={15} />}
+                        <span>{tab}</span>
+                      </span>
                     </button>
                   ))}
                 </div>

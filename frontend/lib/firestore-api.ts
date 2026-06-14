@@ -64,13 +64,13 @@ export const studentsDb = {
     }
 
     const students: StudentDoc[] = snap.docs.map((d) => {
-      const data = d.data() as Omit<StudentDoc, "id">;
+      const data = d.data() as StudentDoc;
       return {
-        id: d.id,
         ...data,
+        id: d.id,
         teacherId: nameMap[data.teacherId] || data.teacherId,
         therapistIds: (data.therapistIds || []).map(tId => nameMap[tId] || tId),
-      };
+      } as StudentDoc;
     });
 
     if (role === "parent" && uid) {
@@ -82,12 +82,12 @@ export const studentsDb = {
   get: async (studentId: string): Promise<StudentDoc | null> => {
     const snap = await getDoc(doc(db, "students", studentId));
     if (!snap.exists()) return null;
-    return { id: snap.id, ...(snap.data() as Omit<StudentDoc, "id">) };
+    return { id: snap.id, ...snap.data() } as StudentDoc;
   },
 
   create: async (data: Omit<StudentDoc, "id">): Promise<string> => {
     if (data.dob) {
-      const age = Math.floor((Date.now() - new Date(data.dob).getTime()) / (365.25 * 24 * 3600 * 1000));
+      const age = Math.floor((Date.now() - new Date(data.dob as string).getTime()) / (365.25 * 24 * 3600 * 1000));
       if (age < 0 || age > 12) {
         throw new Error("Student age must be between 0 and 12 years.");
       }
@@ -117,7 +117,7 @@ export const studentsDb = {
 
   update: async (studentId: string, data: Partial<StudentDoc>): Promise<void> => {
     if (data.dob) {
-      const age = Math.floor((Date.now() - new Date(data.dob).getTime()) / (365.25 * 24 * 3600 * 1000));
+      const age = Math.floor((Date.now() - new Date(data.dob as string).getTime()) / (365.25 * 24 * 3600 * 1000));
       if (age < 0 || age > 12) {
         throw new Error("Student age must be between 0 and 12 years.");
       }
@@ -376,7 +376,7 @@ export const panicDb = {
           recipientId: adminDoc.id,
           type: "panic_alert",
           alertId,
-          message: `🚨 PANIC ALERT: ${data.emergencyType} in ${data.location}`,
+          message: `PANIC ALERT: ${data.emergencyType} in ${data.location}`,
           read: false,
           createdAt: serverTimestamp(),
         });

@@ -5,11 +5,13 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import toast from "react-hot-toast";
 
+import { Users, GraduationCap, Brain, Shield, Lock } from "lucide-react";
+
 const ROLES = [
-  { id: "parent",    label: "Parent Login",    emoji: "👨‍👩‍👧", desc: "View your child's progress" },
-  { id: "teacher",   label: "Teacher Login",   emoji: "👩🏫", desc: "Manage daily care & journals" },
-  { id: "therapist", label: "Therapist Login",  emoji: "🧑‍⚕️", desc: "Track behavioral patterns" },
-  { id: "admin",     label: "Admin Login",     emoji: "🛡️", desc: "Full center management" },
+  { id: "parent",    label: "Parent Login",    icon: Users, desc: "View your child's progress" },
+  { id: "teacher",   label: "Teacher Login",   icon: GraduationCap, desc: "Manage daily care & journals" },
+  { id: "therapist", label: "Therapist Login",  icon: Brain, desc: "Track behavioral patterns" },
+  { id: "admin",     label: "Admin Login",     icon: Shield, desc: "Full center management" },
 ];
 
 export default function LoginPage() {
@@ -200,7 +202,9 @@ export default function LoginPage() {
                         : "0 4px 14px rgba(61,79,107,0.25)",
                     }}
                   >
-                    <span style={{ fontSize: "1.4rem", minWidth: "28px" }}>{role.emoji}</span>
+                    <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: "28px", color: selectedRole === role.id ? "var(--accent-teal)" : "rgba(255,255,255,0.7)" }}>
+                      <role.icon size={22} />
+                    </span>
                     <div style={{ textAlign: "left" }}>
                       <div style={{ fontWeight: 600, fontSize: "0.95rem" }}>{role.label}</div>
                       <div style={{ fontSize: "0.75rem", opacity: 0.75 }}>{role.desc}</div>
@@ -222,7 +226,9 @@ export default function LoginPage() {
                     fontWeight: 600, textAlign: "center",
                     border: "1px solid rgba(123,196,196,0.3)",
                   }}>
-                    🔐 Signing in as {ROLES.find(r => r.id === selectedRole)?.label.split(" ")[0]}
+                    <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
+                      <Lock size={14} /> Signing in as {ROLES.find(r => r.id === selectedRole)?.label.split(" ")[0]}
+                    </span>
                   </div>
 
                   <div>

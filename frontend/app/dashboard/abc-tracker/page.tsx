@@ -11,6 +11,7 @@ import { useAuth } from "@/lib/auth-context";
 
 import toast from "react-hot-toast";
 import ReactMarkdown from "react-markdown";
+import { Sparkles, BarChart2, TrendingUp, Search, Zap, BrainCircuit, Lightbulb, ClipboardList, Save, X } from "lucide-react";
 
 export default function ABCTrackerPage() {
   const { profile } = useAuth();
@@ -153,9 +154,12 @@ export default function ABCTrackerPage() {
                 transform: btnHover ? "translateY(-1px)" : "none",
                 transition: "all 0.2s ease",
                 border: "none",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px"
               }}
             >
-              🪄 Generate Deep AI Report
+              <Sparkles size={16} /> Generate Deep AI Report
             </button>
             <button id="abc-log-btn" className="btn-primary" onClick={() => setShowModal(true)} style={{ padding: "10px 20px" }}>
               + Log Incident
@@ -168,13 +172,13 @@ export default function ABCTrackerPage() {
       {patterns && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "16px", marginBottom: "24px" }}>
           {[
-            { label: "Total Incidents", value: patterns.totalIncidents, icon: "📊", color: "var(--accent-purple-soft)" },
-            { label: "Avg Severity", value: `${patterns.avgSeverity}/5`, icon: "📈", color: patterns.avgSeverity >= 3.5 ? "var(--danger)" : "var(--warning)" },
-            { label: "Top Trigger", value: patterns.topAntecedents[0]?.tag || "—", icon: "🔍", color: "var(--accent-coral)" },
-            { label: "Top Behavior", value: patterns.topBehaviors[0]?.tag || "—", icon: "⚡", color: "var(--accent-teal)" },
+            { label: "Total Incidents", value: patterns.totalIncidents, icon: <BarChart2 size={22} style={{ color: "var(--accent-purple)" }} />, color: "var(--accent-purple-soft)" },
+            { label: "Avg Severity", value: `${patterns.avgSeverity}/5`, icon: <TrendingUp size={22} style={{ color: patterns.avgSeverity >= 3.5 ? "var(--danger)" : "var(--warning)" }} />, color: patterns.avgSeverity >= 3.5 ? "var(--danger)" : "var(--warning)" },
+            { label: "Top Trigger", value: patterns.topAntecedents[0]?.tag || "—", icon: <Search size={22} style={{ color: "var(--accent-coral)" }} />, color: "var(--accent-coral)" },
+            { label: "Top Behavior", value: patterns.topBehaviors[0]?.tag || "—", icon: <Zap size={22} style={{ color: "var(--accent-teal)" }} />, color: "var(--accent-teal)" },
           ].map(({ label, value, icon, color }) => (
             <div key={label} className="glass-card" style={{ padding: "18px" }}>
-              <div style={{ fontSize: "1.4rem", marginBottom: "6px" }}>{icon}</div>
+              <div style={{ marginBottom: "6px", display: "flex", alignItems: "center" }}>{icon}</div>
               <div style={{ fontWeight: 800, fontSize: "1.15rem", color, marginBottom: "2px" }}>{value}</div>
               <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", fontWeight: 600 }}>{label}</div>
             </div>
@@ -187,12 +191,14 @@ export default function ABCTrackerPage() {
         <HeatmapGrid data={loading ? [] : heatmap} />
         {/* AI Insights */}
         <div className="glass-card" style={{ padding: "20px" }}>
-          <h3 style={{ margin: "0 0 14px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.95rem" }}>🤖 AI Behavioral Insights</h3>
+          <h3 style={{ margin: "0 0 14px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.95rem", display: "flex", alignItems: "center", gap: "8px" }}>
+            <BrainCircuit size={18} /> AI Behavioral Insights
+          </h3>
           {loading ? (
             Array.from({ length: 4 }).map((_, i) => <div key={i} className="skeleton" style={{ height: "36px", borderRadius: "8px", marginBottom: "8px" }} />)
           ) : patterns?.insights.map((insight, i) => (
-            <div key={i} style={{ display: "flex", gap: "10px", padding: "10px", borderRadius: "10px", background: i % 2 === 0 ? "rgba(123,196,196,0.06)" : "rgba(184,168,212,0.06)", marginBottom: "8px", border: "1px solid rgba(255,255,255,0.5)" }}>
-              <span style={{ fontSize: "1rem" }}>💡</span>
+            <div key={i} style={{ display: "flex", gap: "10px", padding: "10px", borderRadius: "10px", background: i % 2 === 0 ? "rgba(123,196,196,0.06)" : "rgba(184,168,212,0.06)", marginBottom: "8px", border: "1px solid rgba(255,255,255,0.5)", alignItems: "flex-start" }}>
+              <Lightbulb size={16} style={{ color: "#dd6b20", flexShrink: 0, marginTop: "2px" }} />
               <span style={{ fontSize: "0.85rem", color: "var(--text-primary)", lineHeight: 1.5 }}>{insight}</span>
             </div>
           ))}
@@ -220,7 +226,9 @@ export default function ABCTrackerPage() {
 
       {/* Recent incidents table */}
       <div className="glass-card" style={{ padding: "20px", marginTop: "20px" }}>
-        <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.95rem" }}>📝 Recent Incidents</h3>
+        <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.95rem", display: "flex", alignItems: "center", gap: "8px" }}>
+          <ClipboardList size={18} /> Recent Incidents
+        </h3>
         {loading ? (
           <div className="skeleton" style={{ height: "150px", borderRadius: "8px" }} />
         ) : incidents.length === 0 ? (
@@ -275,9 +283,9 @@ export default function ABCTrackerPage() {
           <div className="glass-card animate-slide-up" style={{ width: "90%", maxWidth: "800px", maxHeight: "85vh", display: "flex", flexDirection: "column", background: "linear-gradient(135deg, rgba(255,255,255,0.95), rgba(240,245,255,0.95))" }}>
             <div style={{ padding: "24px 30px", borderBottom: "1px solid rgba(0,0,0,0.05)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <h2 style={{ margin: 0, color: "var(--primary-dark)", display: "flex", alignItems: "center", gap: "10px" }}>
-                <span>🤖</span> Deep Behavioral Analysis
+                <BrainCircuit size={22} /> Deep Behavioral Analysis
               </h2>
-              <button onClick={() => setShowAiModal(false)} style={{ background: "none", border: "none", fontSize: "1.5rem", cursor: "pointer", color: "var(--text-secondary)" }}>&times;</button>
+              <button onClick={() => setShowAiModal(false)} style={{ background: "none", border: "none", fontSize: "1.5rem", cursor: "pointer", color: "var(--text-secondary)" }}><X size={20} /></button>
             </div>
             <div style={{ padding: "30px", overflowY: "auto", flex: 1 }}>
               {aiLoading ? (
@@ -348,9 +356,9 @@ export default function ABCTrackerPage() {
                       toast.error("Failed to save report to Care Plan.");
                     }
                   }}
-                  style={{ padding: "10px 20px" }}
+                  style={{ padding: "10px 20px", display: "flex", alignItems: "center", gap: "8px" }}
                 >
-                  💾 Save to Care Plan
+                  <Save size={16} /> Save to Care Plan
                 </button>
               )}
             </div>

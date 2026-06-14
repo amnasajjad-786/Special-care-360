@@ -1,0 +1,220 @@
+=== EMOJI LOCATIONS IN FRONTEND ===
+
+File: app\layout.tsx
+  Line 7: title: "Special Care 360 — HIPAA-Compliant Special Education Platform",
+  Line 9: "A comprehensive platform for special education centers — student profiles, daily care journaling, behavioral tracking, and crisis management.",
+
+File: app\page.tsx
+  Line 9: { id: "parent",    label: "Parent Login",    emoji: "👨‍👩‍👧", desc: "View your child's progress" },
+  Line 10: { id: "teacher",   label: "Teacher Login",   emoji: "👩🏫", desc: "Manage daily care & journals" },
+  Line 11: { id: "therapist", label: "Therapist Login",  emoji: "🧑‍⚕️", desc: "Track behavioral patterns" },
+  Line 12: { id: "admin",     label: "Admin Login",     emoji: "🛡️", desc: "Full center management" },
+  Line 41: // Pending approval screen — show inline so user can log out
+  Line 92: // Use role from the returned profile — guaranteed correct even if
+  Line 114: toast.success(regRole === "admin" ? "Account created! Logging you in…" : "Registration submitted! Awaiting admin approval.");
+  Line 225: 🔐 Signing in as {ROLES.find(r => r.id === selectedRole)?.label.split(" ")[0]}
+  Line 265: {loading ? "Signing in…" : `Sign in as ${ROLES.find(r => r.id === selectedRole)?.label.split(" ")[0]}`}
+  Line 331: {loading ? "Registering…" : "Create Account"}
+
+File: app\dashboard\layout.tsx
+  Line 95: <p style={{ color: "var(--text-secondary)", margin: 0 }}>Loading Special Care 360…</p>
+
+File: app\dashboard\abc-tracker\page.tsx
+  Line 158: 🪄 Generate Deep AI Report
+  Line 171: { label: "Total Incidents", value: patterns.totalIncidents, icon: "📊", color: "var(--accent-purple-soft)" },
+  Line 172: { label: "Avg Severity", value: `${patterns.avgSeverity}/5`, icon: "📈", color: patterns.avgSeverity >= 3.5 ? "var(--danger)" : "var(--warning)" },
+  Line 173: { label: "Top Trigger", value: patterns.topAntecedents[0]?.tag || "—", icon: "🔍", color: "var(--accent-coral)" },
+  Line 174: { label: "Top Behavior", value: patterns.topBehaviors[0]?.tag || "—", icon: "⚡", color: "var(--accent-teal)" },
+  Line 190: <h3 style={{ margin: "0 0 14px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.95rem" }}>🤖 AI Behavioral Insights</h3>
+  Line 195: <span style={{ fontSize: "1rem" }}>💡</span>
+  Line 223: <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.95rem" }}>📝 Recent Incidents</h3>
+  Line 239: <div style={{ fontSize: "0.82rem" }}>{inc.antecedent.text || "—"}</div>
+  Line 245: <div style={{ fontSize: "0.82rem" }}>{inc.behavior.text || "—"}</div>
+  Line 278: <span>🤖</span> Deep Behavioral Analysis
+  Line 353: 💾 Save to Care Plan
+
+File: app\dashboard\admin\page.tsx
+  Line 244: () => setActiveAlertsCount(2) // Firebase not configured — keep mock
+  Line 528: icon: "📄"
+  Line 647: <span style={{ fontSize: "1.2rem", background: "rgba(123, 196, 196, 0.2)", padding: "4px 8px", borderRadius: "8px" }}>👥</span>
+  Line 652: <span style={{ fontSize: "0.78rem", color: "var(--success)" }}>🟢 Active enrollments</span>
+  Line 658: <span style={{ fontSize: "1.2rem", background: "rgba(155, 142, 196, 0.2)", padding: "4px 8px", borderRadius: "8px" }}>💼</span>
+  Line 682: <span style={{ fontSize: "1.2rem", background: "rgba(229, 62, 62, 0.2)", padding: "4px 8px", borderRadius: "8px" }}>🚨</span>
+  Line 740: <div style={{ fontSize: "0.88rem", fontWeight: 600 }}>Panic Button triggered — Room 3</div>
+  Line 777: <span>👤</span> Pending Approvals
+  Line 781: <div style={{ fontSize: "2rem", marginBottom: "8px" }}>✅</div>
+
+File: app\dashboard\admin\alerts\page.tsx
+  Line 75: const EMERGENCY_ICONS: Record<string, string> = { Seizure: "⚡", "Severe Meltdown": "😤", "Self-Injury": "🤕", "Aggressive Behavior": "⚠️", "Medical Emergency": "🏥", Other: "🚨" };
+  Line 82: <span style={{ fontSize: "28px" }}>🚨</span>
+  Line 87: <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)" }}>Respond immediately — students need assistance</div>
+  Line 110: <div style={{ fontSize: "52px", marginBottom: "16px" }}>✅</div>
+  Line 136: {EMERGENCY_ICONS[alert.emergencyType] || "🚨"}
+  Line 145: {isActive ? "🔴 ACTIVE" : "✅ Resolved"}
+  Line 159: <div style={{ fontWeight: 600, fontSize: "0.88rem", color: "var(--text-primary)" }}>📍 {alert.location}</div>
+  Line 173: ✅ Resolved {timeAgo(alert.resolvedAt)}
+  Line 186: {resolving === alert.id ? "Resolving…" : "✅ Mark Resolved"}
+
+File: app\dashboard\daily-care\page.tsx
+  Line 94: {existingJournal ? "✅ Submitted" : "📝 Pending"}
+  Line 104: {profile?.role === "parent" ? "📋 Daily Digest" : "📓 Today's Care Journal"}
+  Line 119: <div style={{ fontSize: "48px", marginBottom: "12px" }}>📋</div>
+
+File: app\dashboard\panic\page.tsx
+  Line 55: toast.error("🚨 Panic alert sent to all admins!", { duration: 5000, style: { background: "rgba(229,62,62,0.95)", color: "white", border: "none" } });
+  Line 67: <div style={{ fontSize: "72px", marginBottom: "20px" }}>🚨</div>
+  Line 94: <span style={{ fontSize: "24px" }}>⚠️</span>
+  Line 138: {studentId === s.id && <span style={{ marginLeft: "auto", color: "var(--danger)", fontSize: "1.2rem" }}>✓</span>}
+  Line 166: <textarea id="panic-description" className="glass-input" rows={3} placeholder="Describe the situation in more detail…" value={description} onChange={e => setDescription(e.target.value)} style={{ resize: "vertical" }} />
+  Line 200: placeholder="Or type custom location…"
+  Line 225: {sending ? "Sending…" : "🚨 SEND PANIC ALERT"}
+
+File: app\dashboard\students\page.tsx
+  Line 120: {/* LEFT — Student list */}
+  Line 130: {/* RIGHT — Profile detail */}
+  Line 134: <div style={{ fontSize: "52px", marginBottom: "16px" }}>👤</div>
+  Line 151: {tab === "Overview" ? "👤" : tab === "Medical" ? "💊" : tab === "Care Plan" ? "🎯" : "🚨"} {tab}
+
+File: app\dashboard\[role]\page.tsx
+  Line 57: Loading {role} dashboard…
+
+File: components\abc-tracker\HeatmapGrid.tsx
+  Line 51: 📊 Incident Heatmap
+
+File: components\abc-tracker\LogIncidentModal.tsx
+  Line 93: <h2 style={{ margin: 0, fontWeight: 800, color: "var(--primary-dark)", fontSize: "1.2rem" }}>🧠 Log ABC Incident</h2>
+  Line 124: <div style={{ fontWeight: 700, color: "var(--accent-teal)", fontSize: "0.9rem", marginBottom: "10px" }}>🔍 A — Antecedent (What happened before?)</div>
+  Line 125: <textarea className="glass-input" rows={2} placeholder="Describe what happened before the behavior…" style={{ marginBottom: "10px", resize: "vertical" }} value={antText} onChange={e => setAntText(e.target.value)} />
+  Line 131: <div style={{ fontWeight: 700, color: "var(--accent-coral)", fontSize: "0.9rem", marginBottom: "10px" }}>⚡ B — Behavior (What did the student do?)</div>
+  Line 132: <textarea className="glass-input" rows={2} placeholder="Describe the specific behavior observed…" style={{ marginBottom: "10px", resize: "vertical" }} value={behText} onChange={e => setBehText(e.target.value)} />
+  Line 138: <div style={{ fontWeight: 700, color: "var(--accent-lavender)", fontSize: "0.9rem", marginBottom: "10px" }}>💬 C — Consequence (How did staff respond?)</div>
+  Line 139: <textarea className="glass-input" rows={2} placeholder="Describe the staff response…" style={{ marginBottom: "10px", resize: "vertical" }} value={conText} onChange={e => setConText(e.target.value)} />
+  Line 146: <div style={{ fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.9rem" }}>📊 Severity</div>
+  Line 147: <span style={{ fontWeight: 800, fontSize: "1rem", color: severityColor }}>{severity}/5 — {severityLabel}</span>
+  Line 158: {saving ? "Saving…" : "📝 Log Incident"}
+
+File: components\abc-tracker\PatternTable.tsx
+  Line 19: behavior: patterns.topBehaviors[i]?.tag || "—",
+  Line 25: <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.95rem" }}>📋 Pattern Analysis</h3>
+
+File: components\abc-tracker\TrendChart.tsx
+  Line 43: <h3 style={{ margin: "0 0 4px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.95rem" }}>📈 Trend Frequency</h3>
+
+File: components\abc-tracker\TriggerBarChart.tsx
+  Line 11: name: a.tag.length > 14 ? a.tag.slice(0, 14) + "…" : a.tag,
+  Line 30: <h3 style={{ margin: "0 0 4px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.95rem" }}>🎯 Trigger Frequency</h3>
+
+File: components\daily-care\DailyDigest.tsx
+  Line 4: const MOOD_EMOJIS: Record<MoodType, string> = { happy: "😊", neutral: "😐", sad: "😢", agitated: "😤", tired: "😴" };
+  Line 6: const ATE_LABELS: Record<string, string> = { fully: "✅ Fully", partially: "⚠️ Partially", refused: "❌ Refused", none: "❌ Did not eat" };
+  Line 7: const MEAL_ICONS: Record<string, string> = { breakfast: "🍳", lunch: "🍱", snack: "🍎" };
+  Line 28: <span style={{ fontSize: "2.5rem" }}>📋</span>
+  Line 31: Daily Digest — {new Date(journal.date).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+  Line 41: <h3 style={{ margin: "0 0 14px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.95rem" }}>🍽️ Meals</h3>
+  Line 58: <h3 style={{ margin: "0 0 14px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.95rem" }}>😊 Mood Timeline</h3>
+  Line 74: <h3 style={{ margin: "0 0 12px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.9rem" }}>🧹 Hygiene</h3>
+  Line 79: { key: "teethBrushed", label: "🦷 Teeth" }, { key: "handsWashed", label: "🧼 Hands" },
+  Line 80: { key: "diaperAssisted", label: "🚿 Bathroom" }, { key: "hairCombed", label: "💇 Hair" }
+  Line 83: {(journal.hygiene as Record<string, boolean>)?.[key] ? "✅" : "⬜"} {label}
+  Line 91: <h3 style={{ margin: "0 0 12px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.9rem" }}>🏃 Activity</h3>
+  Line 100: <h3 style={{ margin: "0 0 8px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.9rem" }}>📝 Notes</h3>
+  Line 107: <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--danger)", marginBottom: "3px" }}>⚠️ INCIDENT</div>
+
+File: components\daily-care\JournalForm.tsx
+  Line 10: { value: "happy",    emoji: "😊", label: "Happy",    color: "#38a169" },
+  Line 11: { value: "neutral",  emoji: "😐", label: "Neutral",  color: "#718096" },
+  Line 12: { value: "sad",      emoji: "😢", label: "Sad",      color: "#3182ce" },
+  Line 13: { value: "agitated", emoji: "😤", label: "Agitated", color: "#e53e3e" },
+  Line 14: { value: "tired",    emoji: "😴", label: "Tired",    color: "#805ad5" },
+  Line 60: toast.success(`✅ Journal submitted for ${studentName}!`);
+  Line 68: const mealEmoji = { breakfast: "🍳", lunch: "🍱", snack: "🍎" };
+  Line 75: <h3 style={{ margin: "0 0 18px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem" }}>🍽️ Meals</h3>
+  Line 96: <input className="glass-input" placeholder={`${meal} notes…`}
+  Line 104: <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem" }}>🧹 Hygiene</h3>
+  Line 107: { key: "teethBrushed", label: "🦷 Teeth Brushed" },
+  Line 108: { key: "handsWashed", label: "🧼 Hands Washed" },
+  Line 109: { key: "diaperAssisted", label: "🚿 Diaper/Bathroom Assisted" },
+  Line 110: { key: "hairCombed", label: "💇 Hair Combed" },
+  Line 122: <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem" }}>😊 Mood Timeline</h3>
+  Line 150: <h3 style={{ margin: "0 0 14px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem" }}>🏃 Physical Activity</h3>
+  Line 167: <input className="glass-input" placeholder="Activity notes…" value={form.activityNotes} onChange={e => setForm(f => ({ ...f, activityNotes: e.target.value }))} />
+  Line 173: <h3 style={{ margin: "0 0 12px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem" }}>⚠️ Incidents</h3>
+  Line 174: <textarea className="glass-input" rows={4} placeholder="Describe any incidents that occurred today…" style={{ resize: "vertical" }}
+  Line 178: <h3 style={{ margin: "0 0 12px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem" }}>📝 Teacher Notes</h3>
+  Line 179: <textarea className="glass-input" rows={4} placeholder="General observations and notes for the day…" style={{ resize: "vertical" }}
+  Line 185: {saving ? "Submitting…" : `✅ Submit Journal for ${studentName} — ${date}`}
+
+File: components\layout\PanicFloatingButton.tsx
+  Line 27: <span style={{ fontSize: "1.4rem" }}>⚠️</span>
+  Line 39: <div style={{ fontSize: "52px", marginBottom: "12px" }}>🚨</div>
+  Line 62: ⚠️ Send Alert
+
+File: components\layout\Sidebar.tsx
+  Line 20: { href: "/dashboard/students",    icon: "👤", label: "Students",    roles: ["admin","teacher","therapist","parent"] },
+  Line 21: { href: "/dashboard/daily-care",  icon: "📓", label: "Daily Care",  roles: ["admin","teacher","parent"] },
+  Line 22: { href: "/dashboard/abc-tracker", icon: "🧠", label: "ABC Tracker", roles: ["admin","teacher","therapist","parent"] },
+  Line 23: { href: "/dashboard/admin/alerts",icon: "🚨", label: "Alerts",      roles: ["admin"] },
+  Line 24: { href: "/dashboard/admin",       icon: "🔑", label: "Admin Panel", roles: ["admin"] },
+  Line 25: { href: "/dashboard/panic",       icon: "⚠️", label: "Panic Alert", roles: ["teacher","therapist"] },
+  Line 47: setAlertCount(1); // Firebase not configured — use mock
+  Line 112: ✕
+  Line 193: 🚪 Logout
+
+File: components\layout\TopBar.tsx
+  Line 74: title: `🚨 Emergency: ${data.emergencyType}`,
+  Line 93: { id: "a1", type: "alert", title: "🚨 Demo Emergency Alert", body: "Meltdown reported in Classroom A", time: "10m ago", read: false },
+  Line 100: { id: "a1", type: "alert", title: "🚨 Demo Emergency Alert", body: "Meltdown reported in Classroom A", time: "10m ago", read: false },
+  Line 191: 🔔
+  Line 241: All caught up! 🦋
+  Line 353: ⚙️ Settings
+  Line 365: 🚪 Logout
+
+File: components\students\CarePlanTab.tsx
+  Line 67: <input className="glass-input" placeholder="Goal title…" value={newGoal.title} onChange={e => setNewGoal(g => ({ ...g, title: e.target.value }))} autoFocus />
+  Line 86: <div style={{ fontSize: "40px", marginBottom: "12px" }}>🎯</div>
+  Line 138: {saving ? "Saving…" : "💾 Save Care Plan"}
+  Line 148: <span>🤖</span> Latest AI Behavioral Analysis
+
+File: components\students\EmergencyTab.tsx
+  Line 32: <span style={{ fontSize: "28px" }}>🚨</span>
+  Line 42: <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem" }}>📞 Emergency Contacts</h3>
+  Line 48: 📱 {phone}
+  Line 56: <div style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--danger)" }}>⚡ SEIZURE ALERT</div>
+  Line 76: <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem" }}>🏥 Critical Medical Info</h3>
+  Line 92: <div key={i} style={{ fontSize: "0.85rem", color: "var(--text-primary)", marginBottom: "4px" }}>• {m.name} {m.dosage} — {m.frequency}</div>
+  Line 102: <h3 style={{ margin: "0 0 14px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem" }}>📋 Emergency Protocol</h3>
+  Line 114: {saving ? "Saving…" : "💾 Save Protocol"}
+  Line 130: 🚨 Trigger Panic Alert for {studentName}
+
+File: components\students\MedicalTab.tsx
+  Line 55: <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem" }}>🌿 Allergies</h3>
+  Line 66: <input className="glass-input" placeholder="Add allergy…" value={newAllergy} onChange={e => setNewAllergy(e.target.value)} onKeyDown={e => e.key === "Enter" && addAllergy()} style={{ maxWidth: "240px" }} />
+  Line 74: <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem" }}>⚡ Seizure History</h3>
+  Line 82: {data.seizureHistory?.hasHistory && <span className="chip chip-danger">⚠️ Active Risk</span>}
+  Line 100: placeholder="Step-by-step protocol…"
+  Line 112: <h3 style={{ margin: 0, fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem" }}>💊 Medications</h3>
+  Line 164: <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem" }}>📞 Emergency Contact</h3>
+  Line 177: <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem" }}>🩸 Health Details</h3>
+  Line 181: <option value="">Select…</option>
+  Line 188: placeholder="Describe any special physical requirements…"
+  Line 199: {saving ? "Saving…" : "💾 Save Medical Profile"}
+
+File: components\students\OverviewTab.tsx
+  Line 16: { label: "Date of Birth", value: student.dob ? new Date(student.dob).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }) : "—" },
+  Line 17: { label: "Age", value: age ? `${age} years` : "—" },
+  Line 19: { label: "Enrollment Date", value: student.enrollmentDate ? new Date(student.enrollmentDate).toLocaleDateString() : "—" },
+  Line 51: Enrolled since {student.enrollmentDate ? new Date(student.enrollmentDate).toLocaleDateString() : "—"}
+
+File: components\students\StudentListSidebar.tsx
+  Line 34: <span style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", fontSize: "1rem" }}>🔍</span>
+  Line 38: placeholder="Search students…"
+  Line 59: <div style={{ fontSize: "32px", marginBottom: "8px" }}>👤</div>
+
+File: lib\firebase-config.ts
+  Line 1: // ─── Firebase configuration — values sourced from .env.local ─────────────────
+
+File: lib\firestore-api.ts
+  Line 3: * Direct Firestore data layer — replaces calls to the FastAPI backend.
+  Line 307: if (avgSeverity >= 3.5) insights.push(`Average severity is high (${avgSeverity}/5) — consider a behavior intervention plan review`);
+  Line 308: else if (avgSeverity > 0 && avgSeverity < 2) insights.push(`Average severity is low (${avgSeverity}/5) — student is showing improvement`);
+  Line 379: message: `🚨 PANIC ALERT: ${data.emergencyType} in ${data.location}`,

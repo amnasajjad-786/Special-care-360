@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { CarePlan, IEPGoal } from "@/types";
 import toast from "react-hot-toast";
+import { Target, Save, BrainCircuit } from "lucide-react";
 import { studentsDb } from "@/lib/firestore-api";
 import ReactMarkdown from "react-markdown";
 
@@ -83,7 +84,9 @@ export default function CarePlanTab({ studentId, carePlan: initial, canEdit, onC
 
       {goals.length === 0 && !showAdd ? (
         <div className="glass-card" style={{ padding: "40px", textAlign: "center" }}>
-          <div style={{ fontSize: "40px", marginBottom: "12px" }}>🎯</div>
+          <div style={{ display: "flex", justifyContent: "center", color: "var(--text-secondary)", marginBottom: "12px" }}>
+            <Target size={40} />
+          </div>
           <p style={{ color: "var(--text-secondary)", margin: 0 }}>No IEP goals added yet</p>
         </div>
       ) : goals.map((goal) => (
@@ -135,7 +138,11 @@ export default function CarePlanTab({ studentId, carePlan: initial, canEdit, onC
       {canEdit && goals.length > 0 && (
         <div style={{ display: "flex", justifyContent: "flex-end" }}>
           <button className="btn-primary" onClick={save} disabled={saving} style={{ padding: "12px 28px" }}>
-            {saving ? "Saving…" : "💾 Save Care Plan"}
+            {saving ? "Saving…" : (
+              <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <Save size={16} /> Save Care Plan
+              </span>
+            )}
           </button>
         </div>
       )}
@@ -145,7 +152,7 @@ export default function CarePlanTab({ studentId, carePlan: initial, canEdit, onC
         <div className="glass-card animate-fade-in" style={{ padding: "20px", marginTop: "16px", border: "1px dashed var(--accent-purple-soft)", background: "rgba(255, 255, 255, 0.9)" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px", borderBottom: "1px solid rgba(61, 79, 107, 0.08)", paddingBottom: "8px" }}>
             <h4 style={{ margin: 0, fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.95rem", display: "flex", alignItems: "center", gap: "8px" }}>
-              <span>🤖</span> Latest AI Behavioral Analysis
+              <BrainCircuit size={18} style={{ color: "var(--accent-purple)" }} /> Latest AI Behavioral Analysis
             </h4>
             <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)", fontWeight: 500 }}>
               Generated on {new Date(initial.lastAiReport.timestamp).toLocaleDateString()} at {new Date(initial.lastAiReport.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

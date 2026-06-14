@@ -1,5 +1,6 @@
 "use client";
 import { PatternAnalysis } from "@/types";
+import { Layers } from "lucide-react";
 
 interface Props { patterns: PatternAnalysis | null; }
 
@@ -22,7 +23,9 @@ export default function PatternTable({ patterns }: Props) {
 
   return (
     <div className="glass-card" style={{ padding: "20px" }}>
-      <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.95rem" }}>📋 Pattern Analysis</h3>
+      <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.95rem", display: "flex", alignItems: "center", gap: "8px" }}>
+        <Layers size={18} /> Pattern Analysis
+      </h3>
       {rows.length === 0 ? (
         <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem", textAlign: "center", padding: "20px 0" }}>No patterns detected yet</p>
       ) : (

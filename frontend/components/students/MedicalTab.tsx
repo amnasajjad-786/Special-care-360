@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { MedicalProfile, Medication } from "@/types";
 import toast from "react-hot-toast";
+import { Sparkles, Zap, ShieldAlert, Pill, Phone, Activity, Save, AlertTriangle } from "lucide-react";
 import { studentsDb } from "@/lib/firestore-api";
 
 const BLOOD_TYPES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "Unknown"];
@@ -52,7 +53,7 @@ export default function MedicalTab({ studentId, profile: initial, canEdit, onCha
 
       {/* Allergies */}
       <div className="glass-card" style={{ padding: "24px" }}>
-        <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem" }}>🌿 Allergies</h3>
+        <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem", display: "flex", alignItems: "center", gap: "8px" }}><Sparkles size={18} /> Allergies</h3>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "14px" }}>
           {(data.allergies || []).length === 0 && <span style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>No allergies recorded</span>}
           {(data.allergies || []).map((a, i) => (
@@ -71,7 +72,7 @@ export default function MedicalTab({ studentId, profile: initial, canEdit, onCha
 
       {/* Seizure History */}
       <div className="glass-card" style={{ padding: "24px" }}>
-        <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem" }}>⚡ Seizure History</h3>
+        <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem", display: "flex", alignItems: "center", gap: "8px" }}><Zap size={18} /> Seizure History</h3>
         <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px" }}>
           <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontWeight: 600, fontSize: "0.9rem" }}>
             <input type="checkbox" className="custom-checkbox" checked={data.seizureHistory?.hasHistory || false}
@@ -79,7 +80,11 @@ export default function MedicalTab({ studentId, profile: initial, canEdit, onCha
               disabled={!canEdit} />
             Has seizure history
           </label>
-          {data.seizureHistory?.hasHistory && <span className="chip chip-danger">⚠️ Active Risk</span>}
+          {data.seizureHistory?.hasHistory && (
+            <span className="chip chip-danger" style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+              <AlertTriangle size={13} /> Active Risk
+            </span>
+          )}
         </div>
         {data.seizureHistory?.hasHistory && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
@@ -109,7 +114,7 @@ export default function MedicalTab({ studentId, profile: initial, canEdit, onCha
       {/* Medications */}
       <div className="glass-card" style={{ padding: "24px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
-          <h3 style={{ margin: 0, fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem" }}>💊 Medications</h3>
+          <h3 style={{ margin: 0, fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem", display: "flex", alignItems: "center", gap: "8px" }}><Pill size={18} /> Medications</h3>
           {canEdit && <button className="btn-primary" onClick={() => setShowAddMed(true)} style={{ padding: "7px 14px", fontSize: "0.82rem" }}>+ Add</button>}
         </div>
         {(data.medications || []).length === 0
@@ -161,7 +166,7 @@ export default function MedicalTab({ studentId, profile: initial, canEdit, onCha
       {/* Emergency Contact & Other Info */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
         <div className="glass-card" style={{ padding: "24px" }}>
-          <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem" }}>📞 Emergency Contact</h3>
+          <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem", display: "flex", alignItems: "center", gap: "8px" }}><Phone size={18} /> Emergency Contact</h3>
           {[
             { label: "Contact Name", key: "name" }, { label: "Relation", key: "relation" }, { label: "Phone", key: "phone" }
           ].map(({ label, key }) => (
@@ -174,7 +179,7 @@ export default function MedicalTab({ studentId, profile: initial, canEdit, onCha
           ))}
         </div>
         <div className="glass-card" style={{ padding: "24px" }}>
-          <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem" }}>🩸 Health Details</h3>
+          <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem", display: "flex", alignItems: "center", gap: "8px" }}><Activity size={18} /> Health Details</h3>
           <div style={{ marginBottom: "12px" }}>
             <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "4px" }}>Blood Type</label>
             <select className="glass-input" disabled={!canEdit} value={data.bloodType || ""} onChange={e => setData(d => ({ ...d, bloodType: e.target.value }))}>
@@ -196,7 +201,11 @@ export default function MedicalTab({ studentId, profile: initial, canEdit, onCha
       {canEdit && (
         <div style={{ display: "flex", justifyContent: "flex-end" }}>
           <button className="btn-primary" onClick={save} disabled={saving} style={{ padding: "12px 28px" }}>
-            {saving ? "Saving…" : "💾 Save Medical Profile"}
+            {saving ? "Saving…" : (
+              <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <Save size={16} /> Save Medical Profile
+              </span>
+            )}
           </button>
         </div>
       )}

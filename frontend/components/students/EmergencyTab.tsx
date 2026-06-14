@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { MedicalProfile } from "@/types";
 import toast from "react-hot-toast";
+import { AlertOctagon, Phone, Smartphone, Zap, Activity, ShieldAlert, FileText, Save, AlertTriangle } from "lucide-react";
 
 interface Props { studentId: string; studentName: string; medical: MedicalProfile; canEdit: boolean; }
 
@@ -29,7 +30,7 @@ export default function EmergencyTab({ studentId, studentName, medical, canEdit 
         border: "1px solid rgba(229,62,62,0.25)",
         display: "flex", alignItems: "center", gap: "12px",
       }}>
-        <span style={{ fontSize: "28px" }}>🚨</span>
+        <span style={{ display: "inline-flex", color: "var(--danger)" }}><AlertOctagon size={28} /></span>
         <div>
           <div style={{ fontWeight: 700, color: "var(--danger)", fontSize: "0.95rem" }}>Emergency Information for {studentName}</div>
           <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginTop: "2px" }}>Keep this information accessible at all times</div>
@@ -39,13 +40,13 @@ export default function EmergencyTab({ studentId, studentName, medical, canEdit 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
         {/* Emergency Contacts */}
         <div className="glass-card" style={{ padding: "24px" }}>
-          <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem" }}>📞 Emergency Contacts</h3>
+          <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem", display: "flex", alignItems: "center", gap: "8px" }}><Phone size={18} /> Emergency Contacts</h3>
           {contactName ? (
             <div style={{ padding: "16px", background: "rgba(255,255,255,0.5)", borderRadius: "10px", border: "1px solid rgba(255,255,255,0.7)" }}>
               <div style={{ fontWeight: 700, color: "var(--text-primary)", fontSize: "1rem" }}>{contactName}</div>
               <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginTop: "4px" }}>{relation}</div>
               <a href={`tel:${phone}`} style={{ display: "inline-flex", alignItems: "center", gap: "6px", marginTop: "10px", color: "var(--accent-teal)", fontWeight: 600, fontSize: "0.9rem", textDecoration: "none" }}>
-                📱 {phone}
+                <Smartphone size={16} /> {phone}
               </a>
             </div>
           ) : (
@@ -53,7 +54,7 @@ export default function EmergencyTab({ studentId, studentName, medical, canEdit 
           )}
           {medical?.seizureHistory?.hasHistory && (
             <div style={{ marginTop: "12px", padding: "12px", background: "rgba(229,62,62,0.06)", borderRadius: "10px", border: "1px solid rgba(229,62,62,0.15)" }}>
-              <div style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--danger)" }}>⚡ SEIZURE ALERT</div>
+              <div style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--danger)", display: "flex", alignItems: "center", gap: "6px" }}><Zap size={14} /> SEIZURE ALERT</div>
               <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginTop: "4px" }}>
                 Frequency: {medical.seizureHistory.frequency || "N/A"} · Last: {medical.seizureHistory.lastOccurrence || "N/A"}
               </div>
@@ -73,7 +74,7 @@ export default function EmergencyTab({ studentId, studentName, medical, canEdit 
 
         {/* Blood Type & Medical */}
         <div className="glass-card" style={{ padding: "24px" }}>
-          <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem" }}>🏥 Critical Medical Info</h3>
+          <h3 style={{ margin: "0 0 16px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem", display: "flex", alignItems: "center", gap: "8px" }}><Activity size={18} /> Critical Medical Info</h3>
           <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
             <div style={{ padding: "14px", background: "rgba(255,255,255,0.5)", borderRadius: "10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text-secondary)" }}>Blood Type</span>
@@ -99,7 +100,7 @@ export default function EmergencyTab({ studentId, studentName, medical, canEdit 
 
       {/* Emergency Protocol */}
       <div className="glass-card" style={{ padding: "24px" }}>
-        <h3 style={{ margin: "0 0 14px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem" }}>📋 Emergency Protocol</h3>
+        <h3 style={{ margin: "0 0 14px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "1rem", display: "flex", alignItems: "center", gap: "8px" }}><FileText size={18} /> Emergency Protocol</h3>
         <textarea
           className="glass-input"
           rows={8}
@@ -111,7 +112,11 @@ export default function EmergencyTab({ studentId, studentName, medical, canEdit 
         {canEdit && (
           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "12px" }}>
             <button className="btn-primary" onClick={saveProtocol} disabled={saving} style={{ padding: "10px 24px" }}>
-              {saving ? "Saving…" : "💾 Save Protocol"}
+              {saving ? "Saving…" : (
+                <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <Save size={16} /> Save Protocol
+                </span>
+              )}
             </button>
           </div>
         )}
@@ -127,7 +132,9 @@ export default function EmergencyTab({ studentId, studentName, medical, canEdit 
           onClick={() => router.push(`/dashboard/panic?studentId=${studentId}`)}
           style={{ padding: "14px 36px", fontSize: "1rem" }}
         >
-          🚨 Trigger Panic Alert for {studentName}
+          <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+            <ShieldAlert size={18} /> Trigger Panic Alert for {studentName}
+          </span>
         </button>
       </div>
     </div>

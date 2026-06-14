@@ -1,5 +1,6 @@
 "use client";
 import { Student } from "@/types";
+import { Search, User } from "lucide-react";
 
 const DIAGNOSIS_COLORS: Record<string, string> = {
   ASD: "chip-info",
@@ -31,7 +32,9 @@ export default function StudentListSidebar({ students, selectedId, search, onSea
     }}>
       {/* Search */}
       <div style={{ position: "relative", marginBottom: "16px" }}>
-        <span style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", fontSize: "1rem" }}>🔍</span>
+        <span style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", display: "inline-flex", color: "var(--text-secondary)" }}>
+          <Search size={16} />
+        </span>
         <input
           id="student-search"
           type="text"
@@ -56,7 +59,9 @@ export default function StudentListSidebar({ students, selectedId, search, onSea
           ))
         ) : filtered.length === 0 ? (
           <div className="glass-card" style={{ padding: "24px", textAlign: "center" }}>
-            <div style={{ fontSize: "32px", marginBottom: "8px" }}>👤</div>
+            <div style={{ display: "flex", justifyContent: "center", color: "var(--text-secondary)", marginBottom: "8px" }}>
+              <User size={32} />
+            </div>
             <p style={{ margin: 0, color: "var(--text-secondary)", fontSize: "0.85rem" }}>No students found</p>
           </div>
         ) : (

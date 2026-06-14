@@ -8,21 +8,22 @@ import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import toast from "react-hot-toast";
 import { useSidebar } from "@/app/dashboard/layout";
+import { Users, BookOpen, Brain, Bell, Key, AlertTriangle, LogOut } from "lucide-react";
 
 interface NavItem {
   href: string;
-  icon: string;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
   label: string;
   roles: string[];
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { href: "/dashboard/students",    icon: "👤", label: "Students",    roles: ["admin","teacher","therapist","parent"] },
-  { href: "/dashboard/daily-care",  icon: "📓", label: "Daily Care",  roles: ["admin","teacher","parent"] },
-  { href: "/dashboard/abc-tracker", icon: "🧠", label: "ABC Tracker", roles: ["admin","teacher","therapist","parent"] },
-  { href: "/dashboard/admin/alerts",icon: "🚨", label: "Alerts",      roles: ["admin"] },
-  { href: "/dashboard/admin",       icon: "🔑", label: "Admin Panel", roles: ["admin"] },
-  { href: "/dashboard/panic",       icon: "⚠️", label: "Panic Alert", roles: ["teacher","therapist"] },
+  { href: "/dashboard/students",    icon: Users, label: "Students",    roles: ["admin","teacher","therapist","parent"] },
+  { href: "/dashboard/daily-care",  icon: BookOpen, label: "Daily Care",  roles: ["admin","teacher","parent"] },
+  { href: "/dashboard/abc-tracker", icon: Brain, label: "ABC Tracker", roles: ["admin","teacher","therapist","parent"] },
+  { href: "/dashboard/admin/alerts",icon: Bell, label: "Alerts",      roles: ["admin"] },
+  { href: "/dashboard/admin",       icon: Key, label: "Admin Panel", roles: ["admin"] },
+  { href: "/dashboard/panic",       icon: AlertTriangle, label: "Panic Alert", roles: ["teacher","therapist"] },
 ];
 
 export default function Sidebar() {
@@ -130,7 +131,9 @@ export default function Sidebar() {
               className={`sidebar-nav-item${isActive ? " active" : ""}`}
               onClick={close}
             >
-              <span style={{ fontSize: "1.1rem", minWidth: "22px" }}>{item.icon}</span>
+              <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: "22px", height: "22px", marginRight: "4px" }}>
+                <item.icon size={18} />
+              </span>
               <span style={{ flex: 1 }}>{item.label}</span>
               {badgeCount > 0 && (
                 <span style={{
@@ -190,7 +193,7 @@ export default function Sidebar() {
           onMouseOver={(e) => { e.currentTarget.style.background = "rgba(229,62,62,0.22)"; }}
           onMouseOut={(e) => { e.currentTarget.style.background = "rgba(229,62,62,0.12)"; }}
         >
-          🚪 Logout
+          <LogOut size={16} /> Logout
         </button>
       </div>
     </nav>

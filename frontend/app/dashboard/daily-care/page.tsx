@@ -8,6 +8,7 @@ import JournalForm from "@/components/daily-care/JournalForm";
 import DailyDigest from "@/components/daily-care/DailyDigest";
 
 import toast from "react-hot-toast";
+import { CheckCircle, Clock, ClipboardList } from "lucide-react";
 
 export default function DailyCarePage() {
   const { profile } = useAuth();
@@ -90,8 +91,9 @@ export default function DailyCarePage() {
           </div>
         </div>
         <div style={{ display: "flex", gap: "8px" }}>
-          <span className={`chip ${existingJournal ? "chip-success" : "chip-warning"}`}>
-            {existingJournal ? "✅ Submitted" : "📝 Pending"}
+          <span className={`chip ${existingJournal ? "chip-success" : "chip-warning"}`} style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+            {existingJournal ? <CheckCircle size={14} /> : <Clock size={14} />}
+            {existingJournal ? "Submitted" : "Pending"}
           </span>
           {isTeacher && <span className="chip chip-info">Teacher View</span>}
           {profile?.role === "parent" && <span className="chip chip-purple">Parent View</span>}
@@ -101,7 +103,7 @@ export default function DailyCarePage() {
       {/* Journal Title */}
       <div style={{ marginBottom: "20px" }}>
         <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 800, color: "var(--primary-dark)" }}>
-          {profile?.role === "parent" ? "📋 Daily Digest" : "📓 Today's Care Journal"}
+          {profile?.role === "parent" ? "Daily Digest" : "Today's Care Journal"}
         </h2>
         <p style={{ margin: "4px 0 0", color: "var(--text-secondary)", fontSize: "0.88rem" }}>
           {selectedStudent.name} · {new Date(date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
@@ -116,7 +118,9 @@ export default function DailyCarePage() {
         existingJournal
           ? <DailyDigest journal={existingJournal} studentName={selectedStudent.name} />
           : <div className="glass-card animate-fade-in" style={{ padding: "48px", textAlign: "center" }}>
-              <div style={{ fontSize: "48px", marginBottom: "12px" }}>📋</div>
+              <div style={{ display: "flex", justifyContent: "center", color: "var(--text-secondary)", marginBottom: "12px" }}>
+                <ClipboardList size={48} />
+              </div>
               <h3 style={{ margin: 0, color: "var(--primary-dark)" }}>No Journal Yet</h3>
               <p style={{ color: "var(--text-secondary)", marginTop: "8px" }}>The teacher hasn&apos;t submitted a care journal for this date yet.</p>
             </div>
