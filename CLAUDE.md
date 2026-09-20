@@ -36,8 +36,15 @@ see the rationale in `eslint.config.mjs`.
 
 `seed_firestore.py` (demo users/students/center — idempotent), `populate_abc_data.py`,
 `populate_daily_care.py`, `populate_sara_journal.py`, `create_parent.py` (creates a Firebase Auth
-user + profile), `cleanup_staff.py`, `fix_goals.py`. All bootstrap via
-`from firebase_admin_init import init_firebase, get_db` and write straight to Firestore.
+user + profile, password from `SEED_PARENT_PASSWORD`), `cleanup_staff.py`, `fix_goals.py`. All
+bootstrap via `from firebase_admin_init import init_firebase, get_db` and write straight to
+Firestore.
+
+`backfill_scope_fields.py` is the one-off migration for the rules rewrite: it copies `centerId`
+and `parentId` from each student onto records written before those fields existed, and resolves
+the legacy `studentName` on invoices/payments back to a `studentId`. Dry-run by default; `--apply`
+writes. Records whose student name is ambiguous or unknown are reported and left alone rather
+than guessed at — guessing is the bug the migration exists to fix.
 
 ## Architecture
 
