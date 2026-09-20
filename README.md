@@ -62,6 +62,20 @@ python -m uvicorn main:app --reload  # → http://localhost:8000
    cd backend && python seed_firestore.py
    ```
 
+### Upgrading an existing database
+
+Records created before the security-rules rewrite do not carry the `centerId` and `parentId`
+fields the new queries filter on, so they read as empty rather than erroring. Backfill them:
+
+```bash
+cd backend
+python backfill_scope_fields.py            # dry run — reports, writes nothing
+python backfill_scope_fields.py --apply    # perform the migration
+```
+
+Safe to re-run. Invoices and payments that were keyed only on a student *name* which is ambiguous
+or no longer exists are reported for manual assignment rather than guessed at.
+
 ### Accounts
 
 There is deliberately no way to create an approved admin through the UI: every self-registration
