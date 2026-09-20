@@ -143,7 +143,7 @@ class Backfiller:
             if not student_id:
                 counts["unresolved"] += 1
                 self.problems.append(
-                    f"{collection}/{doc.id}: no studentId — cannot resolve, left untouched"
+                    f"{collection}/{doc.id}: no studentId -- cannot resolve, left untouched"
                 )
                 continue
 
@@ -152,14 +152,14 @@ class Backfiller:
                 counts["unresolved"] += 1
                 self.problems.append(
                     f"{collection}/{doc.id}: studentId '{student_id}' does not exist "
-                    f"(deleted student?) — left untouched"
+                    f"(deleted student?) -- left untouched"
                 )
                 continue
 
             updates = {}
             if "centerId" in fields and not data.get("centerId"):
                 updates["centerId"] = student["centerId"]
-            # Absent, or present but empty — an empty string is not a usable
+            # Absent, or present but empty -- an empty string is not a usable
             # guardian reference and should become an explicit null.
             if "parentId" in fields and normalise_parent_id(data.get("parentId")) is None:
                 if data.get("parentId", "__absent__") != student["parentId"]:
@@ -172,7 +172,7 @@ class Backfiller:
 
     def backfill_billing(self, collection: str, students, students_by_name):
         """
-        invoices / payments — resolve the legacy studentName back to an id.
+        invoices / payments -- resolve the legacy studentName back to an id.
         """
         counts = self.counter(collection)
 
@@ -189,7 +189,7 @@ class Backfiller:
                     counts["unresolved"] += 1
                     self.problems.append(
                         f"{collection}/{doc.id}: studentId '{student_id}' does not exist "
-                        f"— left untouched"
+                        "-- left untouched"
                     )
                     continue
             else:
@@ -197,7 +197,7 @@ class Backfiller:
                 if not name:
                     counts["unresolved"] += 1
                     self.problems.append(
-                        f"{collection}/{doc.id}: neither studentId nor studentName — "
+                        f"{collection}/{doc.id}: neither studentId nor studentName -- "
                         f"left untouched"
                     )
                     continue
@@ -208,7 +208,7 @@ class Backfiller:
                 elif len(matches) == 0:
                     counts["unresolved"] += 1
                     self.problems.append(
-                        f"{collection}/{doc.id}: no student named '{name}' — left untouched"
+                        f"{collection}/{doc.id}: no student named '{name}' -- left untouched"
                     )
                     continue
                 else:
@@ -218,7 +218,7 @@ class Backfiller:
                     ids = ", ".join(m["id"] for m in matches)
                     self.problems.append(
                         f"{collection}/{doc.id}: '{name}' matches {len(matches)} students "
-                        f"({ids}) — AMBIGUOUS, needs manual assignment"
+                        f"({ids}) -- AMBIGUOUS, needs manual assignment"
                     )
                     continue
 
@@ -252,7 +252,7 @@ class Backfiller:
                 counts["unresolved"] += 1
                 self.problems.append(
                     f"staff/{doc.id}: no centerId and no default could be inferred "
-                    f"— left untouched"
+                    "-- left untouched"
                 )
                 continue
 
@@ -289,7 +289,7 @@ def main():
 
     targets = [args.collection] if args.collection else COLLECTIONS
 
-    print("Special Care 360 — scope field backfill")
+    print("Special Care 360 -- scope field backfill")
     print("=" * 62)
     print(f"Mode:        {'APPLY (writes enabled)' if args.apply else 'DRY RUN (no writes)'}")
     print(f"Collections: {', '.join(targets)}")
@@ -365,7 +365,7 @@ def main():
             print(f"  ... and {len(runner.problems) - 40} more")
         print()
         print("These were NOT modified. Ambiguous billing records must be assigned a")
-        print("studentId by hand — the whole point of the migration is that a name is")
+        print("studentId by hand -- the whole point of the migration is that a name is")
         print("not a safe key.")
         print()
 
