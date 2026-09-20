@@ -39,9 +39,12 @@ export default function PanicPage() {
       studentsDb.list(scopeOf(profile)).then((s) => {
         setStudents(s);
         if (!preselectedId && s.length > 0) setStudentId(s[0].id);
+      }).catch((err) => {
+        console.error("Failed to load students:", err);
+        toast.error("Could not load the student list.");
       });
     }
-  }, [profile]);
+  }, [profile, preselectedId]);
 
   const selectedStudent = students.find(s => s.id === studentId) || students[0];
 

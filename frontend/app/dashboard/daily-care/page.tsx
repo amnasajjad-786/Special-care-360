@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { format } from "date-fns";
 import { useAuth } from "@/lib/auth-context";
 import { dailyCareDb, studentsDb, scopeOf } from "@/lib/firestore-api";
@@ -21,7 +21,7 @@ export default function DailyCarePage() {
 
   const isTeacher = profile?.role === "teacher" || profile?.role === "admin";
 
-  const fetchHistory = async () => {
+  const fetchHistory = useCallback(async () => {
     if (!selectedStudent) return;
     try {
       const logs = await dailyCareDb.history(selectedStudent.id, scopeOf(profile));
@@ -29,11 +29,11 @@ export default function DailyCarePage() {
     } catch (err) {
       console.error("Failed to load history:", err);
     }
-  };
+  }, [selectedStudent, profile]);
 
   useEffect(() => {
     fetchHistory();
-  }, [selectedStudent?.id, existingJournal]);
+  }, [fetchHistory, existingJournal]);
 
   const handleDeleteJournal = async () => {
     if (!selectedStudent || !existingJournal) return;
@@ -85,7 +85,7 @@ export default function DailyCarePage() {
       setLoading(false);
     };
     fetchJournal();
-  }, [selectedStudent?.id, date]);
+  }, [selectedStudent, date]);
 
   if (!selectedStudent) {
     return (
