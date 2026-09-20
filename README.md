@@ -90,15 +90,22 @@ Staff must register with an `@specialcare360.com` address; parents may use any e
 - Authorisation lives in `firestore.rules`, not in the backend. Records carry a denormalised
   `centerId` and `parentId`, and list queries must filter on the matching field — see `CLAUDE.md`
   for why.
-- **Teletherapy video needs a Jitsi instance you control.** It defaults to the public
-  `meet.jit.si`, which will not start a conference until a moderator joins, and becoming a
-  moderator requires a Jitsi account. Participants see *"The conference has not yet started
-  because no moderators have yet arrived"* and wait. The room embeds and loads fine — it is the
-  call that will not begin.
+### Teletherapy video
 
-  On `meet.jit.si` the therapist must press **Log-in** inside the video frame once per room to
-  start it; the guardian can then join. For anything beyond a demo, point
-  `NEXT_PUBLIC_JITSI_DOMAIN` at a self-hosted Jitsi, or at 8x8 JaaS (which additionally needs a
-  JWT and a change to `components/teletherapy/VideoRoom.tsx`).
+Two modes, chosen automatically by whether the backend has JaaS credentials.
+
+**8x8 JaaS (recommended).** The backend mints a short-lived RS256 JWT per session naming the
+therapist as moderator and the guardian as a participant, so the call starts without anyone
+signing in to Jitsi. Sign up at [jaas.8x8.vc](https://jaas.8x8.vc) (free tier available), then set
+`JAAS_APP_ID`, `JAAS_API_KEY_ID` and `JAAS_PRIVATE_KEY_PATH` in `backend/.env` — see
+`backend/.env.example`. The private key stays on the server; it can mint a moderator token for any
+room in the tenant, so it must never reach the browser.
+
+**Public `meet.jit.si` (fallback).** Used when JaaS is unconfigured. It will not start a
+conference until a moderator joins, and becoming one requires a Jitsi account, so both
+participants can load the room and still never connect — they sit on *"The conference has not yet
+started because no moderators have yet arrived"*. Workable for a click-through demo if the
+therapist presses **Log-in** inside the frame once per room. Set `NEXT_PUBLIC_JITSI_DOMAIN` to
+point at a self-hosted Jitsi instead if you have one.
 - There is no automated test suite. `npx tsc --noEmit && npm run lint && npm run build` is the
   verification loop.
