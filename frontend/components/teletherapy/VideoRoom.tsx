@@ -10,36 +10,84 @@ import { Video, VideoOff, ExternalLink } from "lucide-react";
  * approach needs a third-party script on every page load and gives us nothing
  * we use here. The room name comes from the session id, so it is unguessable.
  *
- * IMPORTANT -- the public meet.jit.si instance will not start a conference
- * until a moderator has joined, and becoming a moderator requires a Jitsi
- * account. Participants see "The conference has not yet started because no
- * moderators have yet arrived" and wait indefinitely. The room embeds and
- * loads correctly; it is the call itself that will not begin.
+ * TWO MODES
+ * ---------
+ * JaaS (8x8), when the backend has credentials. It asks GET
+ * /api/teletherapy/token for a signed JWT naming this user as moderator or
+ * participant, and joins `8x8.vc/<tenant>/<room>?jwt=...`. This is the mode to
+ * use for real sessions: the therapist is the moderator, so the call starts.
  *
- * So for anything beyond a click-through demo, set NEXT_PUBLIC_JITSI_DOMAIN to
- * an instance you control:
- *   - a self-hosted Jitsi (no moderator gate unless you enable one), or
- *   - 8x8 JaaS, which needs a JWT and a change to this component.
- * On meet.jit.si, the therapist must press Log-in inside the frame once per
- * room to start it; the guardian can then join normally.
+ * Plain meet.jit.si otherwise. The public instance will NOT start a conference
+ * until a moderator joins, and becoming one requires a Jitsi account, so both
+ * participants can load the room and still never be connected -- they sit on
+ * "The conference has not yet started because no moderators have yet arrived".
+ * Workable for a click-through demo if the therapist presses Log-in inside the
+ * frame once per room; not workable for anything real.
+ *
+ * The fallback is deliberate: an unconfigured deployment degrades to a room
+ * that loads rather than to an error.
  */
 
 const JITSI_DOMAIN = process.env.NEXT_PUBLIC_JITSI_DOMAIN || "meet.jit.si";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+interface JaasGrant {
+  token: string;
+  room: string;
+  domain: string;
+  moderator: boolean;
+}
 
 interface Props {
   roomName: string;
   displayName: string;
+  /** teletherapySessions document id, used to scope the JaaS token. */
+  sessionId: string;
+  getIdToken: () => Promise<string | null>;
   onLeave: () => void;
 }
 
-export default function VideoRoom({ roomName, displayName, onLeave }: Props) {
+export default function VideoRoom({
+  roomName, displayName, sessionId, getIdToken, onLeave,
+}: Props) {
   const [joined, setJoined] = useState(false);
+  const [grant, setGrant] = useState<JaasGrant | null>(null);
+  const [checking, setChecking] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Leaving the page should not leave a live camera behind.
   useEffect(() => {
     return () => setJoined(false);
   }, []);
+
+  // Ask the backend for a JaaS grant. A 503 simply means JaaS is not set up,
+  // which is not an error worth showing anyone.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const authToken = await getIdToken();
+        if (!authToken) return;
+        const res = await fetch(
+          `${API_BASE}/api/teletherapy/token?sessionId=${encodeURIComponent(sessionId)}`,
+          { headers: { Authorization: `Bearer ${authToken}` } }
+        );
+        if (!res.ok) {
+          if (res.status !== 503) {
+            console.warn("[teletherapy] video token unavailable:", res.status);
+          }
+          return;
+        }
+        const data = (await res.json()) as JaasGrant;
+        if (!cancelled) setGrant(data);
+      } catch (err) {
+        console.warn("[teletherapy] could not reach the token endpoint:", err);
+      } finally {
+        if (!cancelled) setChecking(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [sessionId, getIdToken]);
 
   // Jitsi parses each hash parameter as JSON, so a string value has to arrive
   // quoted -- `userInfo.displayName=Amna` is invalid JSON and is dropped, which
@@ -48,14 +96,21 @@ export default function VideoRoom({ roomName, displayName, onLeave }: Props) {
   // URLSearchParams is not usable here: it percent-encodes the dots in the
   // config keys, and Jitsi then fails to match them.
   const hashParams = [
-    `userInfo.displayName=${encodeURIComponent(JSON.stringify(displayName))}`,
+    "config.prejoinConfig.enabled=false",
     // Renamed upstream. The old key is kept so the setting still applies to
     // self-hosted instances pinned to an older Jitsi.
-    "config.prejoinConfig.enabled=false",
     "config.prejoinPageEnabled=false",
     "config.disableDeepLinking=true",
   ];
-  const roomUrl = `https://${JITSI_DOMAIN}/${encodeURIComponent(roomName)}#${hashParams.join("&")}`;
+  // With JaaS the display name comes from the signed token, so sending it in
+  // the hash as well would let a participant rename themselves.
+  if (!grant) {
+    hashParams.unshift(`userInfo.displayName=${encodeURIComponent(JSON.stringify(displayName))}`);
+  }
+
+  const roomUrl = grant
+    ? `https://${grant.domain}/${grant.room}?jwt=${encodeURIComponent(grant.token)}#${hashParams.join("&")}`
+    : `https://${JITSI_DOMAIN}/${encodeURIComponent(roomName)}#${hashParams.join("&")}`;
 
   if (!joined) {
     return (
@@ -73,9 +128,20 @@ export default function VideoRoom({ roomName, displayName, onLeave }: Props) {
             to this session.
           </p>
         </div>
-        <button className="btn-primary" onClick={() => setJoined(true)} style={{ padding: "12px 28px", display: "inline-flex", alignItems: "center", gap: "8px" }}>
-          <Video size={16} /> Join session
+        <button
+          className="btn-primary"
+          onClick={() => setJoined(true)}
+          disabled={checking}
+          style={{ padding: "12px 28px", display: "inline-flex", alignItems: "center", gap: "8px" }}
+        >
+          <Video size={16} /> {checking ? "Preparing room…" : "Join session"}
         </button>
+        {!checking && !grant && (
+          <p style={{ margin: 0, fontSize: "0.74rem", color: "var(--text-secondary)", maxWidth: "420px", lineHeight: 1.5 }}>
+            Running on the public Jitsi server. The therapist may need to sign in
+            inside the call before it will start.
+          </p>
+        )}
         <a
           href={roomUrl}
           target="_blank"

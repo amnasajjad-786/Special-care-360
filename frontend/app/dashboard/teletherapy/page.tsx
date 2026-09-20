@@ -40,7 +40,7 @@ function joinWindow(session: TeletherapySession, now: Date) {
 }
 
 export default function TeletherapyPage() {
-  const { profile } = useAuth();
+  const { profile, getIdToken } = useAuth();
   const scope = useMemo(() => scopeOf(profile), [profile]);
 
   const [sessions, setSessions] = useState<TeletherapySession[]>([]);
@@ -190,6 +190,8 @@ export default function TeletherapyPage() {
         <VideoRoom
           roomName={activeSession.roomName}
           displayName={profile?.name || "Participant"}
+          sessionId={activeSession.id}
+          getIdToken={getIdToken}
           onLeave={() => setActiveSession(null)}
         />
         <button

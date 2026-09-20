@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from firebase_admin_init import init_firebase
-from routers import auth, students, daily_care, abc_tracker, panic, ai_insights
+from routers import auth, students, daily_care, abc_tracker, panic, ai_insights, teletherapy
 import os
 from dotenv import load_dotenv
 
@@ -37,6 +37,7 @@ app.include_router(daily_care.router)
 app.include_router(abc_tracker.router)
 app.include_router(panic.router)
 app.include_router(ai_insights.router)
+app.include_router(teletherapy.router)
 
 
 @app.get("/")
