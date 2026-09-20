@@ -90,8 +90,15 @@ Staff must register with an `@specialcare360.com` address; parents may use any e
 - Authorisation lives in `firestore.rules`, not in the backend. Records carry a denormalised
   `centerId` and `parentId`, and list queries must filter on the matching field — see `CLAUDE.md`
   for why.
-- Teletherapy defaults to the public `meet.jit.si`, which may ask the first participant to sign in
-  before creating a room. Set `NEXT_PUBLIC_JITSI_DOMAIN` to a self-hosted or 8x8 instance to avoid
-  this.
+- **Teletherapy video needs a Jitsi instance you control.** It defaults to the public
+  `meet.jit.si`, which will not start a conference until a moderator joins, and becoming a
+  moderator requires a Jitsi account. Participants see *"The conference has not yet started
+  because no moderators have yet arrived"* and wait. The room embeds and loads fine — it is the
+  call that will not begin.
+
+  On `meet.jit.si` the therapist must press **Log-in** inside the video frame once per room to
+  start it; the guardian can then join. For anything beyond a demo, point
+  `NEXT_PUBLIC_JITSI_DOMAIN` at a self-hosted Jitsi, or at 8x8 JaaS (which additionally needs a
+  JWT and a change to `components/teletherapy/VideoRoom.tsx`).
 - There is no automated test suite. `npx tsc --noEmit && npm run lint && npm run build` is the
   verification loop.
