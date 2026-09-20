@@ -5,6 +5,18 @@ import { Target } from "lucide-react";
 
 interface Props { patterns: PatternAnalysis | null; }
 
+// Module scope, not inside render — see the note in TrendChart.tsx.
+function CustomTooltip({ active, payload }: { active?: boolean; payload?: { payload: { fullName: string; count: number } }[] }) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0].payload;
+  return (
+    <div style={{ background: "rgba(255,255,255,0.95)", backdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,0.6)", borderRadius: "10px", padding: "10px 14px", boxShadow: "0 4px 20px rgba(0,0,0,0.1)" }}>
+      <div style={{ fontWeight: 700, fontSize: "0.88rem", color: "var(--text-primary)" }}>{d.fullName}</div>
+      <div style={{ fontSize: "0.82rem", color: "var(--accent-coral)", fontWeight: 600, marginTop: "4px" }}>{d.count} occurrences</div>
+    </div>
+  );
+}
+
 export default function TriggerBarChart({ patterns }: Props) {
   if (!patterns) return <div className="glass-card" style={{ padding: "20px", height: "220px" }}><div className="skeleton" style={{ height: "100%", borderRadius: "8px" }} /></div>;
 
@@ -14,17 +26,6 @@ export default function TriggerBarChart({ patterns }: Props) {
     count: a.count,
     color: ["var(--accent-coral)", "var(--accent-lavender)", "var(--accent-teal)", "var(--accent-purple-soft)", "#f6ad55"][i % 5],
   }));
-
-  const CustomTooltip = ({ active, payload }: { active?: boolean; payload?: { payload: { fullName: string; count: number } }[] }) => {
-    if (!active || !payload?.length) return null;
-    const d = payload[0].payload;
-    return (
-      <div style={{ background: "rgba(255,255,255,0.95)", backdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,0.6)", borderRadius: "10px", padding: "10px 14px", boxShadow: "0 4px 20px rgba(0,0,0,0.1)" }}>
-        <div style={{ fontWeight: 700, fontSize: "0.88rem", color: "var(--text-primary)" }}>{d.fullName}</div>
-        <div style={{ fontSize: "0.82rem", color: "var(--accent-coral)", fontWeight: 600, marginTop: "4px" }}>{d.count} occurrences</div>
-      </div>
-    );
-  };
 
   return (
     <div className="glass-card" style={{ padding: "20px" }}>

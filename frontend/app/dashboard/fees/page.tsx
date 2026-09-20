@@ -2,19 +2,19 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { useAuth } from "@/lib/auth-context";
-import { studentsDb, scopeOf } from "@/lib/firestore-api";
+import { studentsDb, scopeOf, type StudentDoc } from "@/lib/firestore-api";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import toast from "react-hot-toast";
 import {
   Receipt,
-  Calendar,
+
   CreditCard,
   AlertTriangle,
   CheckCircle,
   Clock,
   Printer,
-  ChevronRight,
+
   FileText
 } from "lucide-react";
 
@@ -45,17 +45,13 @@ interface Payment {
 export default function ParentFeesPage() {
   const { profile } = useAuth();
   
-  const [children, setChildren] = useState<any[]>([]);
+  const [children, setChildren] = useState<StudentDoc[]>([]);
   const [selectedChildId, setSelectedChildId] = useState<string | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeInvoice, setActiveInvoice] = useState<Invoice | null>(null);
   
-  const selectedChildName = useMemo(() => {
-    return children.find(c => c.id === selectedChildId)?.name || "";
-  }, [selectedChildId, children]);
-
   const [billingError, setBillingError] = useState(false);
 
   // Load Parent's Children
@@ -92,46 +88,41 @@ export default function ParentFeesPage() {
       setBillingError(true);
     };
 
-    try {
-      const qInvoices = query(
-        collection(db, "invoices"),
-        where("studentId", "==", selectedChildId),
-        where("parentId", "==", profile.uid)
-      );
-      const unsubInvoices = onSnapshot(qInvoices, (snap) => {
-        const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Invoice));
-        setInvoices(list);
-        setBillingError(false);
+    const qInvoices = query(
+      collection(db, "invoices"),
+      where("studentId", "==", selectedChildId),
+      where("parentId", "==", profile.uid)
+    );
+    const unsubInvoices = onSnapshot(qInvoices, (snap) => {
+      const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Invoice));
+      setInvoices(list);
+      setBillingError(false);
 
-        // Surface the most pressing invoice: overdue, then pending, then latest.
-        const unpaid = list.find(i => i.status === "overdue") || list.find(i => i.status === "pending") || list[0] || null;
-        setActiveInvoice(unpaid);
-      }, onError("invoices"));
+      // Surface the most pressing invoice: overdue, then pending, then latest.
+      const unpaid = list.find(i => i.status === "overdue") || list.find(i => i.status === "pending") || list[0] || null;
+      setActiveInvoice(unpaid);
+    }, onError("invoices"));
 
-      const qPayments = query(
-        collection(db, "payments"),
-        where("studentId", "==", selectedChildId),
-        where("parentId", "==", profile.uid)
-      );
-      const unsubPayments = onSnapshot(qPayments, (snap) => {
-        setPayments(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Payment)));
-      }, onError("payments"));
+    const qPayments = query(
+      collection(db, "payments"),
+      where("studentId", "==", selectedChildId),
+      where("parentId", "==", profile.uid)
+    );
+    const unsubPayments = onSnapshot(qPayments, (snap) => {
+      setPayments(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Payment)));
+    }, onError("payments"));
 
-      return () => {
-        unsubInvoices();
-        unsubPayments();
-      };
-    } catch (err) {
-      console.error("Could not subscribe to billing data:", err);
-      setBillingError(true);
-    }
+    return () => {
+      unsubInvoices();
+      unsubPayments();
+    };
   }, [selectedChildId, profile]);
 
   // Financial Stats
   const financials = useMemo(() => {
-    let paidTotal = payments.reduce((sum, p) => sum + p.amount, 0);
-    let pendingTotal = invoices.filter(i => i.status === "pending").reduce((sum, i) => sum + i.amount, 0);
-    let overdueTotal = invoices.filter(i => i.status === "overdue").reduce((sum, i) => sum + i.amount, 0);
+    const paidTotal = payments.reduce((sum, p) => sum + p.amount, 0);
+    const pendingTotal = invoices.filter(i => i.status === "pending").reduce((sum, i) => sum + i.amount, 0);
+    const overdueTotal = invoices.filter(i => i.status === "overdue").reduce((sum, i) => sum + i.amount, 0);
     return { paidTotal, pendingTotal, overdueTotal };
   }, [invoices, payments]);
 
@@ -163,12 +154,6 @@ export default function ParentFeesPage() {
     // Sort by date/month (latest first - simplistic parse)
     return records.sort((a, b) => b.date.localeCompare(a.date));
   }, [invoices, payments]);
-
-  const feeStatusLabels = {
-    paid: <span className="chip chip-success">Paid</span>,
-    pending: <span className="chip chip-warning">Pending</span>,
-    overdue: <span className="chip chip-danger">Overdue</span>
-  };
 
   const statusBadges = {
     paid: <span className="chip chip-success" style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}><CheckCircle size={12} /> Paid</span>,

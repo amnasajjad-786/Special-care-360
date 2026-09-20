@@ -39,25 +39,19 @@ export default function Sidebar() {
   // ─── Real-time active alert count (admin only) ───────────────────────────
   useEffect(() => {
     if (profile?.role !== "admin") return;
-    try {
-      const q = query(
-        collection(db, "panicAlerts"),
-        where("status", "==", "active"),
-        where("centerId", "==", profile.centerId || "center-001")
-      );
-      const unsub = onSnapshot(q, (snap) => {
-        setAlertCount(snap.size);
-      }, (err) => {
-        // Never invent a badge count: a fake "1" here sends an admin looking
-        // for an emergency that does not exist.
-        console.error("Alert badge listener failed:", err);
-        setAlertCount(0);
-      });
-      return unsub;
-    } catch (err) {
-      console.error("Could not subscribe to alert badge:", err);
+    const q = query(
+      collection(db, "panicAlerts"),
+      where("status", "==", "active"),
+      where("centerId", "==", profile.centerId || "center-001")
+    );
+    return onSnapshot(q, (snap) => {
+      setAlertCount(snap.size);
+    }, (err) => {
+      // Never invent a badge count: a fake "1" here sends an admin looking
+      // for an emergency that does not exist.
+      console.error("Alert badge listener failed:", err);
       setAlertCount(0);
-    }
+    });
   }, [profile]);
 
   const handleLogout = async () => {

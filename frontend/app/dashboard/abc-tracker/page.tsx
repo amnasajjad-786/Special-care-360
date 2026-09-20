@@ -72,11 +72,15 @@ export default function ABCTrackerPage() {
     setLoading(false);
   };
 
+  const selectedStudentId = selectedStudent?.id;
   useEffect(() => {
-    if (selectedStudent) {
-      loadData(selectedStudent.id);
+    if (selectedStudentId) {
+      loadData(selectedStudentId);
     }
-  }, [selectedStudent?.id]);
+    // loadData is stable for a given profile; re-running on its identity would
+    // refetch on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedStudentId]);
 
   const handleSaved = () => {
     if (selectedStudent) {
@@ -102,9 +106,9 @@ export default function ABCTrackerPage() {
       }
       const data = await res.json();
       setAiReport(data.report);
-    } catch (err: any) {
+    } catch (err) {
       console.error("AI Gen Error:", err);
-      toast.error(err.message || "AI generation failed. Make sure Gemini API Key is set.");
+      toast.error(err instanceof Error ? err.message : "AI generation failed. Check that the Gemini API key is set.");
       setShowAiModal(false);
     } finally {
       setAiLoading(false);
@@ -298,7 +302,7 @@ export default function ABCTrackerPage() {
                 </div>
               ) : (
                 <div className="markdown-content" style={{ lineHeight: 1.7, color: "var(--text-primary)", fontSize: "0.95rem" }}>
-                  {/* @ts-ignore - ReactMarkdown types can sometimes clash with React 19 */}
+
                   <ReactMarkdown>{aiReport || "No report generated."}</ReactMarkdown>
                   <style>{`
                     .markdown-content h3 {

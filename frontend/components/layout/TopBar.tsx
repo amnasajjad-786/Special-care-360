@@ -66,13 +66,12 @@ export default function TopBar() {
   useEffect(() => {
     if (!profile) return;
 
-    try {
-      const q = query(
-        collection(db, "notifications"),
-        where("recipientId", "==", profile.uid)
-      );
-      
-      const unsub = onSnapshot(q, (snap) => {
+    const q = query(
+      collection(db, "notifications"),
+      where("recipientId", "==", profile.uid)
+    );
+
+    return onSnapshot(q, (snap) => {
         // An empty inbox is simply an empty inbox. This used to write invented
         // notifications into Firestore permanently — including, for guardians,
         // "Ms. Fatima Khan submitted Ahmed's journal", a fabricated care record
@@ -119,11 +118,19 @@ export default function TopBar() {
           };
         });
         
-        // Sort latest first
+        // Sorted in memory, newest first. Pairing the recipientId filter with
+        // an orderBy would require a composite index for what is at most a
+        // few dozen rows.
         items.sort((a, b) => b._rawDate.getTime() - a._rawDate.getTime());
-        // Limit to 20 items
-        const limitedItems: NotificationItem[] = items.slice(0, 20).map(({ _rawDate, ...rest }) => rest);
-        
+        const limitedItems: NotificationItem[] = items.slice(0, 20).map((item) => ({
+          id: item.id,
+          type: item.type,
+          title: item.title,
+          body: item.body,
+          time: item.time,
+          read: item.read,
+        }));
+
         setNotifications(limitedItems);
         setNotificationsError(false);
       }, (err) => {
@@ -132,12 +139,6 @@ export default function TopBar() {
         setNotifications([]);
         setNotificationsError(true);
       });
-      return unsub;
-    } catch (err) {
-      console.error("Could not subscribe to notifications:", err);
-      setNotifications([]);
-      setNotificationsError(true);
-    }
   }, [profile]);
 
   // ─── Click outside dropdowns to close them ───

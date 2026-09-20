@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { MedicalProfile, Medication } from "@/types";
 import toast from "react-hot-toast";
-import { Sparkles, Zap, ShieldAlert, Pill, Phone, Activity, Save, AlertTriangle } from "lucide-react";
+import { Sparkles, Zap, Pill, Phone, Activity, Save, AlertTriangle } from "lucide-react";
 import { studentsDb } from "@/lib/firestore-api";
 
 const BLOOD_TYPES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "Unknown"];

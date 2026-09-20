@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import { format } from "date-fns";
+
 import { useAuth } from "@/lib/auth-context";
 import { dailyCareDb } from "@/lib/firestore-api";
 import { DailyCareJournal, MealStatus, MoodType, ActivityLevel } from "@/types";

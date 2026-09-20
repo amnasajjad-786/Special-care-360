@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import toast from "react-hot-toast";
 import { collection, query, where, onSnapshot, doc, deleteDoc, orderBy, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { studentsDb, adminDb, dailyCareDb, abcDb, scopeOf, studentAge, type PanicAlertDoc } from "@/lib/firestore-api";
+import { studentsDb, adminDb, dailyCareDb, abcDb, scopeOf, studentAge, type PanicAlertDoc, type StudentDoc } from "@/lib/firestore-api";
 import {
   LayoutDashboard,
   Users,
@@ -19,13 +19,13 @@ import {
   Check,
   Settings,
   X,
-  Bell,
+
   Clock,
   AlertTriangle,
   FileSpreadsheet,
   UserPlus,
   CheckCircle,
-  HelpCircle,
+
   ArrowLeft,
   Calendar,
   FileText,
@@ -84,6 +84,55 @@ const INITIAL_PAYMENTS: AdminPayment[] = [];
 
 const INITIAL_STAFF: AdminStaff[] = [];
 
+interface PendingUser {
+  id: string;
+  uid?: string;
+  name?: string;
+  email?: string;
+  role?: string;
+  centerId?: string;
+  status?: string;
+  createdAt?: unknown;
+}
+
+interface TagCount { tag: string; count: number }
+
+/** Only the fields the report actually renders. */
+interface ReportJournal {
+  date: string;
+  moodTimeline?: { slot: string; mood: string }[];
+  meals?: Record<"breakfast" | "lunch" | "snack", { ate?: string } | undefined>;
+  teacherNotes?: string;
+}
+
+interface ReportIncident {
+  id: string;
+  timestamp: string;
+  severity: number;
+  location?: string;
+  antecedent?: { text?: string };
+  behavior?: { text?: string };
+  consequence?: { text?: string };
+}
+
+interface ReportData {
+  carePlan?: { goals?: { id: string; title: string; status: string; progressPercent: number }[] };
+  journals?: ReportJournal[];
+  patterns?: {
+    topAntecedents?: TagCount[];
+    topBehaviors?: TagCount[];
+    topConsequences?: TagCount[];
+    avgSeverity?: number;
+    totalIncidents?: number;
+    insights?: string[];
+  };
+  incidents?: ReportIncident[];
+  invoices?: AdminInvoice[];
+  payments?: AdminPayment[];
+  attendance?: { date: string; status: string; source: string }[];
+  derived?: boolean;
+}
+
 const DIAGNOSES_OPTIONS = ["Autism", "Down Syndrome", "ADHD", "Cerebral Palsy", "Other"];
 
 export default function AdminDashboard() {
@@ -93,7 +142,7 @@ export default function AdminDashboard() {
   // --- Reports State ---
   const [selectedReportType, setSelectedReportType] = useState<"progress" | "fees" | "behavior" | "attendance" | null>(null);
   const [selectedReportStudentId, setSelectedReportStudentId] = useState<string | null>(null);
-  const [reportData, setReportData] = useState<any>(null);
+  const [reportData, setReportData] = useState<ReportData | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
 
   // --- Core States ---
@@ -101,8 +150,8 @@ export default function AdminDashboard() {
   const [invoices, setInvoices] = useState<AdminInvoice[]>(INITIAL_INVOICES);
   const [payments, setPayments] = useState<AdminPayment[]>(INITIAL_PAYMENTS);
   const [staff, setStaff] = useState<AdminStaff[]>(INITIAL_STAFF);
-  const [pendingUsers, setPendingUsers] = useState<any[]>([]);
-  const [selectedPendingUser, setSelectedPendingUser] = useState<any | null>(null);
+  const [pendingUsers, setPendingUsers] = useState<PendingUser[]>([]);
+  const [selectedPendingUser, setSelectedPendingUser] = useState<PendingUser | null>(null);
 
   // --- Search & Filters ---
   const [studentSearch, setStudentSearch] = useState("");
@@ -202,14 +251,14 @@ export default function AdminDashboard() {
     const fetchStaff = async () => {
       try {
         const data = await adminDb.listStaff(profile.centerId || "center-001");
-        const mapped: AdminStaff[] = data.map((s: any) => ({
-          id: s.id,
-          name: s.name,
-          subRole: s.subRole,
-          role: s.role,
-          email: s.email,
-          studentsAssigned: s.studentsAssigned,
-          status: s.status
+        const mapped: AdminStaff[] = data.map((s: Record<string, unknown>) => ({
+          id: s.id as string,
+          name: (s.name as string) ?? "",
+          subRole: (s.subRole as string) ?? "",
+          role: (s.role as AdminStaff["role"]) ?? "Teacher",
+          email: (s.email as string) ?? "",
+          studentsAssigned: (s.studentsAssigned as number) ?? 0,
+          status: (s.status as AdminStaff["status"]) ?? "Active"
         }));
         setStaff(mapped);
       } catch (err) {
@@ -267,55 +316,43 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (!profile) return;
-    try {
-      const q = query(
-        collection(db, "panicAlerts"),
-        where("status", "==", "active"),
-        where("centerId", "==", profile.centerId || "center-001")
-      );
-      const unsub = onSnapshot(
-        q,
-        (snap) => { setActiveAlertsCount(snap.size); setAlertsError(false); },
-        (err) => {
-          // Surface the failure instead of substituting a plausible number.
-          console.error("Active alert listener failed:", err);
-          setActiveAlertsCount(0);
-          setAlertsError(true);
-        }
-      );
-      return unsub;
-    } catch (err) {
-      console.error("Could not subscribe to active alerts:", err);
-      setAlertsError(true);
-    }
+    const q = query(
+      collection(db, "panicAlerts"),
+      where("status", "==", "active"),
+      where("centerId", "==", profile.centerId || "center-001")
+    );
+    return onSnapshot(
+      q,
+      (snap) => { setActiveAlertsCount(snap.size); setAlertsError(false); },
+      (err) => {
+        // Surface the failure instead of substituting a plausible number.
+        console.error("Active alert listener failed:", err);
+        setActiveAlertsCount(0);
+        setAlertsError(true);
+      }
+    );
   }, [profile]);
 
   useEffect(() => {
     if (!profile) return;
-    try {
-      const q = query(
-        collection(db, "panicAlerts"),
-        where("centerId", "==", profile.centerId || "center-001"),
-        orderBy("timestamp", "desc"),
-        limit(5)
-      );
-      const unsub = onSnapshot(
-        q,
-        (snap) => {
-          setRecentAlerts(snap.docs.map(d => ({ id: d.id, ...d.data() }) as PanicAlertDoc));
-          setAlertsError(false);
-        },
-        (err) => {
-          console.error("Recent alert listener failed:", err);
-          setRecentAlerts([]);
-          setAlertsError(true);
-        }
-      );
-      return unsub;
-    } catch (err) {
-      console.error("Could not subscribe to recent alerts:", err);
-      setAlertsError(true);
-    }
+    const q = query(
+      collection(db, "panicAlerts"),
+      where("centerId", "==", profile.centerId || "center-001"),
+      orderBy("timestamp", "desc"),
+      limit(5)
+    );
+    return onSnapshot(
+      q,
+      (snap) => {
+        setRecentAlerts(snap.docs.map(d => ({ id: d.id, ...d.data() }) as PanicAlertDoc));
+        setAlertsError(false);
+      },
+      (err) => {
+        console.error("Recent alert listener failed:", err);
+        setRecentAlerts([]);
+        setAlertsError(true);
+      }
+    );
   }, [profile]);
 
   // --- Fetch report details dynamically when a student and report type is selected ---
@@ -333,13 +370,13 @@ export default function AdminDashboard() {
             studentsDb.getCarePlan(selectedReportStudentId),
             dailyCareDb.history(selectedReportStudentId, scopeOf(profile))
           ]);
-          setReportData({ carePlan, journals });
+          setReportData({ carePlan, journals: journals as unknown as ReportJournal[] });
         } else if (selectedReportType === "behavior") {
           const [patterns, incidents] = await Promise.all([
             abcDb.getPatterns(selectedReportStudentId, scopeOf(profile)),
             abcDb.listIncidents(selectedReportStudentId, scopeOf(profile), 15)
           ]);
-          setReportData({ patterns, incidents });
+          setReportData({ patterns, incidents: incidents as unknown as ReportIncident[] });
         } else if (selectedReportType === "fees") {
           const studentInvoices = invoices.filter(i => i.studentId === selectedReportStudentId);
           const studentPayments = payments.filter(p => p.studentId === selectedReportStudentId);
@@ -372,7 +409,7 @@ export default function AdminDashboard() {
     };
 
     fetchReport();
-  }, [selectedReportStudentId, selectedReportType, invoices, payments, students]);
+  }, [selectedReportStudentId, selectedReportType, invoices, payments, profile]);
 
   const feeStats = useMemo(() => {
     let collected = 0;
@@ -424,7 +461,7 @@ export default function AdminDashboard() {
         guardianName: studentForm.guardianName,
         contactNo: studentForm.contactNo,
         notes: studentForm.notes
-      } as any);
+      } as unknown as Omit<StudentDoc, "id">);
 
       const newStudent: AdminStudent = {
         id: newId,
@@ -432,7 +469,7 @@ export default function AdminDashboard() {
         age: ageNum,
         diagnosis: studentForm.diagnosis,
         therapist: studentForm.therapist,
-        feeStatus: "pending",
+        feeStatus: "unknown",
         status: "Active"
       };
 
@@ -682,15 +719,22 @@ export default function AdminDashboard() {
     });
   }, [students, studentSearch, diagnosisFilter, statusFilter]);
 
-  const formatRequestDate = (createdAt: any) => {
+  // createdAt arrives either as a Firestore Timestamp (with toDate/seconds) or
+  // as an ISO string, depending on whether it was written by the web SDK or a
+  // backend script.
+  const formatRequestDate = (createdAt: unknown) => {
     if (!createdAt) return "Unknown date";
-    if (typeof createdAt.toDate === "function") {
-      return createdAt.toDate().toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
-    }
-    if (createdAt.seconds) {
-      return new Date(createdAt.seconds * 1000).toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
-    }
-    return new Date(createdAt).toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    const FORMAT: Intl.DateTimeFormatOptions = {
+      day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit",
+    };
+    const ts = createdAt as { toDate?: () => Date; seconds?: number };
+
+    let date: Date;
+    if (typeof ts.toDate === "function") date = ts.toDate();
+    else if (typeof ts.seconds === "number") date = new Date(ts.seconds * 1000);
+    else date = new Date(createdAt as string | number);
+
+    return Number.isNaN(date.getTime()) ? "Unknown date" : date.toLocaleDateString("en-US", FORMAT);
   };
 
   // Color mappings
@@ -974,7 +1018,7 @@ export default function AdminDashboard() {
                           display: "flex", alignItems: "center", justifyContent: "center",
                           fontWeight: 700, fontSize: "0.85rem"
                         }}>
-                          {u.name ? u.name.split(" ").map((w: any) => w[0]).join("").slice(0, 2).toUpperCase() : "?"}
+                          {u.name ? u.name.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase() : "?"}
                         </div>
                         <div>
                           <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>{u.name}</div>
@@ -985,7 +1029,7 @@ export default function AdminDashboard() {
                       </div>
                       <button 
                         className="btn-primary" 
-                        onClick={() => handleApproveUser(u.id, u.name)} 
+                        onClick={() => handleApproveUser(u.id, u.name ?? "this user")} 
                         style={{ padding: "6px 12px", fontSize: "0.75rem", background: "var(--accent-teal)" }}
                       >
                         Approve
@@ -1576,7 +1620,7 @@ export default function AdminDashboard() {
                             <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>No IEP goals configured for this student.</p>
                           ) : (
                             <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "24px" }}>
-                              {reportData.carePlan.goals.map((g: any) => (
+                              {reportData.carePlan.goals.map((g) => (
                                 <div key={g.id} style={{ padding: "12px 14px", background: "rgba(255,255,255,0.7)", border: "1px solid rgba(0,0,0,0.06)", borderRadius: "8px" }}>
                                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
                                     <span style={{ fontWeight: 600, fontSize: "0.85rem", color: "var(--text-primary)" }}>{g.title}</span>
@@ -1603,7 +1647,7 @@ export default function AdminDashboard() {
                                 Showing the last {reportData.journals.length} submitted daily journals.
                               </p>
                               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-                                {reportData.journals.slice(0, 4).map((j: any) => (
+                                {reportData.journals.slice(0, 4).map((j) => (
                                   <div key={j.date} style={{ padding: "12px", borderRadius: "10px", background: "rgba(0,0,0,0.02)", border: "1px solid rgba(0,0,0,0.04)" }}>
                                     <div style={{ fontWeight: 700, fontSize: "0.8rem", color: "var(--primary-dark)" }}>{new Date(j.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
                                     <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginTop: "4px" }}>
@@ -1643,18 +1687,18 @@ export default function AdminDashboard() {
                             </div>
                             <div style={{ padding: "12px", background: "rgba(255,255,255,0.7)", borderRadius: "8px", border: "1px solid rgba(0,0,0,0.06)" }}>
                               <div style={{ fontSize: "0.68rem", color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase" }}>Top Trigger</div>
-                              <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--primary-dark)", marginTop: "4px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{reportData.patterns.topAntecedents[0]?.tag || "—"}</div>
+                              <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--primary-dark)", marginTop: "4px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{reportData.patterns.topAntecedents?.[0]?.tag || "—"}</div>
                             </div>
                             <div style={{ padding: "12px", background: "rgba(255,255,255,0.7)", borderRadius: "8px", border: "1px solid rgba(0,0,0,0.06)" }}>
                               <div style={{ fontSize: "0.68rem", color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase" }}>Top Behavior</div>
-                              <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--primary-dark)", marginTop: "4px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{reportData.patterns.topBehaviors[0]?.tag || "—"}</div>
+                              <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--primary-dark)", marginTop: "4px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{reportData.patterns.topBehaviors?.[0]?.tag || "—"}</div>
                             </div>
                           </div>
 
                           <h4 style={{ margin: "0 0 12px", color: "var(--primary-dark)", fontSize: "0.95rem", fontWeight: 700, display: "flex", alignItems: "center", gap: "6px" }}>
                             <AlertTriangle size={16} style={{ color: "var(--danger)" }} /> Recent ABC Incidents
                           </h4>
-                          {reportData.incidents.length === 0 ? (
+                          {reportData.incidents?.length === 0 ? (
                             <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>No behavioral logs recorded for this student.</p>
                           ) : (
                             <div style={{ overflowX: "auto" }}>
@@ -1669,7 +1713,7 @@ export default function AdminDashboard() {
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {reportData.incidents.slice(0, 6).map((inc: any) => (
+                                  {reportData.incidents?.slice(0, 6).map((inc) => (
                                     <tr key={inc.id} style={{ borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
                                       <td style={{ padding: "8px", fontSize: "0.78rem", whiteSpace: "nowrap" }}>{new Date(inc.timestamp).toLocaleDateString()}</td>
                                       <td style={{ padding: "8px", fontSize: "0.78rem" }}>{inc.antecedent?.text}</td>
@@ -1696,19 +1740,19 @@ export default function AdminDashboard() {
                             <div style={{ padding: "14px", background: "rgba(56, 161, 105, 0.05)", border: "1px solid rgba(56, 161, 105, 0.15)", borderRadius: "10px" }}>
                               <div style={{ fontSize: "0.68rem", color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase" }}>Total Payments Received</div>
                               <div style={{ fontSize: "1.2rem", fontWeight: 800, color: "var(--success)", marginTop: "2px" }}>
-                                ₨ {reportData.payments.reduce((sum: number, p: any) => sum + p.amount, 0).toLocaleString()}
+                                ₨ {reportData.payments?.reduce((sum: number, p) => sum + p.amount, 0).toLocaleString()}
                               </div>
                             </div>
                             <div style={{ padding: "14px", background: "rgba(229, 62, 62, 0.05)", border: "1px solid rgba(229, 62, 62, 0.15)", borderRadius: "10px" }}>
                               <div style={{ fontSize: "0.68rem", color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase" }}>Outstanding Overdue Dues</div>
                               <div style={{ fontSize: "1.2rem", fontWeight: 800, color: "var(--danger)", marginTop: "2px" }}>
-                                ₨ {reportData.invoices.filter((i: any) => i.status === "overdue").reduce((sum: number, i: any) => sum + i.amount, 0).toLocaleString()}
+                                ₨ {reportData.invoices.filter((i) => i.status === "overdue").reduce((sum: number, i) => sum + i.amount, 0).toLocaleString()}
                               </div>
                             </div>
                             <div style={{ padding: "14px", background: "rgba(214, 158, 46, 0.05)", border: "1px solid rgba(214, 158, 46, 0.15)", borderRadius: "10px" }}>
                               <div style={{ fontSize: "0.68rem", color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase" }}>Pending Invoices</div>
                               <div style={{ fontSize: "1.2rem", fontWeight: 800, color: "var(--warning)", marginTop: "2px" }}>
-                                ₨ {reportData.invoices.filter((i: any) => i.status === "pending").reduce((sum: number, i: any) => sum + i.amount, 0).toLocaleString()}
+                                ₨ {reportData.invoices.filter((i) => i.status === "pending").reduce((sum: number, i) => sum + i.amount, 0).toLocaleString()}
                               </div>
                             </div>
                           </div>
@@ -1716,14 +1760,14 @@ export default function AdminDashboard() {
                           <h4 style={{ margin: "0 0 12px", color: "var(--primary-dark)", fontSize: "0.95rem", fontWeight: 700 }}>
                             Transaction Records
                           </h4>
-                          {reportData.invoices.length === 0 && reportData.payments.length === 0 ? (
+                          {reportData.invoices.length === 0 && reportData.payments?.length === 0 ? (
                             <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>No financial logs recorded for this student.</p>
                           ) : (
                             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
                               <div>
                                 <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", marginBottom: "8px" }}>Invoices Issued</div>
                                 <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                                  {reportData.invoices.map((inv: any) => (
+                                  {reportData.invoices.map((inv) => (
                                     <div key={inv.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: "rgba(0,0,0,0.02)", border: "1px solid rgba(0,0,0,0.04)", borderRadius: "8px", fontSize: "0.82rem" }}>
                                       <div>
                                         <div style={{ fontWeight: 600 }}>{inv.month}</div>
@@ -1741,10 +1785,10 @@ export default function AdminDashboard() {
                               <div>
                                 <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", marginBottom: "8px" }}>Payments Logged</div>
                                 <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                                  {reportData.payments.length === 0 ? (
+                                  {reportData.payments?.length === 0 ? (
                                     <p style={{ color: "var(--text-secondary)", fontSize: "0.8rem", margin: 0 }}>No payments registered.</p>
                                   ) : (
-                                    reportData.payments.map((p: any) => (
+                                    reportData.payments?.map((p) => (
                                       <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: "rgba(56, 161, 105, 0.02)", border: "1px solid rgba(56, 161, 105, 0.1)", borderRadius: "8px", fontSize: "0.82rem" }}>
                                         <div>
                                           <div style={{ fontWeight: 600, color: "var(--success)" }}>Paid (via {p.method})</div>
@@ -2231,7 +2275,7 @@ export default function AdminDashboard() {
                 fontWeight: 700, fontSize: "1.5rem", margin: "0 auto 12px",
                 boxShadow: "0 4px 12px rgba(155, 142, 196, 0.2)"
               }}>
-                {selectedPendingUser.name ? selectedPendingUser.name.split(" ").map((w: any) => w[0]).join("").slice(0, 2).toUpperCase() : "?"}
+                {selectedPendingUser.name ? selectedPendingUser.name.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase() : "?"}
               </div>
               <h2 style={{ fontSize: "1.25rem", fontWeight: 800, color: "var(--primary-dark)", margin: "0 0 4px" }}>
                 {selectedPendingUser.name}
@@ -2262,7 +2306,7 @@ export default function AdminDashboard() {
               <button 
                 type="button" 
                 className="btn-ghost" 
-                onClick={() => handleRejectUser(selectedPendingUser.id, selectedPendingUser.name)}
+                onClick={() => handleRejectUser(selectedPendingUser.id, selectedPendingUser.name ?? "this user")}
                 style={{ background: "rgba(229,62,62,0.08)", color: "#e53e3e", border: "1px solid rgba(229,62,62,0.15)" }}
               >
                 Reject Request
@@ -2271,7 +2315,7 @@ export default function AdminDashboard() {
                 type="button" 
                 className="btn-primary" 
                 onClick={async () => {
-                  await handleApproveUser(selectedPendingUser.id, selectedPendingUser.name);
+                  await handleApproveUser(selectedPendingUser.id, selectedPendingUser.name ?? "this user");
                   setSelectedPendingUser(null);
                 }}
                 style={{ background: "var(--accent-teal)" }}
