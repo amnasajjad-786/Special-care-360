@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { abcDb, studentsDb } from "@/lib/firestore-api";
+import { abcDb, studentsDb, scopeOf } from "@/lib/firestore-api";
 import { ABCIncident, PatternAnalysis, HeatmapCell } from "@/types";
 import HeatmapGrid from "@/components/abc-tracker/HeatmapGrid";
 import TrendChart from "@/components/abc-tracker/TrendChart";
@@ -35,11 +35,7 @@ export default function ABCTrackerPage() {
   useEffect(() => {
     const loadStudents = async () => {
       try {
-        const allowed = await studentsDb.list(
-          profile?.centerId ?? "center-001",
-          profile?.role,
-          profile?.uid
-        );
+        const allowed = await studentsDb.list(scopeOf(profile));
         setStudents(allowed);
         if (allowed.length > 0) {
           setSelectedStudent(allowed[0]);
@@ -55,12 +51,13 @@ export default function ABCTrackerPage() {
   }, [profile]);
 
   const loadData = async (studentId: string) => {
+    const scope = scopeOf(profile);
     setLoading(true);
     try {
       const [incidents, patterns, heatmap] = await Promise.all([
-        abcDb.listIncidents(studentId),
-        abcDb.getPatterns(studentId),
-        abcDb.getHeatmap(studentId),
+        abcDb.listIncidents(studentId, scope),
+        abcDb.getPatterns(studentId, scope),
+        abcDb.getHeatmap(studentId, scope),
       ]);
       setIncidents(incidents as unknown as ABCIncident[]);
       setPatterns(patterns as unknown as PatternAnalysis);
