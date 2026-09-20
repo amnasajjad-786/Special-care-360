@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { format } from "date-fns";
 import { useAuth } from "@/lib/auth-context";
-import { dailyCareDb, studentsDb } from "@/lib/firestore-api";
+import { dailyCareDb, studentsDb, scopeOf } from "@/lib/firestore-api";
 import { DailyCareJournal } from "@/types";
 import JournalForm from "@/components/daily-care/JournalForm";
 import DailyDigest from "@/components/daily-care/DailyDigest";
@@ -24,7 +24,7 @@ export default function DailyCarePage() {
   const fetchHistory = async () => {
     if (!selectedStudent) return;
     try {
-      const logs = await dailyCareDb.history(selectedStudent.id);
+      const logs = await dailyCareDb.history(selectedStudent.id, scopeOf(profile));
       setHistory(logs as DailyCareJournal[]);
     } catch (err) {
       console.error("Failed to load history:", err);
@@ -56,11 +56,7 @@ export default function DailyCarePage() {
   useEffect(() => {
     const loadStudents = async () => {
       try {
-        const allowed = await studentsDb.list(
-          profile?.centerId ?? "center-001",
-          profile?.role,
-          profile?.uid
-        );
+        const allowed = await studentsDb.list(scopeOf(profile));
         setStudents(allowed);
         if (allowed.length > 0) {
           setSelectedStudent(allowed[0]);

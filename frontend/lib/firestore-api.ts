@@ -1,7 +1,17 @@
 /**
  * firestore-api.ts
- * Direct Firestore data layer — replaces calls to the FastAPI backend.
- * All collections mirror the backend schema exactly.
+ * Direct Firestore data layer — the frontend's primary access path.
+ *
+ * Query/rule alignment
+ * --------------------
+ * Firestore rejects any list query it cannot *prove* satisfies the security
+ * rules. Since firestore.rules authorises records by `centerId` (staff) or
+ * `parentId` (guardians), every list query here must carry the matching
+ * `where` clause. That is what `scopeFilter()` does — dropping it silently
+ * breaks the page with a permission-denied error rather than a filter bug.
+ *
+ * For the same reason, records are written with `centerId` and `parentId`
+ * denormalised onto them. Do not remove those fields from a write path.
  */
 
 import {
@@ -18,9 +28,12 @@ import {
   orderBy,
   limit,
   serverTimestamp,
+  QueryConstraint,
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { v4 as uuidv4 } from "uuid";
+
+export const DEFAULT_CENTER_ID = "center-001";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -32,6 +45,9 @@ export interface StudentDoc {
   centerId: string;
   teacherId: string;
   therapistIds: string[];
+  /** Resolved display names. The *Id fields keep holding real UIDs. */
+  teacherName?: string;
+  therapistNames?: string[];
   enrollmentDate: string;
   iepStatus: string;
   photoUrl: string;
@@ -39,44 +55,101 @@ export interface StudentDoc {
   [key: string]: unknown;
 }
 
+/** Who is asking. Determines which `where` clause a list query must carry. */
+export interface AccessScope {
+  role: string;
+  uid: string;
+  centerId: string;
+}
+
+export function scopeOf(
+  profile: { role?: string; uid?: string; centerId?: string } | null | undefined
+): AccessScope {
+  return {
+    role: profile?.role ?? "",
+    uid: profile?.uid ?? "",
+    centerId: profile?.centerId ?? DEFAULT_CENTER_ID,
+  };
+}
+
+/**
+ * The single `where` clause that makes a query provably safe under the rules.
+ * Guardians are scoped to their own child's records; staff to their centre.
+ */
+function scopeFilter(scope: AccessScope): QueryConstraint {
+  return scope.role === "parent"
+    ? where("parentId", "==", scope.uid)
+    : where("centerId", "==", scope.centerId);
+}
+
+/** Notification fan-out must never take a care record down with it. */
+async function notify(
+  recipientId: string | undefined,
+  payload: { type: string; title: string; message: string; [k: string]: unknown }
+): Promise<void> {
+  if (!recipientId) return;
+  try {
+    await addDoc(collection(db, "notifications"), {
+      recipientId,
+      read: false,
+      createdAt: serverTimestamp(),
+      ...payload,
+    });
+  } catch (err) {
+    console.warn("[notifications] delivery failed for", recipientId, err);
+  }
+}
+
+/** Assigned staff for a student, excluding the person who triggered the event. */
+function staffRecipients(student: StudentDoc, exclude?: string): string[] {
+  const ids = new Set<string>();
+  if (student.teacherId) ids.add(student.teacherId);
+  (student.therapistIds ?? []).forEach((id) => ids.add(id));
+  if (exclude) ids.delete(exclude);
+  return [...ids];
+}
+
 // ─── Students ─────────────────────────────────────────────────────────────────
 
 export const studentsDb = {
   /**
-   * List students for a center. Parents only see their own child.
+   * List students visible to the caller. Guardians query by `parentId` so the
+   * rules can authorise it — filtering client-side after a centre-wide fetch
+   * (the previous behaviour) is denied outright by Firestore.
    */
-  list: async (centerId = "center-001", role?: string, uid?: string): Promise<StudentDoc[]> => {
-    const q = query(
-      collection(db, "students"),
-      where("centerId", "==", centerId)
-    );
-    const snap = await getDocs(q);
+  list: async (scope: AccessScope): Promise<StudentDoc[]> => {
+    const snap = await getDocs(query(collection(db, "students"), scopeFilter(scope)));
 
-    // Build a lookup map of all user and staff IDs to their names
+    // Resolve staff UIDs to names for display. Only admins may read the full
+    // user directory, so this is best-effort and never blocks the list.
     const nameMap: Record<string, string> = {};
-    try {
-      const usersSnap = await getDocs(collection(db, "users"));
-      usersSnap.forEach(d => { nameMap[d.id] = d.data().name; });
-      const staffSnap = await getDocs(collection(db, "staff"));
-      staffSnap.forEach(d => { nameMap[d.id] = d.data().name; });
-    } catch (e) {
-      console.error("Failed to build name map:", e);
+    if (scope.role === "admin") {
+      try {
+        const [usersSnap, staffSnap] = await Promise.all([
+          getDocs(query(collection(db, "users"), where("centerId", "==", scope.centerId))),
+          getDocs(query(collection(db, "staff"), where("centerId", "==", scope.centerId))),
+        ]);
+        usersSnap.forEach((d) => { nameMap[d.id] = d.data().name; });
+        staffSnap.forEach((d) => { nameMap[d.id] = d.data().name; });
+      } catch (err) {
+        console.warn("[students] could not resolve staff names:", err);
+      }
     }
 
-    const students: StudentDoc[] = snap.docs.map((d) => {
+    return snap.docs.map((d) => {
       const data = d.data() as StudentDoc;
       return {
         ...data,
         id: d.id,
-        teacherId: nameMap[data.teacherId] || data.teacherId,
-        therapistIds: (data.therapistIds || []).map(tId => nameMap[tId] || tId),
+        // Keep the UIDs intact — overwriting them with display names (the old
+        // behaviour) corrupted every downstream consumer that treats them as
+        // identifiers, such as notification fan-out.
+        teacherId: data.teacherId,
+        therapistIds: data.therapistIds ?? [],
+        teacherName: nameMap[data.teacherId] || data.teacherId,
+        therapistNames: (data.therapistIds ?? []).map((id) => nameMap[id] || id),
       } as StudentDoc;
     });
-
-    if (role === "parent" && uid) {
-      return students.filter((s) => s.parentId === uid);
-    }
-    return students;
   },
 
   get: async (studentId: string): Promise<StudentDoc | null> => {
@@ -86,42 +159,26 @@ export const studentsDb = {
   },
 
   create: async (data: Omit<StudentDoc, "id">): Promise<string> => {
-    if (data.dob) {
-      const age = Math.floor((Date.now() - new Date(data.dob as string).getTime()) / (365.25 * 24 * 3600 * 1000));
-      if (age < 0 || age > 12) {
-        throw new Error("Student age must be between 0 and 12 years.");
-      }
-    }
+    assertEnrolmentAge(data.dob as string);
     const studentId = uuidv4();
     await setDoc(doc(db, "students", studentId), {
       ...data,
       createdAt: serverTimestamp(),
     });
-    // Initialise empty sub-documents
-    await setDoc(
-      doc(db, "students", studentId, "medicalProfile", "main"),
-      {
-        allergies: [],
-        seizureHistory: { hasHistory: false },
-        medications: [],
-        emergencyContact: {},
-        bloodType: "",
-        specialPhysicalNeeds: "",
-      }
-    );
-    await setDoc(doc(db, "students", studentId, "carePlan", "main"), {
-      goals: [],
+    await setDoc(doc(db, "students", studentId, "medicalProfile", "main"), {
+      allergies: [],
+      seizureHistory: { hasHistory: false },
+      medications: [],
+      emergencyContact: {},
+      bloodType: "",
+      specialPhysicalNeeds: "",
     });
+    await setDoc(doc(db, "students", studentId, "carePlan", "main"), { goals: [] });
     return studentId;
   },
 
   update: async (studentId: string, data: Partial<StudentDoc>): Promise<void> => {
-    if (data.dob) {
-      const age = Math.floor((Date.now() - new Date(data.dob as string).getTime()) / (365.25 * 24 * 3600 * 1000));
-      if (age < 0 || age > 12) {
-        throw new Error("Student age must be between 0 and 12 years.");
-      }
-    }
+    if (data.dob) assertEnrolmentAge(data.dob as string);
     await updateDoc(doc(db, "students", studentId), {
       ...data,
       updatedAt: serverTimestamp(),
@@ -133,9 +190,7 @@ export const studentsDb = {
   },
 
   getMedical: async (studentId: string) => {
-    const snap = await getDoc(
-      doc(db, "students", studentId, "medicalProfile", "main")
-    );
+    const snap = await getDoc(doc(db, "students", studentId, "medicalProfile", "main"));
     return snap.exists() ? snap.data() : {};
   },
 
@@ -145,219 +200,169 @@ export const studentsDb = {
       { ...data, updatedAt: serverTimestamp() },
       { merge: true }
     );
-
-    // Notify parent and assigned staff
-    try {
-      const student = await studentsDb.get(studentId);
-      if (student) {
-        // 1. Notify Parent
-        if (student.parentId) {
-          await addDoc(collection(db, "notifications"), {
-            recipientId: student.parentId,
-            type: "medical_update",
-            title: "Medical Profile Updated 🩺",
-            message: `Medical profile for ${student.name} was updated.`,
-            read: false,
-            createdAt: serverTimestamp(),
-          });
-        }
-        // 2. Notify assigned staff
-        const staffRecipients = new Set<string>();
-        if (student.teacherId) staffRecipients.add(student.teacherId);
-        if (student.therapistIds) {
-          student.therapistIds.forEach(id => staffRecipients.add(id));
-        }
-        for (const recipientId of staffRecipients) {
-          await addDoc(collection(db, "notifications"), {
-            recipientId,
-            type: "medical_update",
-            title: "Medical Profile Updated 🩺",
-            message: `Medical profile for ${student.name} was updated.`,
-            read: false,
-            createdAt: serverTimestamp(),
-          });
-        }
-      }
-    } catch (_) {}
+    const student = await studentsDb.get(studentId);
+    if (!student) return;
+    const payload = {
+      type: "medical_update",
+      title: "Medical Profile Updated",
+      message: `Medical profile for ${student.name} was updated.`,
+      studentId,
+    };
+    await notify(student.parentId, payload);
+    for (const uid of staffRecipients(student)) await notify(uid, payload);
   },
 
   getCarePlan: async (studentId: string) => {
-    const snap = await getDoc(
-      doc(db, "students", studentId, "carePlan", "main")
-    );
+    const snap = await getDoc(doc(db, "students", studentId, "carePlan", "main"));
     return snap.exists() ? snap.data() : { goals: [] };
   },
 
   updateCarePlan: async (studentId: string, data: Record<string, unknown>): Promise<void> => {
-    await setDoc(
-      doc(db, "students", studentId, "carePlan", "main"),
-      data,
-      { merge: true }
-    );
-
-    // Notify parent and assigned staff
-    try {
-      const student = await studentsDb.get(studentId);
-      if (student) {
-        // 1. Notify Parent
-        if (student.parentId) {
-          await addDoc(collection(db, "notifications"), {
-            recipientId: student.parentId,
-            type: "care_plan_update",
-            title: "Care Plan Updated 🎯",
-            message: `The Care Plan goals for ${student.name} have been updated.`,
-            read: false,
-            createdAt: serverTimestamp(),
-          });
-        }
-        // 2. Notify assigned staff
-        const staffRecipients = new Set<string>();
-        if (student.teacherId) staffRecipients.add(student.teacherId);
-        if (student.therapistIds) {
-          student.therapistIds.forEach(id => staffRecipients.add(id));
-        }
-        for (const recipientId of staffRecipients) {
-          await addDoc(collection(db, "notifications"), {
-            recipientId,
-            type: "care_plan_update",
-            title: "Care Plan Updated 🎯",
-            message: `Care Plan for ${student.name} was updated.`,
-            read: false,
-            createdAt: serverTimestamp(),
-          });
-        }
-      }
-    } catch (_) {}
+    await setDoc(doc(db, "students", studentId, "carePlan", "main"), data, { merge: true });
+    const student = await studentsDb.get(studentId);
+    if (!student) return;
+    const payload = {
+      type: "care_plan_update",
+      title: "Care Plan Updated",
+      message: `The care plan goals for ${student.name} have been updated.`,
+      studentId,
+    };
+    await notify(student.parentId, payload);
+    for (const uid of staffRecipients(student)) await notify(uid, payload);
   },
 };
+
+export function studentAge(dob?: string | null): number | null {
+  if (!dob) return null;
+  const birth = new Date(dob);
+  if (Number.isNaN(birth.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - birth.getFullYear();
+  const beforeBirthday =
+    now.getMonth() < birth.getMonth() ||
+    (now.getMonth() === birth.getMonth() && now.getDate() < birth.getDate());
+  if (beforeBirthday) age -= 1;
+  return age;
+}
+
+function assertEnrolmentAge(dob?: string): void {
+  if (!dob) return;
+  const age = studentAge(dob);
+  if (age === null) throw new Error("Invalid date of birth.");
+  if (age < 0 || age > 12) throw new Error("Student age must be between 0 and 12 years.");
+}
 
 // ─── Daily Care ───────────────────────────────────────────────────────────────
 
 export const dailyCareDb = {
-  submit: async (data: Record<string, unknown>, submittedBy: string): Promise<string> => {
-    const docId = `${data.date}_${data.studentId}`;
+  submit: async (
+    data: Record<string, unknown>,
+    submittedBy: string
+  ): Promise<string> => {
+    const studentId = data.studentId as string;
+    const student = await studentsDb.get(studentId);
+    if (!student) throw new Error("Student not found.");
+
+    const docId = `${data.date}_${studentId}`;
     await setDoc(doc(db, "dailyCareJournals", docId), {
       ...data,
+      // Denormalised so the rules can authorise list queries without a lookup.
+      centerId: student.centerId,
+      parentId: student.parentId ?? null,
       submittedBy,
       submittedAt: serverTimestamp(),
     });
-    // Notify parent
-    try {
-      const student = await studentsDb.get(data.studentId as string);
-      if (student?.parentId) {
-        await addDoc(collection(db, "notifications"), {
-          recipientId: student.parentId,
-          type: "daily_journal",
-          studentId: data.studentId,
-          date: data.date,
-          message: `Daily journal for ${data.date} has been submitted.`,
-          read: false,
-          createdAt: serverTimestamp(),
-        });
-      }
-    } catch (_) {
-      // Notification failure must not block journal submission
-    }
+
+    await notify(student.parentId, {
+      type: "daily_journal",
+      title: "Daily Journal Submitted",
+      message: `The daily journal for ${data.date} has been submitted.`,
+      studentId,
+      date: data.date,
+    });
     return docId;
   },
 
   get: async (studentId: string, date: string) => {
-    const docId = `${date}_${studentId}`;
-    const snap = await getDoc(doc(db, "dailyCareJournals", docId));
-    if (!snap.exists()) return null;
-    return snap.data();
+    const snap = await getDoc(doc(db, "dailyCareJournals", `${date}_${studentId}`));
+    return snap.exists() ? snap.data() : null;
   },
 
-  history: async (studentId: string) => {
-    const q = query(
-      collection(db, "dailyCareJournals"),
-      where("studentId", "==", studentId),
-      orderBy("date", "desc"),
-      limit(30)
+  history: async (studentId: string, scope: AccessScope, limitCount = 30) => {
+    const snap = await getDocs(
+      query(
+        collection(db, "dailyCareJournals"),
+        where("studentId", "==", studentId),
+        scopeFilter(scope),
+        orderBy("date", "desc"),
+        limit(limitCount)
+      )
     );
-    const snap = await getDocs(q);
     return snap.docs.map((d) => d.data());
   },
 
   delete: async (studentId: string, date: string): Promise<void> => {
-    const docId = `${date}_${studentId}`;
-    await deleteDoc(doc(db, "dailyCareJournals", docId));
+    await deleteDoc(doc(db, "dailyCareJournals", `${date}_${studentId}`));
   },
 };
 
 // ─── ABC Tracker ──────────────────────────────────────────────────────────────
 
+interface AbcTagged { text?: string; tags?: string[] }
+
 export const abcDb = {
-  logIncident: async (data: Record<string, unknown>, loggedBy: string): Promise<string> => {
+  logIncident: async (
+    data: Record<string, unknown>,
+    loggedBy: string
+  ): Promise<string> => {
+    const studentId = data.studentId as string;
+    const student = await studentsDb.get(studentId);
+    if (!student) throw new Error("Student not found.");
+
     const incidentId = uuidv4();
     await setDoc(doc(db, "abcIncidents", incidentId), {
       ...data,
       id: incidentId,
+      centerId: student.centerId,
+      parentId: student.parentId ?? null,
       loggedBy,
       createdAt: serverTimestamp(),
       timestamp: new Date().toISOString(),
     });
 
-    // Notify parent and assigned staff
-    try {
-      const student = await studentsDb.get(data.studentId as string);
-      if (student) {
-        // 1. Notify Parent
-        if (student.parentId) {
-          await addDoc(collection(db, "notifications"), {
-            recipientId: student.parentId,
-            type: "behavior_incident",
-            title: "Behavior Incident ⚠️",
-            message: `New behavior incident logged for ${student.name}: ${(data.behavior as any)?.text || "Behavior incident"}.`,
-            read: false,
-            createdAt: serverTimestamp(),
-          });
-        }
-        // 2. Notify assigned staff (excluding the logger)
-        const staffRecipients = new Set<string>();
-        if (student.teacherId && student.teacherId !== loggedBy) {
-          staffRecipients.add(student.teacherId);
-        }
-        if (student.therapistIds) {
-          student.therapistIds.forEach(id => {
-            if (id !== loggedBy) staffRecipients.add(id);
-          });
-        }
-        for (const recipientId of staffRecipients) {
-          await addDoc(collection(db, "notifications"), {
-            recipientId,
-            type: "behavior_incident",
-            title: "Behavior Incident ⚠️",
-            message: `${student.name} had a behavioral incident logged by staff.`,
-            read: false,
-            createdAt: serverTimestamp(),
-          });
-        }
-      }
-    } catch (_) {}
-
+    const behaviour = (data.behavior as AbcTagged)?.text || "Behaviour incident";
+    await notify(student.parentId, {
+      type: "behavior_incident",
+      title: "Behaviour Incident Logged",
+      message: `New behaviour incident logged for ${student.name}: ${behaviour}.`,
+      studentId,
+    });
+    for (const uid of staffRecipients(student, loggedBy)) {
+      await notify(uid, {
+        type: "behavior_incident",
+        title: "Behaviour Incident Logged",
+        message: `${student.name} had a behavioural incident logged by staff.`,
+        studentId,
+      });
+    }
     return incidentId;
   },
 
-  listIncidents: async (studentId: string, limitCount = 50) => {
-    const q = query(
-      collection(db, "abcIncidents"),
-      where("studentId", "==", studentId),
-      orderBy("timestamp", "desc"),
-      limit(limitCount)
+  listIncidents: async (studentId: string, scope: AccessScope, limitCount = 50) => {
+    const snap = await getDocs(
+      query(
+        collection(db, "abcIncidents"),
+        where("studentId", "==", studentId),
+        scopeFilter(scope),
+        orderBy("timestamp", "desc"),
+        limit(limitCount)
+      )
     );
-    const snap = await getDocs(q);
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   },
 
-  getPatterns: async (studentId: string) => {
-    const q = query(
-      collection(db, "abcIncidents"),
-      where("studentId", "==", studentId),
-      limit(100)
-    );
-    const snap = await getDocs(q);
-    const incidents = snap.docs.map((d) => d.data());
+  getPatterns: async (studentId: string, scope: AccessScope) => {
+    const incidents = await abcDb.listIncidents(studentId, scope, 100);
 
     if (!incidents.length) {
       return {
@@ -372,14 +377,13 @@ export const abcDb = {
     const hours: number[] = [];
     const severities: number[] = [];
 
-    for (const inc of incidents) {
-      antecedentTags.push(...((inc.antecedent as any)?.tags ?? []));
-      behaviorTags.push(...((inc.behavior as any)?.tags ?? []));
-      consequenceTags.push(...((inc.consequence as any)?.tags ?? []));
-      const ts = inc.timestamp as string ?? "";
-      if (ts.includes("T")) {
-        try { hours.push(parseInt(ts.split("T")[1].split(":")[0])); } catch (_) {}
-      }
+    for (const inc of incidents as Record<string, unknown>[]) {
+      antecedentTags.push(...((inc.antecedent as AbcTagged)?.tags ?? []));
+      behaviorTags.push(...((inc.behavior as AbcTagged)?.tags ?? []));
+      consequenceTags.push(...((inc.consequence as AbcTagged)?.tags ?? []));
+      const ts = (inc.timestamp as string) ?? "";
+      const parsed = new Date(ts);
+      if (!Number.isNaN(parsed.getTime())) hours.push(parsed.getHours());
       severities.push((inc.severity as number) ?? 1);
     }
 
@@ -389,7 +393,7 @@ export const abcDb = {
       return Object.entries(m)
         .sort((a, b) => b[1] - a[1])
         .slice(0, 5)
-        .map(([tag, count]) => ({ tag, count }));
+        .map(([tag, n]) => ({ tag, count: n }));
     };
 
     const countNums = (arr: number[]) => {
@@ -398,7 +402,7 @@ export const abcDb = {
       return Object.entries(m)
         .sort((a, b) => Number(b[1]) - Number(a[1]))
         .slice(0, 3)
-        .map(([hour, count]) => ({ hour: Number(hour), count }));
+        .map(([hour, n]) => ({ hour: Number(hour), count: Number(n) }));
     };
 
     const topAntecedents = count(antecedentTags);
@@ -411,42 +415,30 @@ export const abcDb = {
 
     const insights: string[] = [];
     if (topAntecedents[0]) insights.push(`Most common trigger: '${topAntecedents[0].tag}' (${topAntecedents[0].count} incidents)`);
-    if (topBehaviors[0]) insights.push(`Most frequent behavior: '${topBehaviors[0].tag}' observed ${topBehaviors[0].count} times`);
+    if (topBehaviors[0]) insights.push(`Most frequent behaviour: '${topBehaviors[0].tag}' observed ${topBehaviors[0].count} times`);
     if (peakHours[0]) {
       const h = peakHours[0].hour;
       insights.push(`Peak incident time: ${h % 12 || 12}:00 ${h < 12 ? "AM" : "PM"}`);
     }
-    if (avgSeverity >= 3.5) insights.push(`Average severity is high (${avgSeverity}/5) — consider a behavior intervention plan review`);
+    if (avgSeverity >= 3.5) insights.push(`Average severity is high (${avgSeverity}/5) — consider a behaviour intervention plan review`);
     else if (avgSeverity > 0 && avgSeverity < 2) insights.push(`Average severity is low (${avgSeverity}/5) — student is showing improvement`);
 
     return { topAntecedents, topBehaviors, topConsequences, peakHours, avgSeverity, totalIncidents: incidents.length, insights };
   },
 
-  getHeatmap: async (studentId: string) => {
-    const q = query(
-      collection(db, "abcIncidents"),
-      where("studentId", "==", studentId),
-      limit(200)
-    );
-    const snap = await getDocs(q);
-    const incidents = snap.docs.map((d) => d.data());
+  getHeatmap: async (studentId: string, scope: AccessScope) => {
+    const incidents = await abcDb.listIncidents(studentId, scope, 200);
 
     const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
     const grid: Record<string, Record<number, number>> = {};
-    days.forEach((day) => {
-      grid[day] = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
-    });
+    days.forEach((day) => { grid[day] = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }; });
 
-    for (const inc of incidents) {
-      const ts = inc.timestamp as string ?? "";
-      const sev = (inc.severity as number) ?? 1;
-      if (ts.includes("T")) {
-        try {
-          const dt = new Date(ts);
-          const dayName = days[dt.getDay() === 0 ? 6 : dt.getDay() - 1];
-          grid[dayName][sev] = (grid[dayName][sev] ?? 0) + 1;
-        } catch (_) {}
-      }
+    for (const inc of incidents as Record<string, unknown>[]) {
+      const parsed = new Date((inc.timestamp as string) ?? "");
+      if (Number.isNaN(parsed.getTime())) continue;
+      const sev = Math.min(5, Math.max(1, (inc.severity as number) ?? 1));
+      const dayName = days[parsed.getDay() === 0 ? 6 : parsed.getDay() - 1];
+      grid[dayName][sev] = (grid[dayName][sev] ?? 0) + 1;
     }
 
     const result: { day: string; severity: number; count: number }[] = [];
@@ -461,87 +453,89 @@ export const abcDb = {
 
 // ─── Panic Alerts ─────────────────────────────────────────────────────────────
 
+export interface PanicAlertDoc {
+  id: string;
+  studentId: string;
+  centerId: string;
+  parentId?: string | null;
+  emergencyType: string;
+  location: string;
+  description?: string;
+  status: string;
+  timestamp: string;
+  reportedBy?: { uid?: string; name?: string };
+  resolvedAt?: string | null;
+  resolvedBy?: string | null;
+}
+
 export const panicDb = {
-  sendAlert: async (data: Record<string, unknown>): Promise<string> => {
+  /**
+   * Raise an alert.
+   *
+   * The client writes the alert document (so the admin console updates in
+   * real time even if the API is down) and then asks the backend to fan out
+   * notifications and email. The backend deliberately does NOT create a second
+   * alert document — it upserts this same id. Notifying staff needs a read of
+   * the whole user directory, which the rules only grant to admins, so that
+   * fan-out belongs on the server where the Admin SDK applies.
+   */
+  sendAlert: async (
+    data: Record<string, unknown>,
+    getIdToken?: () => Promise<string | null>
+  ): Promise<string> => {
     const alertId = uuidv4();
-    const alertData = {
+    const student = await studentsDb.get(data.studentId as string);
+
+    await setDoc(doc(db, "panicAlerts", alertId), {
       id: alertId,
       ...data,
+      parentId: student?.parentId ?? null,
       timestamp: new Date().toISOString(),
       status: "active",
       resolvedAt: null,
       resolvedBy: null,
-    };
-    await setDoc(doc(db, "panicAlerts", alertId), alertData);
+    });
 
-    // Notify all staff (admins, teachers, therapists) in the same center
-    try {
-      const staffSnap = await getDocs(
-        query(
-          collection(db, "users"),
-          where("centerId", "==", data.centerId),
-          where("role", "in", ["admin", "teacher", "therapist"])
-        )
-      );
-      for (const staffDoc of staffSnap.docs) {
-        await addDoc(collection(db, "notifications"), {
-          recipientId: staffDoc.id,
-          type: "panic_alert",
-          alertId,
-          title: "Panic Alert 🚨",
-          message: `PANIC ALERT: ${data.emergencyType} in ${data.location}`,
-          read: false,
-          createdAt: serverTimestamp(),
-        });
-      }
-    } catch (_) {}
+    await notify(student?.parentId, {
+      type: "panic_alert",
+      title: "Emergency Alert",
+      alertId,
+      message: `An emergency alert has been raised for ${student?.name ?? "your child"}: ${data.emergencyType} in ${data.location}`,
+      studentId: data.studentId,
+    });
 
-    // Notify student's parent
-    try {
-      const student = await studentsDb.get(data.studentId as string);
-      if (student?.parentId) {
-        await addDoc(collection(db, "notifications"), {
-          recipientId: student.parentId,
-          type: "panic_alert",
-          alertId,
-          title: "Emergency Alert 🚨",
-          message: `An emergency alert has been raised for your child ${student.name}: ${data.emergencyType} in ${data.location}`,
-          read: false,
-          createdAt: serverTimestamp(),
-        });
-      }
-    } catch (_) {}
-
-    // Trigger the backend API to handle email alerts
+    // Server-side fan-out to staff + email. Non-fatal: the alert is already
+    // recorded and visible to admins by this point.
     try {
       const { api } = await import("./api");
-      await api.post("/api/panic/alert", {
-        studentId: data.studentId,
-        centerId: data.centerId,
-        reportedBy: data.reportedBy,
-        emergencyType: data.emergencyType,
-        description: data.description,
-        location: data.location,
-      });
-      console.log("[Panic] Backend email alert triggered successfully.");
-    } catch (e) {
-      console.warn("[Panic] Backend not reachable or failed to send email alert:", e);
+      const token = getIdToken ? await getIdToken() : null;
+      await api.post(
+        "/api/panic/alert",
+        {
+          alertId,
+          studentId: data.studentId,
+          centerId: data.centerId,
+          reportedBy: data.reportedBy,
+          emergencyType: data.emergencyType,
+          description: data.description,
+          location: data.location,
+        },
+        token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
+      );
+    } catch (err) {
+      console.warn("[panic] backend fan-out unavailable:", err);
     }
     return alertId;
   },
 
-  listAlerts: async (centerId = "center-001", status = "all") => {
-    let q = query(
-      collection(db, "panicAlerts"),
-      where("centerId", "==", centerId),
-      orderBy("timestamp", "desc")
-    );
-    const snap = await getDocs(q);
-    let results = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  listAlerts: async (scope: AccessScope, status = "all") => {
+    const constraints: QueryConstraint[] = [scopeFilter(scope)];
     if (status === "active" || status === "resolved") {
-      results = results.filter((a: any) => a.status === status);
+      constraints.push(where("status", "==", status));
     }
-    return results;
+    constraints.push(orderBy("timestamp", "desc"));
+    const snap = await getDocs(query(collection(db, "panicAlerts"), ...constraints));
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() })) as PanicAlertDoc[];
   },
 
   resolveAlert: async (alertId: string, resolvedBy: string): Promise<void> => {
@@ -557,13 +551,14 @@ export const panicDb = {
 
 export const notificationsDb = {
   list: async (recipientId: string, limitCount = 20) => {
-    const q = query(
-      collection(db, "notifications"),
-      where("recipientId", "==", recipientId),
-      orderBy("createdAt", "desc"),
-      limit(limitCount)
+    const snap = await getDocs(
+      query(
+        collection(db, "notifications"),
+        where("recipientId", "==", recipientId),
+        orderBy("createdAt", "desc"),
+        limit(limitCount)
+      )
     );
-    const snap = await getDocs(q);
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   },
 
@@ -576,12 +571,13 @@ export const notificationsDb = {
 
 export const adminDb = {
   listPendingUsers: async (centerId: string) => {
-    const q = query(
-      collection(db, "users"),
-      where("centerId", "==", centerId),
-      where("status", "==", "pending")
+    const snap = await getDocs(
+      query(
+        collection(db, "users"),
+        where("centerId", "==", centerId),
+        where("status", "==", "pending")
+      )
     );
-    const snap = await getDocs(q);
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   },
 
@@ -590,39 +586,36 @@ export const adminDb = {
   },
 
   listAllUsers: async (centerId: string) => {
-    const q = query(
-      collection(db, "users"),
-      where("centerId", "==", centerId)
+    const snap = await getDocs(
+      query(collection(db, "users"), where("centerId", "==", centerId))
     );
-    const snap = await getDocs(q);
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   },
 
   getActiveAlertCount: async (centerId: string): Promise<number> => {
-    const q = query(
-      collection(db, "panicAlerts"),
-      where("centerId", "==", centerId),
-      where("status", "==", "active")
+    const snap = await getDocs(
+      query(
+        collection(db, "panicAlerts"),
+        where("centerId", "==", centerId),
+        where("status", "==", "active")
+      )
     );
-    const snap = await getDocs(q);
     return snap.size;
   },
 
   listStaff: async (centerId: string) => {
-    const q = query(
-      collection(db, "staff"),
-      where("centerId", "==", centerId)
+    const snap = await getDocs(
+      query(collection(db, "staff"), where("centerId", "==", centerId))
     );
-    const snap = await getDocs(q);
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   },
 
   addStaff: async (data: Record<string, unknown>): Promise<string> => {
-    const docRef = await addDoc(collection(db, "staff"), {
+    const ref = await addDoc(collection(db, "staff"), {
       ...data,
       createdAt: serverTimestamp(),
     });
-    return docRef.id;
+    return ref.id;
   },
 
   deleteStaff: async (staffId: string): Promise<void> => {
@@ -630,41 +623,35 @@ export const adminDb = {
   },
 
   // --- Fee Management ---
-  listInvoices: async (centerId: string) => {
-    const q = query(
-      collection(db, "invoices"),
-      where("centerId", "==", centerId)
-    );
-    const snap = await getDocs(q);
+  // Invoices and payments are keyed by studentId, not student name. Matching
+  // on name meant two students sharing a name saw each other's billing.
+  listInvoices: async (scope: AccessScope) => {
+    const snap = await getDocs(query(collection(db, "invoices"), scopeFilter(scope)));
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   },
 
   addInvoice: async (data: Record<string, unknown>): Promise<string> => {
-    const docRef = await addDoc(collection(db, "invoices"), {
+    const ref = await addDoc(collection(db, "invoices"), {
       ...data,
       createdAt: serverTimestamp(),
     });
-    return docRef.id;
+    return ref.id;
   },
 
   updateInvoiceStatus: async (invoiceId: string, status: string): Promise<void> => {
     await updateDoc(doc(db, "invoices", invoiceId), { status });
   },
 
-  listPayments: async (centerId: string) => {
-    const q = query(
-      collection(db, "payments"),
-      where("centerId", "==", centerId)
-    );
-    const snap = await getDocs(q);
+  listPayments: async (scope: AccessScope) => {
+    const snap = await getDocs(query(collection(db, "payments"), scopeFilter(scope)));
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   },
 
   addPayment: async (data: Record<string, unknown>): Promise<string> => {
-    const docRef = await addDoc(collection(db, "payments"), {
+    const ref = await addDoc(collection(db, "payments"), {
       ...data,
       createdAt: serverTimestamp(),
     });
-    return docRef.id;
+    return ref.id;
   },
 };

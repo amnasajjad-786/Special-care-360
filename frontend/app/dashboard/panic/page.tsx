@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { panicDb, studentsDb } from "@/lib/firestore-api";
+import { panicDb, studentsDb, scopeOf } from "@/lib/firestore-api";
 import toast from "react-hot-toast";
 import { AlertOctagon, AlertTriangle } from "lucide-react";
 
@@ -15,7 +15,7 @@ const LOCATIONS = [
 ];
 
 export default function PanicPage() {
-  const { profile } = useAuth();
+  const { profile, getIdToken } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const preselectedId = searchParams?.get("studentId") || "";
@@ -36,7 +36,7 @@ export default function PanicPage() {
 
   useEffect(() => {
     if (profile) {
-      studentsDb.list(profile.centerId ?? "center-001", profile.role, profile.uid).then((s) => {
+      studentsDb.list(scopeOf(profile)).then((s) => {
         setStudents(s);
         if (!preselectedId && s.length > 0) setStudentId(s[0].id);
       });
@@ -56,7 +56,7 @@ export default function PanicPage() {
         emergencyType,
         description,
         location,
-      });
+      }, getIdToken);
       setSent(true);
       toast.error("Panic alert sent to all admins!", { 
         duration: 5000, 

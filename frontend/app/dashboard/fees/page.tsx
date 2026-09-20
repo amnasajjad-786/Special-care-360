@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { useAuth } from "@/lib/auth-context";
-import { studentsDb } from "@/lib/firestore-api";
+import { studentsDb, scopeOf } from "@/lib/firestore-api";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import toast from "react-hot-toast";
@@ -19,6 +19,8 @@ import {
 } from "lucide-react";
 
 interface Invoice {
+  studentId: string;
+  parentId?: string;
   id: string;
   studentName: string;
   amount: number;
@@ -29,6 +31,8 @@ interface Invoice {
 }
 
 interface Payment {
+  studentId: string;
+  parentId?: string;
   id: string;
   studentName: string;
   amount: number;
@@ -52,13 +56,15 @@ export default function ParentFeesPage() {
     return children.find(c => c.id === selectedChildId)?.name || "";
   }, [selectedChildId, children]);
 
+  const [billingError, setBillingError] = useState(false);
+
   // Load Parent's Children
   useEffect(() => {
     if (!profile) return;
     const loadParentChildren = async () => {
       setLoading(true);
       try {
-        const res = await studentsDb.list(profile.centerId ?? "center-001", profile.role, profile.uid);
+        const res = await studentsDb.list(scopeOf(profile));
         setChildren(res);
         if (res.length > 0) {
           setSelectedChildId(res[0].id);
@@ -73,46 +79,53 @@ export default function ParentFeesPage() {
     loadParentChildren();
   }, [profile]);
 
-  // Live Query Invoices & Payments for selected child
+  // Live Query Invoices & Payments for selected child.
+  //
+  // Keyed on studentId, not studentName: two students sharing a name used to
+  // see each other's billing. The parentId filter is what makes the query
+  // authorised under firestore.rules for a guardian.
   useEffect(() => {
     if (!selectedChildId || !profile) return;
-    const childName = selectedChildName;
-    if (!childName) return;
+
+    const onError = (label: string) => (err: unknown) => {
+      console.error(`Failed to sync ${label}:`, err);
+      setBillingError(true);
+    };
 
     try {
       const qInvoices = query(
         collection(db, "invoices"),
-        where("studentName", "==", childName),
-        where("centerId", "==", profile.centerId || "center-001")
+        where("studentId", "==", selectedChildId),
+        where("parentId", "==", profile.uid)
       );
       const unsubInvoices = onSnapshot(qInvoices, (snap) => {
         const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Invoice));
         setInvoices(list);
-        
-        // Find latest invoice (e.g. pending/overdue, or just the most recent issued)
+        setBillingError(false);
+
+        // Surface the most pressing invoice: overdue, then pending, then latest.
         const unpaid = list.find(i => i.status === "overdue") || list.find(i => i.status === "pending") || list[0] || null;
         setActiveInvoice(unpaid);
-      }, () => {
-        toast.error("Error syncing billing data.");
-      });
+      }, onError("invoices"));
 
       const qPayments = query(
         collection(db, "payments"),
-        where("studentName", "==", childName),
-        where("centerId", "==", profile.centerId || "center-001")
+        where("studentId", "==", selectedChildId),
+        where("parentId", "==", profile.uid)
       );
       const unsubPayments = onSnapshot(qPayments, (snap) => {
         setPayments(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Payment)));
-      });
+      }, onError("payments"));
 
       return () => {
         unsubInvoices();
         unsubPayments();
       };
     } catch (err) {
-      console.error(err);
+      console.error("Could not subscribe to billing data:", err);
+      setBillingError(true);
     }
-  }, [selectedChildId, selectedChildName, profile]);
+  }, [selectedChildId, profile]);
 
   // Financial Stats
   const financials = useMemo(() => {
@@ -194,6 +207,12 @@ export default function ParentFeesPage() {
         <h1 style={{ fontSize: "2rem", color: "var(--primary-dark)", fontWeight: 800, margin: 0 }}>
           Fees &amp; Billing Center
         </h1>
+        {billingError && (
+          <div style={{ marginTop: "12px", padding: "12px 16px", borderRadius: "10px", background: "rgba(229,62,62,0.08)", border: "1px solid rgba(229,62,62,0.25)", color: "var(--danger)", fontSize: "0.85rem", display: "flex", gap: "10px", alignItems: "center" }}>
+            <AlertTriangle size={18} style={{ flexShrink: 0 }} />
+            <span>Billing data could not be loaded, so the figures below may be incomplete. Please reload.</span>
+          </div>
+        )}
         <p style={{ color: "var(--text-secondary)", margin: "4px 0 0 0", fontSize: "0.9rem" }}>
           View invoices, current dues, and past transaction records.
         </p>

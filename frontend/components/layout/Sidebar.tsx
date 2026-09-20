@@ -45,12 +45,16 @@ export default function Sidebar() {
       );
       const unsub = onSnapshot(q, (snap) => {
         setAlertCount(snap.size);
-      }, () => {
-        setAlertCount(1); // Firebase not configured — use mock
+      }, (err) => {
+        // Never invent a badge count: a fake "1" here sends an admin looking
+        // for an emergency that does not exist.
+        console.error("Alert badge listener failed:", err);
+        setAlertCount(0);
       });
       return unsub;
-    } catch {
-      setAlertCount(1);
+    } catch (err) {
+      console.error("Could not subscribe to alert badge:", err);
+      setAlertCount(0);
     }
   }, [profile]);
 

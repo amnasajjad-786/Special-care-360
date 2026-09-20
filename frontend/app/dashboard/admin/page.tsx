@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import toast from "react-hot-toast";
 import { collection, query, where, onSnapshot, doc, deleteDoc, orderBy, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { studentsDb, adminDb, dailyCareDb, abcDb } from "@/lib/firestore-api";
+import { studentsDb, adminDb, dailyCareDb, abcDb, scopeOf, studentAge, type PanicAlertDoc } from "@/lib/firestore-api";
 import {
   LayoutDashboard,
   Users,
@@ -34,17 +34,21 @@ import {
 
 // --- Mock initial data matching HTML mockup ---
 interface AdminStudent {
-  id: string | number;
+  id: string;
   name: string;
-  age: number;
+  age: number | null;
   diagnosis: string;
   therapist: string;
-  feeStatus: "paid" | "pending" | "overdue";
+  parentId?: string | null;
+  feeStatus: "paid" | "pending" | "overdue" | "unknown";
   status: "Active" | "Inactive";
 }
 
+// Billing records carry studentId as the join key. Matching on studentName
+// meant two students sharing a name saw each other's invoices and payments.
 interface AdminInvoice {
   id: string;
+  studentId: string;
   studentName: string;
   amount: number;
   month: string;
@@ -54,6 +58,7 @@ interface AdminInvoice {
 
 interface AdminPayment {
   id: string;
+  studentId: string;
   studentName: string;
   amount: number;
   method: string;
@@ -141,7 +146,7 @@ export default function AdminDashboard() {
   });
 
   const [invoiceForm, setInvoiceForm] = useState({
-    studentName: "",
+    studentId: "",
     month: "June 2025",
     amount: "",
     dueDate: "",
@@ -162,55 +167,35 @@ export default function AdminDashboard() {
   const staffCount = staff.length;
 
   // --- Dynamic active alert count from Firestore (with demo fallback) --------
-  const [activeAlertsCount, setActiveAlertsCount] = useState(2);
-  const [recentAlerts, setRecentAlerts] = useState<any[]>([
-    {
-      id: "mock-1",
-      emergencyType: "Panic Button triggered",
-      location: "Room 3",
-      timestamp: new Date().toISOString(),
-      studentId: "student-001",
-      reportedBy: { name: "Ahmed Raza" }
-    },
-    {
-      id: "mock-2",
-      emergencyType: "Regression detected in motor skills",
-      location: "Therapy Room",
-      timestamp: new Date(Date.now() - 3600000).toISOString(),
-      studentId: "student-004",
-      reportedBy: { name: "Zara Khan" }
-    },
-    {
-      id: "mock-3",
-      emergencyType: "Invoice #1024 marked overdue",
-      location: "Reception",
-      timestamp: new Date(Date.now() - 86400000).toISOString(),
-      studentId: "student-002",
-      reportedBy: { name: "Ali Hassan" }
-    }
-  ]);
+  // These start empty and stay empty on failure. They previously seeded three
+  // invented emergencies and a count of 2, so an admin could be shown alerts
+  // that never happened — and a real Firestore outage looked like a quiet day.
+  const [activeAlertsCount, setActiveAlertsCount] = useState(0);
+  const [recentAlerts, setRecentAlerts] = useState<PanicAlertDoc[]>([]);
+  const [alertsError, setAlertsError] = useState(false);
 
   // --- Fetch Students from Firestore ---
   useEffect(() => {
     if (!profile) return;
     const fetchStudents = async () => {
       try {
-        const data = await studentsDb.list(profile.centerId || "center-001");
-        const mapped: AdminStudent[] = data.map(s => {
-          const age = s.dob ? Math.floor((Date.now() - new Date(s.dob).getTime()) / (365.25 * 24 * 3600 * 1000)) : 0;
-          return {
-            id: s.id,
-            name: s.name || "Unknown",
-            age,
-            diagnosis: s.diagnosis || "Unknown",
-            therapist: s.therapistIds && s.therapistIds.length > 0 ? "Assigned" : "None",
-            feeStatus: "paid", // Placeholder until fee module is built
-            status: "Active"
-          };
-        });
+        const data = await studentsDb.list(scopeOf(profile));
+        const mapped: AdminStudent[] = data.map(s => ({
+          id: s.id,
+          name: s.name || "Unknown",
+          age: studentAge(s.dob),
+          diagnosis: s.diagnosis || "Unknown",
+          therapist: s.therapistNames?.length ? s.therapistNames.join(", ") : "None",
+          parentId: s.parentId ?? null,
+          // Derived from the invoice list once it loads — this was hardcoded
+          // to "paid" for every student regardless of their actual balance.
+          feeStatus: "unknown",
+          status: "Active",
+        }));
         setStudents(mapped);
       } catch (err) {
         console.error("Failed to fetch admin students", err);
+        toast.error("Could not load students.");
       }
     };
 
@@ -234,19 +219,33 @@ export default function AdminDashboard() {
 
     const fetchFees = async () => {
       try {
-        const cid = profile.centerId || "center-001";
-        const invData = await adminDb.listInvoices(cid);
-        const payData = await adminDb.listPayments(cid);
-        
-        setInvoices(invData.map((d: any) => ({
-          id: d.id, studentName: d.studentName, amount: d.amount, month: d.month, issued: d.issued, status: d.status
+        const [invData, payData] = await Promise.all([
+          adminDb.listInvoices(scopeOf(profile)),
+          adminDb.listPayments(scopeOf(profile)),
+        ]);
+
+        setInvoices(invData.map((d: Record<string, unknown>) => ({
+          id: d.id as string,
+          studentId: (d.studentId as string) ?? "",
+          studentName: (d.studentName as string) ?? "",
+          amount: (d.amount as number) ?? 0,
+          month: (d.month as string) ?? "",
+          issued: (d.issued as string) ?? "",
+          status: (d.status as AdminInvoice["status"]) ?? "pending",
         })));
-        
-        setPayments(payData.map((d: any) => ({
-          id: d.id, studentName: d.studentName, amount: d.amount, method: d.method, date: d.date, recordedBy: d.recordedBy
+
+        setPayments(payData.map((d: Record<string, unknown>) => ({
+          id: d.id as string,
+          studentId: (d.studentId as string) ?? "",
+          studentName: (d.studentName as string) ?? "",
+          amount: (d.amount as number) ?? 0,
+          method: (d.method as string) ?? "",
+          date: (d.date as string) ?? "",
+          recordedBy: (d.recordedBy as string) ?? "",
         })));
       } catch (err) {
         console.error("Failed to fetch fee data", err);
+        toast.error("Could not load billing data.");
       }
     };
 
@@ -276,13 +275,18 @@ export default function AdminDashboard() {
       );
       const unsub = onSnapshot(
         q,
-        (snap) => setActiveAlertsCount(snap.size),
-        () => setActiveAlertsCount(2) // Firebase not configured — keep mock
+        (snap) => { setActiveAlertsCount(snap.size); setAlertsError(false); },
+        (err) => {
+          // Surface the failure instead of substituting a plausible number.
+          console.error("Active alert listener failed:", err);
+          setActiveAlertsCount(0);
+          setAlertsError(true);
+        }
       );
       return unsub;
-    } catch {
-      // Firebase not configured
-      setActiveAlertsCount(2);
+    } catch (err) {
+      console.error("Could not subscribe to active alerts:", err);
+      setAlertsError(true);
     }
   }, [profile]);
 
@@ -298,16 +302,19 @@ export default function AdminDashboard() {
       const unsub = onSnapshot(
         q,
         (snap) => {
-          const alerts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-          setRecentAlerts(alerts);
+          setRecentAlerts(snap.docs.map(d => ({ id: d.id, ...d.data() }) as PanicAlertDoc));
+          setAlertsError(false);
         },
-        () => {
-          // Fallback handled by initial state
+        (err) => {
+          console.error("Recent alert listener failed:", err);
+          setRecentAlerts([]);
+          setAlertsError(true);
         }
       );
       return unsub;
     } catch (err) {
-      console.warn("Firebase not configured for recent alerts", err);
+      console.error("Could not subscribe to recent alerts:", err);
+      setAlertsError(true);
     }
   }, [profile]);
 
@@ -324,30 +331,37 @@ export default function AdminDashboard() {
         if (selectedReportType === "progress") {
           const [carePlan, journals] = await Promise.all([
             studentsDb.getCarePlan(selectedReportStudentId),
-            dailyCareDb.history(selectedReportStudentId)
+            dailyCareDb.history(selectedReportStudentId, scopeOf(profile))
           ]);
           setReportData({ carePlan, journals });
         } else if (selectedReportType === "behavior") {
           const [patterns, incidents] = await Promise.all([
-            abcDb.getPatterns(selectedReportStudentId),
-            abcDb.listIncidents(selectedReportStudentId, 15)
+            abcDb.getPatterns(selectedReportStudentId, scopeOf(profile)),
+            abcDb.listIncidents(selectedReportStudentId, scopeOf(profile), 15)
           ]);
           setReportData({ patterns, incidents });
         } else if (selectedReportType === "fees") {
-          const stud = students.find(s => s.id === selectedReportStudentId);
-          const studentName = stud ? stud.name : "";
-          const studentInvoices = invoices.filter(i => i.studentName === studentName);
-          const studentPayments = payments.filter(p => p.studentName === studentName);
+          const studentInvoices = invoices.filter(i => i.studentId === selectedReportStudentId);
+          const studentPayments = payments.filter(p => p.studentId === selectedReportStudentId);
           setReportData({ invoices: studentInvoices, payments: studentPayments });
         } else if (selectedReportType === "attendance") {
-          const mockAttendance = [
-            { date: "2026-06-12", status: "Present", checkIn: "08:45 AM", checkOut: "01:30 PM" },
-            { date: "2026-06-11", status: "Present", checkIn: "08:50 AM", checkOut: "01:45 PM" },
-            { date: "2026-06-10", status: "Absent", checkIn: "—", checkOut: "—" },
-            { date: "2026-06-09", status: "Present", checkIn: "08:40 AM", checkOut: "01:30 PM" },
-            { date: "2026-06-08", status: "Present", checkIn: "08:55 AM", checkOut: "01:40 PM" },
-          ];
-          setReportData({ attendance: mockAttendance });
+          // The platform has no attendance capture, so this is derived from
+          // the daily care journals that were actually submitted: a journal on
+          // a date means the student was in that day. It previously returned
+          // five hardcoded rows with invented check-in and check-out times.
+          const journals = await dailyCareDb.history(
+            selectedReportStudentId,
+            scopeOf(profile),
+            30
+          );
+          const attendance = (journals as Record<string, unknown>[])
+            .map((j) => ({
+              date: j.date as string,
+              status: "Present",
+              source: "Daily care journal submitted",
+            }))
+            .sort((a, b) => (a.date < b.date ? 1 : -1));
+          setReportData({ attendance, derived: true });
         }
       } catch (err) {
         console.error("Failed to fetch report data:", err);
@@ -540,27 +554,41 @@ export default function AdminDashboard() {
 
   const handleAddInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!invoiceForm.studentName || !invoiceForm.amount) {
+    if (!invoiceForm.studentId || !invoiceForm.amount) {
       toast.error("Please select a student and enter an amount");
       return;
     }
 
+    const student = students.find(s => String(s.id) === invoiceForm.studentId);
+    if (!student) {
+      toast.error("Selected student could not be found");
+      return;
+    }
+
     try {
-      const issuedDate = new Date().toLocaleDateString("en-US", { day: "2-digit", month: "short" });
-      
+      const issuedDate = new Date().toISOString().slice(0, 10);
+      const amount = parseFloat(invoiceForm.amount);
+
+      // parentId is denormalised so the guardian's own billing query is
+      // authorised by the rules without a per-document lookup.
       const newId = await adminDb.addInvoice({
-        studentName: invoiceForm.studentName,
-        amount: parseFloat(invoiceForm.amount),
+        studentId: student.id,
+        studentName: student.name,
+        parentId: student.parentId ?? null,
+        amount,
         month: invoiceForm.month,
         issued: issuedDate,
+        dueDate: invoiceForm.dueDate || null,
+        notes: invoiceForm.notes || "",
         status: "pending",
         centerId: profile?.centerId || "center-001"
       });
 
       const newInvoice: AdminInvoice = {
         id: newId,
-        studentName: invoiceForm.studentName,
-        amount: parseFloat(invoiceForm.amount),
+        studentId: String(student.id),
+        studentName: student.name,
+        amount,
         month: invoiceForm.month,
         issued: issuedDate,
         status: "pending"
@@ -569,7 +597,7 @@ export default function AdminDashboard() {
       setInvoices([newInvoice, ...invoices]);
       setIsAddInvoiceOpen(false);
       setInvoiceForm({
-        studentName: "",
+        studentId: "",
         month: "June 2025",
         amount: "",
         dueDate: "",
@@ -592,8 +620,11 @@ export default function AdminDashboard() {
 
       // Add payment entry to DB
       const payDate = new Date().toLocaleDateString("en-US", { day: "2-digit", month: "short", year: "numeric" });
+      const student = students.find(s => String(s.id) === inv.studentId);
       const payId = await adminDb.addPayment({
+        studentId: inv.studentId,
         studentName: inv.studentName,
+        parentId: student?.parentId ?? null,
         amount: inv.amount,
         method: "Bank Transfer",
         date: payDate,
@@ -603,9 +634,10 @@ export default function AdminDashboard() {
 
       // Update Local State
       setInvoices(invoices.map(i => i.id === invoiceId ? { ...i, status: "paid" } : i));
-      
+
       const newPayment: AdminPayment = {
         id: payId,
+        studentId: inv.studentId,
         studentName: inv.studentName,
         amount: inv.amount,
         method: "Bank Transfer",
@@ -613,9 +645,8 @@ export default function AdminDashboard() {
         recordedBy: profile?.name || "Admin"
       };
       setPayments([newPayment, ...payments]);
-
-      // Also update student feeStatus
-      setStudents(students.map(s => s.name === inv.studentName ? { ...s, feeStatus: "paid" } : s));
+      // Student fee standing is derived from `invoices`, so updating that list
+      // above is enough — no parallel copy to keep in sync.
 
       toast.success(`Payment recorded for ${inv.studentName}!`);
     } catch (err) {
@@ -675,8 +706,26 @@ export default function AdminDashboard() {
   const feeStatusLabels = {
     paid: <span className="chip chip-success">Paid</span>,
     pending: <span className="chip chip-warning">Pending</span>,
-    overdue: <span className="chip chip-danger">Overdue</span>
+    overdue: <span className="chip chip-danger">Overdue</span>,
+    unknown: <span className="chip chip-gray">No invoices</span>
   };
+
+  // A student's fee standing is whatever their invoices actually say: overdue
+  // wins, then pending, then paid. Nothing is shown as paid by default.
+  const feeStatusByStudent = useMemo(() => {
+    const map: Record<string, AdminStudent["feeStatus"]> = {};
+    for (const inv of invoices) {
+      if (!inv.studentId) continue;
+      const current = map[inv.studentId];
+      if (inv.status === "overdue") map[inv.studentId] = "overdue";
+      else if (inv.status === "pending" && current !== "overdue") map[inv.studentId] = "pending";
+      else if (!current) map[inv.studentId] = "paid";
+    }
+    return map;
+  }, [invoices]);
+
+  const feeStatusOf = (s: AdminStudent): AdminStudent["feeStatus"] =>
+    feeStatusByStudent[String(s.id)] ?? "unknown";
 
   return (
     <div className="animate-fade-in" style={{ paddingBottom: "40px" }}>
@@ -840,7 +889,7 @@ export default function AdminDashboard() {
                         </div>
                       </div>
                     </div>
-                    {feeStatusLabels[s.feeStatus]}
+                    {feeStatusLabels[feeStatusOf(s)]}
                   </div>
                 ))}
               </div>
@@ -851,7 +900,15 @@ export default function AdminDashboard() {
               <h3 style={{ fontSize: "1.1rem", fontWeight: 700, marginBottom: "16px", color: "var(--primary-dark)" }}>Recent Incident Alerts</h3>
               <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
                 
-                {recentAlerts.length === 0 ? (
+                {alertsError ? (
+                  <div style={{ padding: "12px 14px", borderRadius: "10px", background: "rgba(229,62,62,0.08)", border: "1px solid rgba(229,62,62,0.25)", color: "var(--danger)", fontSize: "0.85rem", display: "flex", gap: "10px", alignItems: "flex-start" }}>
+                    <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: "1px" }} />
+                    <span>
+                      Alert feed unavailable — this list may be incomplete. Check your
+                      connection and Firestore rules, then reload.
+                    </span>
+                  </div>
+                ) : recentAlerts.length === 0 ? (
                   <div style={{ padding: "10px 0", color: "var(--text-secondary)", fontSize: "0.88rem" }}>
                     No recent incident alerts.
                   </div>
@@ -1072,7 +1129,7 @@ export default function AdminDashboard() {
                           <span className={`chip ${chipColor}`}>{s.diagnosis}</span>
                         </td>
                         <td>{s.therapist}</td>
-                        <td>{feeStatusLabels[s.feeStatus]}</td>
+                        <td>{feeStatusLabels[feeStatusOf(s)]}</td>
                         <td>
                           <span className={`chip ${s.status === "Active" ? "chip-success" : "chip-gray"}`}>
                             {s.status}
@@ -1707,38 +1764,44 @@ export default function AdminDashboard() {
                       {selectedReportType === "attendance" && reportData.attendance && (
                         <div>
                           <h4 style={{ margin: "0 0 12px", color: "var(--primary-dark)", fontSize: "0.95rem", fontWeight: 700, display: "flex", alignItems: "center", gap: "6px" }}>
-                            <Calendar size={16} style={{ color: "var(--accent-teal)" }} /> Session Check-In History
+                            <Calendar size={16} style={{ color: "var(--accent-teal)" }} /> Attendance (derived from daily care journals)
                           </h4>
+                          <p style={{ margin: "0 0 12px", fontSize: "0.75rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                            The centre does not capture check-in and check-out times. A day is
+                            counted as attended when a daily care journal was submitted for it.
+                          </p>
+                          {reportData.attendance.length === 0 ? (
+                            <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", fontStyle: "italic" }}>
+                              No journals recorded for this student, so no attendance can be shown.
+                            </p>
+                          ) : (
                           <div style={{ overflowX: "auto" }}>
                             <table className="data-table" style={{ width: "100%", borderCollapse: "collapse" }}>
                               <thead>
                                 <tr style={{ background: "rgba(0,0,0,0.02)", borderBottom: "1px solid rgba(0,0,0,0.08)" }}>
-                                  <th style={{ padding: "8px", fontSize: "0.75rem", textAlign: "left" }}>Session Date</th>
+                                  <th style={{ padding: "8px", fontSize: "0.75rem", textAlign: "left" }}>Date</th>
                                   <th style={{ padding: "8px", fontSize: "0.75rem", textAlign: "left" }}>Attendance Status</th>
-                                  <th style={{ padding: "8px", fontSize: "0.75rem", textAlign: "left" }}>Check-In Time</th>
-                                  <th style={{ padding: "8px", fontSize: "0.75rem", textAlign: "left" }}>Check-Out Time</th>
-                                  <th style={{ padding: "8px", fontSize: "0.75rem", textAlign: "left" }}>Therapeutic Hours</th>
+                                  <th style={{ padding: "8px", fontSize: "0.75rem", textAlign: "left" }}>Evidence</th>
                                 </tr>
                               </thead>
                               <tbody>
-                                {reportData.attendance.map((att: any, idx: number) => (
+                                {(reportData.attendance as { date: string; status: string; source: string }[]).map((att, idx) => (
                                   <tr key={idx} style={{ borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
                                     <td style={{ padding: "8px", fontSize: "0.8rem", fontWeight: 600 }}>
                                       {new Date(att.date + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
                                     </td>
                                     <td style={{ padding: "8px", fontSize: "0.8rem" }}>
-                                      <span className={`chip ${att.status === "Present" ? "chip-success" : "chip-danger"}`} style={{ fontSize: "0.68rem", padding: "2px 8px" }}>
+                                      <span className="chip chip-success" style={{ fontSize: "0.68rem", padding: "2px 8px" }}>
                                         {att.status}
                                       </span>
                                     </td>
-                                    <td style={{ padding: "8px", fontSize: "0.8rem", color: "var(--text-primary)" }}>{att.checkIn}</td>
-                                    <td style={{ padding: "8px", fontSize: "0.8rem", color: "var(--text-primary)" }}>{att.checkOut}</td>
-                                    <td style={{ padding: "8px", fontSize: "0.8rem", fontWeight: 600 }}>{att.status === "Present" ? "4.7 hrs" : "0 hrs"}</td>
+                                    <td style={{ padding: "8px", fontSize: "0.8rem", color: "var(--text-secondary)" }}>{att.source}</td>
                                   </tr>
                                 ))}
                               </tbody>
                             </table>
                           </div>
+                          )}
                         </div>
                       )}
 
@@ -1997,12 +2060,12 @@ export default function AdminDashboard() {
                   <select
                     className="glass-input"
                     required
-                    value={invoiceForm.studentName}
-                    onChange={e => setInvoiceForm({ ...invoiceForm, studentName: e.target.value })}
+                    value={invoiceForm.studentId}
+                    onChange={e => setInvoiceForm({ ...invoiceForm, studentId: e.target.value })}
                   >
                     <option value="">Select student...</option>
                     {students.map(s => (
-                      <option key={s.id} value={s.name}>{s.name}</option>
+                      <option key={s.id} value={String(s.id)}>{s.name}</option>
                     ))}
                   </select>
                 </div>

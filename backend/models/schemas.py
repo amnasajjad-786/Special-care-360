@@ -86,6 +86,10 @@ class ABCIncidentCreate(BaseModel):
 # ──────────────────────────── PANIC ALERT ─────────────────────
 
 class PanicAlertCreate(BaseModel):
+    # The client writes the alert document first and passes its id here, so the
+    # server fans out notifications for that same alert instead of creating a
+    # duplicate one.
+    alertId: Optional[str] = None
     studentId: str
     centerId: str = DEFAULT_CENTER_ID
     reportedBy: dict    # { uid, name }
