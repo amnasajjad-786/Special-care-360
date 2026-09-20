@@ -159,7 +159,7 @@ export default function CarePlanTab({ studentId, carePlan: initial, canEdit, onC
             </span>
           </div>
           <div className="markdown-content" style={{ fontSize: "0.88rem", lineHeight: 1.6, color: "var(--text-primary)", maxHeight: "300px", overflowY: "auto", paddingRight: "8px" }}>
-            {/* @ts-ignore - ReactMarkdown type clash */}
+            
             <ReactMarkdown>{initial.lastAiReport.report}</ReactMarkdown>
           </div>
           <style>{`

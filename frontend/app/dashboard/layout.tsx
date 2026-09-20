@@ -21,11 +21,14 @@ export const SidebarContext = createContext<SidebarContextType>({
 export const useSidebar = () => useContext(SidebarContext);
 
 // ── Role → allowed path prefixes ────────────────────────────────────────────
+// Keep this in step with NAV_ITEMS in components/layout/Sidebar.tsx: this map
+// gates the route, that list gates the link. A path in one and not the other
+// either hides a reachable page or offers a link that bounces.
 const ROLE_PATHS: Record<string, string[]> = {
-  admin:     ["/dashboard/admin", "/dashboard/students", "/dashboard/daily-care", "/dashboard/abc-tracker", "/dashboard/panic"],
-  teacher:   ["/dashboard/students", "/dashboard/daily-care", "/dashboard/abc-tracker", "/dashboard/panic"],
-  therapist: ["/dashboard/students", "/dashboard/abc-tracker", "/dashboard/panic"],
-  parent:    ["/dashboard/students", "/dashboard/daily-care", "/dashboard/abc-tracker", "/dashboard/fees"],
+  admin:     ["/dashboard/admin", "/dashboard/students", "/dashboard/daily-care", "/dashboard/abc-tracker", "/dashboard/panic", "/dashboard/teletherapy", "/dashboard/home-plan"],
+  teacher:   ["/dashboard/students", "/dashboard/daily-care", "/dashboard/abc-tracker", "/dashboard/panic", "/dashboard/teletherapy", "/dashboard/home-plan"],
+  therapist: ["/dashboard/students", "/dashboard/abc-tracker", "/dashboard/panic", "/dashboard/teletherapy", "/dashboard/home-plan"],
+  parent:    ["/dashboard/students", "/dashboard/daily-care", "/dashboard/abc-tracker", "/dashboard/fees", "/dashboard/teletherapy", "/dashboard/home-plan"],
 };
 
 export default function DashboardLayout({

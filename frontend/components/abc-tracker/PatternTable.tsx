@@ -52,7 +52,7 @@ export default function PatternTable({ patterns }: Props) {
                   <td style={{ color: "var(--text-secondary)" }}>{row.behavior}</td>
                   <td>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", padding: "3px 10px", borderRadius: "999px", fontSize: "0.78rem", fontWeight: 700, background: `${IMPACT_COLORS[row.impact]}18`, color: IMPACT_COLORS[row.impact] }}>
-                      {Array.from({ length: row.impact }).map((_, j) => "●").join("")} {IMPACT_LABELS[row.impact]}
+                      {"●".repeat(row.impact)} {IMPACT_LABELS[row.impact]}
                     </span>
                   </td>
                 </tr>

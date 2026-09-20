@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { abcDb, studentsDb } from "@/lib/firestore-api";
+import { abcDb, studentsDb, scopeOf } from "@/lib/firestore-api";
 import { ABCIncident, PatternAnalysis, HeatmapCell } from "@/types";
 import HeatmapGrid from "@/components/abc-tracker/HeatmapGrid";
 import TrendChart from "@/components/abc-tracker/TrendChart";
@@ -14,7 +14,7 @@ import ReactMarkdown from "react-markdown";
 import { Sparkles, BarChart2, TrendingUp, Search, Zap, BrainCircuit, Lightbulb, ClipboardList, Save, X } from "lucide-react";
 
 export default function ABCTrackerPage() {
-  const { profile } = useAuth();
+  const { profile, getIdToken } = useAuth();
   const [students, setStudents] = useState<{ id: string; name: string; parentId?: string }[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<{ id: string; name: string } | null>(null);
   const [incidents, setIncidents] = useState<ABCIncident[]>([]);
@@ -35,11 +35,7 @@ export default function ABCTrackerPage() {
   useEffect(() => {
     const loadStudents = async () => {
       try {
-        const allowed = await studentsDb.list(
-          profile?.centerId ?? "center-001",
-          profile?.role,
-          profile?.uid
-        );
+        const allowed = await studentsDb.list(scopeOf(profile));
         setStudents(allowed);
         if (allowed.length > 0) {
           setSelectedStudent(allowed[0]);
@@ -55,12 +51,13 @@ export default function ABCTrackerPage() {
   }, [profile]);
 
   const loadData = async (studentId: string) => {
+    const scope = scopeOf(profile);
     setLoading(true);
     try {
       const [incidents, patterns, heatmap] = await Promise.all([
-        abcDb.listIncidents(studentId),
-        abcDb.getPatterns(studentId),
-        abcDb.getHeatmap(studentId),
+        abcDb.listIncidents(studentId, scope),
+        abcDb.getPatterns(studentId, scope),
+        abcDb.getHeatmap(studentId, scope),
       ]);
       setIncidents(incidents as unknown as ABCIncident[]);
       setPatterns(patterns as unknown as PatternAnalysis);
@@ -75,11 +72,15 @@ export default function ABCTrackerPage() {
     setLoading(false);
   };
 
+  const selectedStudentId = selectedStudent?.id;
   useEffect(() => {
-    if (selectedStudent) {
-      loadData(selectedStudent.id);
+    if (selectedStudentId) {
+      loadData(selectedStudentId);
     }
-  }, [selectedStudent?.id]);
+    // loadData is stable for a given profile; re-running on its identity would
+    // refetch on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedStudentId]);
 
   const handleSaved = () => {
     if (selectedStudent) {
@@ -93,16 +94,21 @@ export default function ABCTrackerPage() {
     setAiLoading(true);
     setShowAiModal(true);
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/ai-insights/abc/${selectedStudent.id}`);
+      const token = await getIdToken();
+      if (!token) throw new Error("You must be signed in to generate insights.");
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/ai-insights/abc/${selectedStudent.id}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
         throw new Error(errorData.detail || "Failed to fetch AI insights");
       }
       const data = await res.json();
       setAiReport(data.report);
-    } catch (err: any) {
+    } catch (err) {
       console.error("AI Gen Error:", err);
-      toast.error(err.message || "AI generation failed. Make sure Gemini API Key is set.");
+      toast.error(err instanceof Error ? err.message : "AI generation failed. Check that the Gemini API key is set.");
       setShowAiModal(false);
     } finally {
       setAiLoading(false);
@@ -296,7 +302,7 @@ export default function ABCTrackerPage() {
                 </div>
               ) : (
                 <div className="markdown-content" style={{ lineHeight: 1.7, color: "var(--text-primary)", fontSize: "0.95rem" }}>
-                  {/* @ts-ignore - ReactMarkdown types can sometimes clash with React 19 */}
+
                   <ReactMarkdown>{aiReport || "No report generated."}</ReactMarkdown>
                   <style>{`
                     .markdown-content h3 {

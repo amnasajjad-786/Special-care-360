@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { MedicalProfile } from "@/types";
 import toast from "react-hot-toast";
-import { AlertOctagon, Phone, Smartphone, Zap, Activity, ShieldAlert, FileText, Save, AlertTriangle } from "lucide-react";
+import { AlertOctagon, Phone, Smartphone, Zap, Activity, ShieldAlert, FileText, Save } from "lucide-react";
 
 interface Props { studentId: string; studentName: string; medical: MedicalProfile; canEdit: boolean; }
 
