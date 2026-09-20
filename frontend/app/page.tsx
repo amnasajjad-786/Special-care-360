@@ -127,12 +127,18 @@ export default function LoginPage() {
   };
 
   const handleGoogleRegister = async () => {
+    // Staff roles are restricted to the organisation domain on the Google path
+    // too — otherwise the domain check on the manual form is trivially bypassed.
+    if (regRole !== "parent") {
+      toast.error("Staff accounts must be registered with a @specialcare360.com email using the form below.");
+      return;
+    }
     setLoading(true);
     try {
       const resolvedProfile = await loginWithGoogle(regRole);
       toast.success(
         resolvedProfile.status === "approved"
-          ? "Account created and logged in!"
+          ? "Welcome back!"
           : "Registration submitted! Awaiting admin approval."
       );
       if (resolvedProfile.status === "approved") {
@@ -161,8 +167,13 @@ export default function LoginPage() {
 
     // Validation checks
     const emailLower = regEmail.trim().toLowerCase();
-    if (!emailLower.endsWith("@specialcare360.com")) {
-      toast.error("Manual registration requires a @specialcare360.com email address");
+    // Staff must use an organisation address; parents sign up with a personal one.
+    if (regRole !== "parent" && !emailLower.endsWith("@specialcare360.com")) {
+      toast.error("Staff registration requires a @specialcare360.com email address");
+      return;
+    }
+    if (regRole === "parent" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailLower)) {
+      toast.error("Please enter a valid email address");
       return;
     }
     if (/^\d/.test(emailLower)) {
@@ -194,14 +205,11 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await register({ name: regName, email: regEmail, password: regPassword, role: regRole, centerId: regCenterId });
-      toast.success(regRole === "admin" ? "Account created! Logging you in…" : "Registration submitted! Awaiting admin approval.");
-      if (regRole === "admin") router.push("/dashboard/admin");
-      else {
-        setRegName("");
-        setRegEmail("");
-        setRegPassword("");
-        setShowRegister(false);
-      }
+      toast.success("Registration submitted! Awaiting admin approval.");
+      setRegName("");
+      setRegEmail("");
+      setRegPassword("");
+      setShowRegister(false);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Registration failed";
       toast.error(msg.includes("email-already-in-use") ? "Email already registered" : msg);

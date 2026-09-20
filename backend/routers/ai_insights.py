@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 import os
 import google.generativeai as genai
 from firebase_admin_init import get_db
+from middleware.auth_middleware import get_current_user, require_role
 
 router = APIRouter(prefix="/ai-insights", tags=["AI Insights"])
 
@@ -10,7 +11,14 @@ class AIResponse(BaseModel):
     report: str
 
 @router.get("/abc/{student_id}", response_model=AIResponse)
-async def generate_abc_insights(student_id: str):
+async def generate_abc_insights(
+    student_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    # This endpoint returns clinical behavioural analysis of a named child, so it
+    # is restricted to staff within the child's own centre.
+    require_role(current_user, ["admin", "teacher", "therapist"])
+
     gemini_key = os.getenv("GEMINI_API_KEY")
     if not gemini_key:
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY is missing in backend environment variables. Please add it to your .env file.")
@@ -19,12 +27,17 @@ async def generate_abc_insights(student_id: str):
     genai.configure(api_key=gemini_key)
 
     db = get_db()
-    
+
     # 1. Fetch Student Name
     student_ref = db.collection("students").document(student_id).get()
     if not student_ref.exists:
         raise HTTPException(status_code=404, detail="Student not found")
-    student_name = student_ref.to_dict().get("name", "the student")
+    student = student_ref.to_dict()
+
+    if student.get("centerId") != current_user.get("centerId"):
+        raise HTTPException(status_code=403, detail="Student belongs to a different centre")
+
+    student_name = student.get("name", "the student")
 
     # 2. Fetch real-time ABC incidents from Firestore
     try:

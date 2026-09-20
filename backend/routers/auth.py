@@ -2,39 +2,33 @@ from fastapi import APIRouter, HTTPException, Depends
 from models.schemas import RegisterRequest
 from firebase_admin_init import get_db
 from middleware.auth_middleware import get_current_user
+from config import DEFAULT_CENTER_ID
 from datetime import datetime, timezone
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
 @router.post("/register")
-async def register_user(body: RegisterRequest):
+async def register_user(
+    body: RegisterRequest,
+    current_user: dict = Depends(get_current_user),
+):
     """
-    Validate Center ID and write user profile to Firestore.
-    Firebase Auth user creation happens on the frontend via Firebase SDK.
-    This endpoint stores the profile and sets status.
-    """
-    try:
-        db = get_db()
-    except RuntimeError as e:
-        # Placeholder mode — return mock success
-        return {
-            "message": "User registered (placeholder mode — Firebase not configured)",
-            "uid": "placeholder-uid",
-            "status": "pending" if body.role != "admin" else "approved",
-        }
+    Record a staff registration request against an existing centre.
 
-    # Validate center exists
+    Requires a valid Firebase ID token: the caller must already have signed up
+    through Firebase Auth on the frontend. Leaving this open let anyone create
+    unbounded `centers` and `pending_registrations` documents.
+    """
+    db = get_db()
+
+    # The centre must already exist — this endpoint no longer creates one.
     center_ref = db.collection("centers").document(body.centerId).get()
-    # In prototype with hardcoded centerId, auto-create center if missing
     if not center_ref.exists:
-        db.collection("centers").document(body.centerId).set({
-            "name": "Demo Center",
-            "centerId": body.centerId,
-            "createdAt": datetime.now(timezone.utc).isoformat(),
-        })
+        raise HTTPException(status_code=404, detail="Unknown centerId")
 
-    status = "approved" if body.role == "admin" else "pending"
+    # Role is requested, never granted. An existing admin approves it.
+    status = "pending"
 
     # Note: uid is set by frontend after Firebase Auth createUser; 
     # we use a pending record keyed by email for lookup
@@ -54,27 +48,42 @@ async def register_user(body: RegisterRequest):
 
 
 @router.post("/profile")
-async def create_user_profile(body: dict):
-    """Called by frontend after Firebase Auth user creation to write users/{uid} doc."""
-    try:
-        db = get_db()
-    except RuntimeError:
-        return {"message": "Profile stored (placeholder mode)"}
+async def create_user_profile(
+    body: dict,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Write the caller's own users/{uid} document after Firebase Auth sign-up.
 
-    uid = body.get("uid")
-    if not uid:
-        raise HTTPException(status_code=400, detail="uid required")
+    This runs with Admin SDK privileges, so it bypasses firestore.rules entirely.
+    It previously trusted `uid` and `role` straight from the request body with no
+    token check, which let an anonymous caller overwrite any user's profile —
+    including promoting themselves to an approved admin. The uid is now taken
+    from the verified token and the status is always `pending`.
+    """
+    db = get_db()
+
+    uid = current_user["uid"]
+
+    # Never let an existing profile be silently overwritten via this endpoint.
+    if db.collection("users").document(uid).get().exists:
+        raise HTTPException(status_code=409, detail="Profile already exists")
+
+    role = body.get("role")
+    if role not in ("admin", "teacher", "therapist", "parent"):
+        raise HTTPException(status_code=400, detail="Invalid role")
 
     db.collection("users").document(uid).set({
+        "uid": uid,
         "name": body.get("name"),
-        "email": body.get("email"),
-        "role": body.get("role"),
-        "centerId": body.get("centerId", "demo-center-001"),
-        "status": "approved" if body.get("role") == "admin" else "pending",
+        "email": current_user.get("email") or body.get("email"),
+        "role": role,
+        "centerId": body.get("centerId", DEFAULT_CENTER_ID),
+        "status": "pending",
         "createdAt": datetime.now(timezone.utc).isoformat(),
     })
 
-    return {"message": "Profile created"}
+    return {"message": "Profile created", "status": "pending"}
 
 
 @router.get("/me")

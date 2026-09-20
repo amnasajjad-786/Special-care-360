@@ -8,8 +8,15 @@ from firebase_admin import auth
 init_firebase()
 db = get_db()
 
-email = "sara.ahmed@specialcare360.com"
-password = "SpecialCare2026!"
+# Credentials come from the environment so no working password is committed.
+#   SEED_PARENT_EMAIL=... SEED_PARENT_PASSWORD=... python create_parent.py
+email = os.getenv("SEED_PARENT_EMAIL", "sara.ahmed@specialcare360.com")
+password = os.getenv("SEED_PARENT_PASSWORD")
+
+if not password:
+    print("SEED_PARENT_PASSWORD is not set. Export it before running this script:")
+    print('  SEED_PARENT_PASSWORD="<choose-a-password>" python create_parent.py')
+    sys.exit(1)
 
 try:
     # Try to create the user in Firebase Auth
@@ -51,6 +58,6 @@ db.collection("students").document(student_id).update({
 })
 print(f"✅ Linked parent UID {uid} to student document {student_id} (Sara Ahmed)")
 
-print("\n🎉 Success! You can now login with:")
+print("\nSuccess! You can now login with:")
 print(f"Email: {email}")
-print(f"Password: {password}")
+print("Password: (the value you passed in SEED_PARENT_PASSWORD)")

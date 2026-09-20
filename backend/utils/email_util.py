@@ -1,9 +1,11 @@
+import html
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import os
 import logging
 from firebase_admin_init import get_db
+from config import DEFAULT_CENTER_ID
 
 def send_panic_email_alert(alert_data: dict) -> bool:
     """
@@ -31,7 +33,7 @@ def send_panic_email_alert(alert_data: dict) -> bool:
         recipients.append(default_recipient.strip())
 
     # Dynamically fetch all administrators in this center
-    center_id = alert_data.get("centerId", "demo-center-001")
+    center_id = alert_data.get("centerId", DEFAULT_CENTER_ID)
     try:
         db = get_db()
         admin_docs = (
@@ -52,15 +54,25 @@ def send_panic_email_alert(alert_data: dict) -> bool:
         logging.warning(f"[Email Alert] No recipients found for center '{center_id}'. Skipping email.")
         return False
 
-    # Construct HTML Email Body
-    emergency_type = alert_data.get("emergencyType", "Emergency")
-    location = alert_data.get("location", "Unknown Location")
+    # Construct HTML Email Body.
+    # Every value below is operator-supplied free text (description, location,
+    # reporter name), so escape it before interpolating into the HTML body.
     reported_by = alert_data.get("reportedBy", {})
-    reporter_name = reported_by.get("name", "Staff Member") if isinstance(reported_by, dict) else str(reported_by)
-    description = alert_data.get("description", "") or "No additional description provided."
-    timestamp = alert_data.get("timestamp", "Just now")
+    raw_emergency_type = alert_data.get("emergencyType", "Emergency")
+    raw_location = alert_data.get("location", "Unknown Location")
 
-    subject = f"🚨 PANIC ALERT: {emergency_type} in {location}"
+    emergency_type = html.escape(str(raw_emergency_type))
+    location = html.escape(str(raw_location))
+    reporter_name = html.escape(str(
+        reported_by.get("name", "Staff Member") if isinstance(reported_by, dict) else reported_by
+    ))
+    description = html.escape(str(
+        alert_data.get("description", "") or "No additional description provided."
+    ))
+    timestamp = html.escape(str(alert_data.get("timestamp", "Just now")))
+
+    # Subject is a plain-text header — use the unescaped values there.
+    subject = f"PANIC ALERT: {raw_emergency_type} in {raw_location}"
 
     body_html = f"""
     <html>
