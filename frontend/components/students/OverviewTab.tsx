@@ -1,4 +1,6 @@
 "use client";
+import { useState } from "react";
+import { studentAge } from "@/lib/firestore-api";
 import { Student } from "@/types";
 
 const IEP_COLORS: Record<string, string> = {
@@ -8,9 +10,9 @@ const IEP_COLORS: Record<string, string> = {
 };
 
 export default function OverviewTab({ student }: { student: Student }) {
-  const age = student.dob
-    ? Math.floor((Date.now() - new Date(student.dob).getTime()) / (365.25 * 24 * 3600 * 1000))
-    : null;
+  // Age depends on the current date, which makes it impure by definition. It is
+  // read once per mount so the displayed value cannot drift mid-session.
+  const [age] = useState(() => studentAge(student.dob));
 
   const fields = [
     { label: "Date of Birth", value: student.dob ? new Date(student.dob).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }) : "—" },

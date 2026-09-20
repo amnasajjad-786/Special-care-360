@@ -4,7 +4,7 @@ import { useAuth } from "@/lib/auth-context";
 import { usePathname, useRouter } from "next/navigation";
 import { useSidebar } from "@/app/dashboard/layout";
 import { useEffect, useState } from "react";
-import { collection, query, where, onSnapshot, doc, updateDoc, orderBy, limit, addDoc } from "firebase/firestore";
+import { collection, query, where, onSnapshot, doc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import toast from "react-hot-toast";
 import { Bell, Settings, LogOut } from "lucide-react";
@@ -13,6 +13,9 @@ const PAGE_TITLES: Record<string, string> = {
   "/dashboard/students":     "Students",
   "/dashboard/daily-care":   "Daily Care Journal",
   "/dashboard/abc-tracker":  "ABC Behavioral Tracker",
+  "/dashboard/teletherapy":  "Teletherapy",
+  "/dashboard/home-plan":    "Home Plan Bridge",
+  "/dashboard/fees":         "Fees & Billing",
   "/dashboard/admin/alerts": "Alert Center",
   "/dashboard/admin":        "Admin Panel",
   "/dashboard/panic":        "Panic Alert",
@@ -27,20 +30,16 @@ interface NotificationItem {
   read: boolean;
 }
 
-function getDefaultMocks(role: string): NotificationItem[] {
-  if (role === "parent") {
-    return [
-      { id: "mock-n1", type: "journal", title: "Daily Care Submitted", body: "Ms. Fatima Khan submitted Ahmed's journal.", time: "5m ago", read: false },
-      { id: "mock-n2", type: "system", title: "IEP Goal Updated", body: "Dr. Zara Ahmed updated verbal communication goal.", time: "2h ago", read: false },
-      { id: "mock-n3", type: "system", title: "Weekly Newsletter", body: "Special Care 360 Weekly Digest is available.", time: "1d ago", read: true },
-    ];
-  } else {
-    return [
-      { id: "mock-s1", type: "system", title: "System Check", body: "Database backups completed successfully.", time: "1h ago", read: true },
-      { id: "mock-s2", type: "system", title: "Staff Meeting", body: "Monthly center meeting Friday at 3:00 PM.", time: "4h ago", read: true }
-    ];
-  }
-}
+const NOTIFICATION_TITLES: Record<string, string> = {
+  panic_alert: "Panic Alert",
+  daily_journal: "Daily Journal",
+  behavior_incident: "Behaviour Incident",
+  care_plan_update: "Care Plan Updated",
+  medical_update: "Medical Profile Updated",
+  teletherapy_session: "Teletherapy Session",
+  home_plan_activity: "Home Plan Activity",
+  home_plan_message: "Home Plan Message",
+};
 
 export default function TopBar() {
   const { profile, logout } = useAuth();
@@ -51,6 +50,7 @@ export default function TopBar() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [notificationsError, setNotificationsError] = useState(false);
 
   const pageTitle = Object.entries(PAGE_TITLES).find(([key]) =>
     pathname.startsWith(key)
@@ -66,42 +66,18 @@ export default function TopBar() {
   useEffect(() => {
     if (!profile) return;
 
-    try {
-      const q = query(
-        collection(db, "notifications"),
-        where("recipientId", "==", profile.uid)
-      );
-      
-      const unsub = onSnapshot(q, (snap) => {
+    const q = query(
+      collection(db, "notifications"),
+      where("recipientId", "==", profile.uid)
+    );
+
+    return onSnapshot(q, (snap) => {
+        // An empty inbox is simply an empty inbox. This used to write invented
+        // notifications into Firestore permanently — including, for guardians,
+        // "Ms. Fatima Khan submitted Ahmed's journal", a fabricated care record
+        // attributed to a named member of staff.
         if (snap.empty) {
-          // Auto-seed mock notifications in Firestore so they are real and interactive
-          const mocks = getDefaultMocks(profile.role);
-          mocks.forEach(async (m) => {
-            try {
-              let createdAtDate = new Date();
-              if (m.time.includes("m")) {
-                const mins = parseInt(m.time);
-                createdAtDate = new Date(Date.now() - mins * 60000);
-              } else if (m.time.includes("h")) {
-                const hrs = parseInt(m.time);
-                createdAtDate = new Date(Date.now() - hrs * 3600000);
-              } else if (m.time.includes("d")) {
-                const days = parseInt(m.time);
-                createdAtDate = new Date(Date.now() - days * 86400000);
-              }
-              
-              await addDoc(collection(db, "notifications"), {
-                recipientId: profile.uid,
-                type: m.type === "journal" ? "daily_journal" : m.type,
-                title: m.title,
-                message: m.body,
-                read: m.read,
-                createdAt: createdAtDate.toISOString(),
-              });
-            } catch (err) {
-              console.warn("Failed to auto-seed mock notification:", err);
-            }
-          });
+          setNotifications([]);
           return;
         }
 
@@ -126,20 +102,15 @@ export default function TopBar() {
               else if (diffMins < 60) timeStr = `${diffMins}m ago`;
               else if (diffHours < 24) timeStr = `${diffHours}h ago`;
               else timeStr = `${diffDays}d ago`;
-            } catch (_) {}
+            } catch (err) {
+              console.warn("Unparseable notification timestamp:", err);
+            }
           }
-          
+
           return {
             id: doc.id,
             type: data.type || "system",
-            title: data.title || (
-              data.type === "panic_alert" ? "Panic Alert 🚨" :
-              data.type === "daily_journal" ? "Daily Journal 📓" :
-              data.type === "behavior_incident" ? "Behavior Incident ⚠️" :
-              data.type === "care_plan_update" ? "Care Plan Updated 🎯" :
-              data.type === "medical_update" ? "Medical Profile Updated 🩺" :
-              "Notification"
-            ),
+            title: data.title || NOTIFICATION_TITLES[data.type as string] || "Notification",
             body: data.message || "",
             time: timeStr,
             read: !!data.read,
@@ -147,20 +118,27 @@ export default function TopBar() {
           };
         });
         
-        // Sort latest first
+        // Sorted in memory, newest first. Pairing the recipientId filter with
+        // an orderBy would require a composite index for what is at most a
+        // few dozen rows.
         items.sort((a, b) => b._rawDate.getTime() - a._rawDate.getTime());
-        // Limit to 20 items
-        const limitedItems: NotificationItem[] = items.slice(0, 20).map(({ _rawDate, ...rest }) => rest);
-        
+        const limitedItems: NotificationItem[] = items.slice(0, 20).map((item) => ({
+          id: item.id,
+          type: item.type,
+          title: item.title,
+          body: item.body,
+          time: item.time,
+          read: item.read,
+        }));
+
         setNotifications(limitedItems);
-      }, () => {
-        setNotifications(getDefaultMocks(profile.role));
+        setNotificationsError(false);
+      }, (err) => {
+        // Show nothing and say so, rather than presenting invented items as real.
+        console.error("Notification listener failed:", err);
+        setNotifications([]);
+        setNotificationsError(true);
       });
-      return unsub;
-    } catch (err) {
-      console.warn("Firestore listener failed for notifications:", err);
-      setNotifications(getDefaultMocks(profile.role));
-    }
   }, [profile]);
 
   // ─── Click outside dropdowns to close them ───
@@ -193,7 +171,6 @@ export default function TopBar() {
     
     try {
       for (const item of unread) {
-        if (item.id.startsWith("mock-")) continue;
         await updateDoc(doc(db, "notifications", item.id), { read: true });
       }
     } catch (err) {
@@ -307,7 +284,11 @@ export default function TopBar() {
             </div>
 
             <div style={{ maxHeight: "240px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "8px" }}>
-              {notifications.length === 0 ? (
+              {notificationsError ? (
+                <div style={{ padding: "16px", textAlign: "center", color: "var(--danger)", fontSize: "0.82rem", lineHeight: 1.5 }}>
+                  Notifications unavailable.<br />Reload to try again.
+                </div>
+              ) : notifications.length === 0 ? (
                 <div style={{ padding: "16px", textAlign: "center", color: "var(--text-secondary)", fontSize: "0.82rem" }}>
                   All caught up!
                 </div>

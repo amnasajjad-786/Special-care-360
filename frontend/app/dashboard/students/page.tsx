@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
-import { studentsDb } from "@/lib/firestore-api";
+import { studentsDb, scopeOf } from "@/lib/firestore-api";
 import { Student, MedicalProfile, CarePlan } from "@/types";
 import StudentListSidebar from "@/components/students/StudentListSidebar";
 import OverviewTab from "@/components/students/OverviewTab";
@@ -47,11 +47,7 @@ export default function StudentsPage() {
     const loadStudents = async () => {
       setListLoading(true);
       try {
-        const allowed = await studentsDb.list(
-          profile?.centerId ?? "center-001",
-          profile?.role,
-          profile?.uid
-        );
+        const allowed = await studentsDb.list(scopeOf(profile));
         setStudents(allowed as unknown as Student[]);
 
         const storedId = localStorage.getItem("selectedStudentId");

@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import toast from "react-hot-toast";
 import { collection, query, where, onSnapshot, doc, deleteDoc, orderBy, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { studentsDb, adminDb, dailyCareDb, abcDb } from "@/lib/firestore-api";
+import { studentsDb, adminDb, dailyCareDb, abcDb, scopeOf, studentAge, type PanicAlertDoc, type StudentDoc } from "@/lib/firestore-api";
 import {
   LayoutDashboard,
   Users,
@@ -19,13 +19,13 @@ import {
   Check,
   Settings,
   X,
-  Bell,
+
   Clock,
   AlertTriangle,
   FileSpreadsheet,
   UserPlus,
   CheckCircle,
-  HelpCircle,
+
   ArrowLeft,
   Calendar,
   FileText,
@@ -34,17 +34,21 @@ import {
 
 // --- Mock initial data matching HTML mockup ---
 interface AdminStudent {
-  id: string | number;
+  id: string;
   name: string;
-  age: number;
+  age: number | null;
   diagnosis: string;
   therapist: string;
-  feeStatus: "paid" | "pending" | "overdue";
+  parentId?: string | null;
+  feeStatus: "paid" | "pending" | "overdue" | "unknown";
   status: "Active" | "Inactive";
 }
 
+// Billing records carry studentId as the join key. Matching on studentName
+// meant two students sharing a name saw each other's invoices and payments.
 interface AdminInvoice {
   id: string;
+  studentId: string;
   studentName: string;
   amount: number;
   month: string;
@@ -54,6 +58,7 @@ interface AdminInvoice {
 
 interface AdminPayment {
   id: string;
+  studentId: string;
   studentName: string;
   amount: number;
   method: string;
@@ -79,6 +84,55 @@ const INITIAL_PAYMENTS: AdminPayment[] = [];
 
 const INITIAL_STAFF: AdminStaff[] = [];
 
+interface PendingUser {
+  id: string;
+  uid?: string;
+  name?: string;
+  email?: string;
+  role?: string;
+  centerId?: string;
+  status?: string;
+  createdAt?: unknown;
+}
+
+interface TagCount { tag: string; count: number }
+
+/** Only the fields the report actually renders. */
+interface ReportJournal {
+  date: string;
+  moodTimeline?: { slot: string; mood: string }[];
+  meals?: Record<"breakfast" | "lunch" | "snack", { ate?: string } | undefined>;
+  teacherNotes?: string;
+}
+
+interface ReportIncident {
+  id: string;
+  timestamp: string;
+  severity: number;
+  location?: string;
+  antecedent?: { text?: string };
+  behavior?: { text?: string };
+  consequence?: { text?: string };
+}
+
+interface ReportData {
+  carePlan?: { goals?: { id: string; title: string; status: string; progressPercent: number }[] };
+  journals?: ReportJournal[];
+  patterns?: {
+    topAntecedents?: TagCount[];
+    topBehaviors?: TagCount[];
+    topConsequences?: TagCount[];
+    avgSeverity?: number;
+    totalIncidents?: number;
+    insights?: string[];
+  };
+  incidents?: ReportIncident[];
+  invoices?: AdminInvoice[];
+  payments?: AdminPayment[];
+  attendance?: { date: string; status: string; source: string }[];
+  derived?: boolean;
+}
+
 const DIAGNOSES_OPTIONS = ["Autism", "Down Syndrome", "ADHD", "Cerebral Palsy", "Other"];
 
 export default function AdminDashboard() {
@@ -88,7 +142,7 @@ export default function AdminDashboard() {
   // --- Reports State ---
   const [selectedReportType, setSelectedReportType] = useState<"progress" | "fees" | "behavior" | "attendance" | null>(null);
   const [selectedReportStudentId, setSelectedReportStudentId] = useState<string | null>(null);
-  const [reportData, setReportData] = useState<any>(null);
+  const [reportData, setReportData] = useState<ReportData | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
 
   // --- Core States ---
@@ -96,8 +150,8 @@ export default function AdminDashboard() {
   const [invoices, setInvoices] = useState<AdminInvoice[]>(INITIAL_INVOICES);
   const [payments, setPayments] = useState<AdminPayment[]>(INITIAL_PAYMENTS);
   const [staff, setStaff] = useState<AdminStaff[]>(INITIAL_STAFF);
-  const [pendingUsers, setPendingUsers] = useState<any[]>([]);
-  const [selectedPendingUser, setSelectedPendingUser] = useState<any | null>(null);
+  const [pendingUsers, setPendingUsers] = useState<PendingUser[]>([]);
+  const [selectedPendingUser, setSelectedPendingUser] = useState<PendingUser | null>(null);
 
   // --- Search & Filters ---
   const [studentSearch, setStudentSearch] = useState("");
@@ -141,7 +195,7 @@ export default function AdminDashboard() {
   });
 
   const [invoiceForm, setInvoiceForm] = useState({
-    studentName: "",
+    studentId: "",
     month: "June 2025",
     amount: "",
     dueDate: "",
@@ -162,69 +216,49 @@ export default function AdminDashboard() {
   const staffCount = staff.length;
 
   // --- Dynamic active alert count from Firestore (with demo fallback) --------
-  const [activeAlertsCount, setActiveAlertsCount] = useState(2);
-  const [recentAlerts, setRecentAlerts] = useState<any[]>([
-    {
-      id: "mock-1",
-      emergencyType: "Panic Button triggered",
-      location: "Room 3",
-      timestamp: new Date().toISOString(),
-      studentId: "student-001",
-      reportedBy: { name: "Ahmed Raza" }
-    },
-    {
-      id: "mock-2",
-      emergencyType: "Regression detected in motor skills",
-      location: "Therapy Room",
-      timestamp: new Date(Date.now() - 3600000).toISOString(),
-      studentId: "student-004",
-      reportedBy: { name: "Zara Khan" }
-    },
-    {
-      id: "mock-3",
-      emergencyType: "Invoice #1024 marked overdue",
-      location: "Reception",
-      timestamp: new Date(Date.now() - 86400000).toISOString(),
-      studentId: "student-002",
-      reportedBy: { name: "Ali Hassan" }
-    }
-  ]);
+  // These start empty and stay empty on failure. They previously seeded three
+  // invented emergencies and a count of 2, so an admin could be shown alerts
+  // that never happened — and a real Firestore outage looked like a quiet day.
+  const [activeAlertsCount, setActiveAlertsCount] = useState(0);
+  const [recentAlerts, setRecentAlerts] = useState<PanicAlertDoc[]>([]);
+  const [alertsError, setAlertsError] = useState(false);
 
   // --- Fetch Students from Firestore ---
   useEffect(() => {
     if (!profile) return;
     const fetchStudents = async () => {
       try {
-        const data = await studentsDb.list(profile.centerId || "center-001");
-        const mapped: AdminStudent[] = data.map(s => {
-          const age = s.dob ? Math.floor((Date.now() - new Date(s.dob).getTime()) / (365.25 * 24 * 3600 * 1000)) : 0;
-          return {
-            id: s.id,
-            name: s.name || "Unknown",
-            age,
-            diagnosis: s.diagnosis || "Unknown",
-            therapist: s.therapistIds && s.therapistIds.length > 0 ? "Assigned" : "None",
-            feeStatus: "paid", // Placeholder until fee module is built
-            status: "Active"
-          };
-        });
+        const data = await studentsDb.list(scopeOf(profile));
+        const mapped: AdminStudent[] = data.map(s => ({
+          id: s.id,
+          name: s.name || "Unknown",
+          age: studentAge(s.dob),
+          diagnosis: s.diagnosis || "Unknown",
+          therapist: s.therapistNames?.length ? s.therapistNames.join(", ") : "None",
+          parentId: s.parentId ?? null,
+          // Derived from the invoice list once it loads — this was hardcoded
+          // to "paid" for every student regardless of their actual balance.
+          feeStatus: "unknown",
+          status: "Active",
+        }));
         setStudents(mapped);
       } catch (err) {
         console.error("Failed to fetch admin students", err);
+        toast.error("Could not load students.");
       }
     };
 
     const fetchStaff = async () => {
       try {
         const data = await adminDb.listStaff(profile.centerId || "center-001");
-        const mapped: AdminStaff[] = data.map((s: any) => ({
-          id: s.id,
-          name: s.name,
-          subRole: s.subRole,
-          role: s.role,
-          email: s.email,
-          studentsAssigned: s.studentsAssigned,
-          status: s.status
+        const mapped: AdminStaff[] = data.map((s: Record<string, unknown>) => ({
+          id: s.id as string,
+          name: (s.name as string) ?? "",
+          subRole: (s.subRole as string) ?? "",
+          role: (s.role as AdminStaff["role"]) ?? "Teacher",
+          email: (s.email as string) ?? "",
+          studentsAssigned: (s.studentsAssigned as number) ?? 0,
+          status: (s.status as AdminStaff["status"]) ?? "Active"
         }));
         setStaff(mapped);
       } catch (err) {
@@ -234,19 +268,33 @@ export default function AdminDashboard() {
 
     const fetchFees = async () => {
       try {
-        const cid = profile.centerId || "center-001";
-        const invData = await adminDb.listInvoices(cid);
-        const payData = await adminDb.listPayments(cid);
-        
-        setInvoices(invData.map((d: any) => ({
-          id: d.id, studentName: d.studentName, amount: d.amount, month: d.month, issued: d.issued, status: d.status
+        const [invData, payData] = await Promise.all([
+          adminDb.listInvoices(scopeOf(profile)),
+          adminDb.listPayments(scopeOf(profile)),
+        ]);
+
+        setInvoices(invData.map((d: Record<string, unknown>) => ({
+          id: d.id as string,
+          studentId: (d.studentId as string) ?? "",
+          studentName: (d.studentName as string) ?? "",
+          amount: (d.amount as number) ?? 0,
+          month: (d.month as string) ?? "",
+          issued: (d.issued as string) ?? "",
+          status: (d.status as AdminInvoice["status"]) ?? "pending",
         })));
-        
-        setPayments(payData.map((d: any) => ({
-          id: d.id, studentName: d.studentName, amount: d.amount, method: d.method, date: d.date, recordedBy: d.recordedBy
+
+        setPayments(payData.map((d: Record<string, unknown>) => ({
+          id: d.id as string,
+          studentId: (d.studentId as string) ?? "",
+          studentName: (d.studentName as string) ?? "",
+          amount: (d.amount as number) ?? 0,
+          method: (d.method as string) ?? "",
+          date: (d.date as string) ?? "",
+          recordedBy: (d.recordedBy as string) ?? "",
         })));
       } catch (err) {
         console.error("Failed to fetch fee data", err);
+        toast.error("Could not load billing data.");
       }
     };
 
@@ -268,47 +316,43 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (!profile) return;
-    try {
-      const q = query(
-        collection(db, "panicAlerts"),
-        where("status", "==", "active"),
-        where("centerId", "==", profile.centerId || "center-001")
-      );
-      const unsub = onSnapshot(
-        q,
-        (snap) => setActiveAlertsCount(snap.size),
-        () => setActiveAlertsCount(2) // Firebase not configured — keep mock
-      );
-      return unsub;
-    } catch {
-      // Firebase not configured
-      setActiveAlertsCount(2);
-    }
+    const q = query(
+      collection(db, "panicAlerts"),
+      where("status", "==", "active"),
+      where("centerId", "==", profile.centerId || "center-001")
+    );
+    return onSnapshot(
+      q,
+      (snap) => { setActiveAlertsCount(snap.size); setAlertsError(false); },
+      (err) => {
+        // Surface the failure instead of substituting a plausible number.
+        console.error("Active alert listener failed:", err);
+        setActiveAlertsCount(0);
+        setAlertsError(true);
+      }
+    );
   }, [profile]);
 
   useEffect(() => {
     if (!profile) return;
-    try {
-      const q = query(
-        collection(db, "panicAlerts"),
-        where("centerId", "==", profile.centerId || "center-001"),
-        orderBy("timestamp", "desc"),
-        limit(5)
-      );
-      const unsub = onSnapshot(
-        q,
-        (snap) => {
-          const alerts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-          setRecentAlerts(alerts);
-        },
-        () => {
-          // Fallback handled by initial state
-        }
-      );
-      return unsub;
-    } catch (err) {
-      console.warn("Firebase not configured for recent alerts", err);
-    }
+    const q = query(
+      collection(db, "panicAlerts"),
+      where("centerId", "==", profile.centerId || "center-001"),
+      orderBy("timestamp", "desc"),
+      limit(5)
+    );
+    return onSnapshot(
+      q,
+      (snap) => {
+        setRecentAlerts(snap.docs.map(d => ({ id: d.id, ...d.data() }) as PanicAlertDoc));
+        setAlertsError(false);
+      },
+      (err) => {
+        console.error("Recent alert listener failed:", err);
+        setRecentAlerts([]);
+        setAlertsError(true);
+      }
+    );
   }, [profile]);
 
   // --- Fetch report details dynamically when a student and report type is selected ---
@@ -324,30 +368,37 @@ export default function AdminDashboard() {
         if (selectedReportType === "progress") {
           const [carePlan, journals] = await Promise.all([
             studentsDb.getCarePlan(selectedReportStudentId),
-            dailyCareDb.history(selectedReportStudentId)
+            dailyCareDb.history(selectedReportStudentId, scopeOf(profile))
           ]);
-          setReportData({ carePlan, journals });
+          setReportData({ carePlan, journals: journals as unknown as ReportJournal[] });
         } else if (selectedReportType === "behavior") {
           const [patterns, incidents] = await Promise.all([
-            abcDb.getPatterns(selectedReportStudentId),
-            abcDb.listIncidents(selectedReportStudentId, 15)
+            abcDb.getPatterns(selectedReportStudentId, scopeOf(profile)),
+            abcDb.listIncidents(selectedReportStudentId, scopeOf(profile), 15)
           ]);
-          setReportData({ patterns, incidents });
+          setReportData({ patterns, incidents: incidents as unknown as ReportIncident[] });
         } else if (selectedReportType === "fees") {
-          const stud = students.find(s => s.id === selectedReportStudentId);
-          const studentName = stud ? stud.name : "";
-          const studentInvoices = invoices.filter(i => i.studentName === studentName);
-          const studentPayments = payments.filter(p => p.studentName === studentName);
+          const studentInvoices = invoices.filter(i => i.studentId === selectedReportStudentId);
+          const studentPayments = payments.filter(p => p.studentId === selectedReportStudentId);
           setReportData({ invoices: studentInvoices, payments: studentPayments });
         } else if (selectedReportType === "attendance") {
-          const mockAttendance = [
-            { date: "2026-06-12", status: "Present", checkIn: "08:45 AM", checkOut: "01:30 PM" },
-            { date: "2026-06-11", status: "Present", checkIn: "08:50 AM", checkOut: "01:45 PM" },
-            { date: "2026-06-10", status: "Absent", checkIn: "—", checkOut: "—" },
-            { date: "2026-06-09", status: "Present", checkIn: "08:40 AM", checkOut: "01:30 PM" },
-            { date: "2026-06-08", status: "Present", checkIn: "08:55 AM", checkOut: "01:40 PM" },
-          ];
-          setReportData({ attendance: mockAttendance });
+          // The platform has no attendance capture, so this is derived from
+          // the daily care journals that were actually submitted: a journal on
+          // a date means the student was in that day. It previously returned
+          // five hardcoded rows with invented check-in and check-out times.
+          const journals = await dailyCareDb.history(
+            selectedReportStudentId,
+            scopeOf(profile),
+            30
+          );
+          const attendance = (journals as Record<string, unknown>[])
+            .map((j) => ({
+              date: j.date as string,
+              status: "Present",
+              source: "Daily care journal submitted",
+            }))
+            .sort((a, b) => (a.date < b.date ? 1 : -1));
+          setReportData({ attendance, derived: true });
         }
       } catch (err) {
         console.error("Failed to fetch report data:", err);
@@ -358,7 +409,7 @@ export default function AdminDashboard() {
     };
 
     fetchReport();
-  }, [selectedReportStudentId, selectedReportType, invoices, payments, students]);
+  }, [selectedReportStudentId, selectedReportType, invoices, payments, profile]);
 
   const feeStats = useMemo(() => {
     let collected = 0;
@@ -410,7 +461,7 @@ export default function AdminDashboard() {
         guardianName: studentForm.guardianName,
         contactNo: studentForm.contactNo,
         notes: studentForm.notes
-      } as any);
+      } as unknown as Omit<StudentDoc, "id">);
 
       const newStudent: AdminStudent = {
         id: newId,
@@ -418,7 +469,7 @@ export default function AdminDashboard() {
         age: ageNum,
         diagnosis: studentForm.diagnosis,
         therapist: studentForm.therapist,
-        feeStatus: "pending",
+        feeStatus: "unknown",
         status: "Active"
       };
 
@@ -540,27 +591,41 @@ export default function AdminDashboard() {
 
   const handleAddInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!invoiceForm.studentName || !invoiceForm.amount) {
+    if (!invoiceForm.studentId || !invoiceForm.amount) {
       toast.error("Please select a student and enter an amount");
       return;
     }
 
+    const student = students.find(s => String(s.id) === invoiceForm.studentId);
+    if (!student) {
+      toast.error("Selected student could not be found");
+      return;
+    }
+
     try {
-      const issuedDate = new Date().toLocaleDateString("en-US", { day: "2-digit", month: "short" });
-      
+      const issuedDate = new Date().toISOString().slice(0, 10);
+      const amount = parseFloat(invoiceForm.amount);
+
+      // parentId is denormalised so the guardian's own billing query is
+      // authorised by the rules without a per-document lookup.
       const newId = await adminDb.addInvoice({
-        studentName: invoiceForm.studentName,
-        amount: parseFloat(invoiceForm.amount),
+        studentId: student.id,
+        studentName: student.name,
+        parentId: student.parentId ?? null,
+        amount,
         month: invoiceForm.month,
         issued: issuedDate,
+        dueDate: invoiceForm.dueDate || null,
+        notes: invoiceForm.notes || "",
         status: "pending",
         centerId: profile?.centerId || "center-001"
       });
 
       const newInvoice: AdminInvoice = {
         id: newId,
-        studentName: invoiceForm.studentName,
-        amount: parseFloat(invoiceForm.amount),
+        studentId: String(student.id),
+        studentName: student.name,
+        amount,
         month: invoiceForm.month,
         issued: issuedDate,
         status: "pending"
@@ -569,7 +634,7 @@ export default function AdminDashboard() {
       setInvoices([newInvoice, ...invoices]);
       setIsAddInvoiceOpen(false);
       setInvoiceForm({
-        studentName: "",
+        studentId: "",
         month: "June 2025",
         amount: "",
         dueDate: "",
@@ -592,8 +657,11 @@ export default function AdminDashboard() {
 
       // Add payment entry to DB
       const payDate = new Date().toLocaleDateString("en-US", { day: "2-digit", month: "short", year: "numeric" });
+      const student = students.find(s => String(s.id) === inv.studentId);
       const payId = await adminDb.addPayment({
+        studentId: inv.studentId,
         studentName: inv.studentName,
+        parentId: student?.parentId ?? null,
         amount: inv.amount,
         method: "Bank Transfer",
         date: payDate,
@@ -603,9 +671,10 @@ export default function AdminDashboard() {
 
       // Update Local State
       setInvoices(invoices.map(i => i.id === invoiceId ? { ...i, status: "paid" } : i));
-      
+
       const newPayment: AdminPayment = {
         id: payId,
+        studentId: inv.studentId,
         studentName: inv.studentName,
         amount: inv.amount,
         method: "Bank Transfer",
@@ -613,9 +682,8 @@ export default function AdminDashboard() {
         recordedBy: profile?.name || "Admin"
       };
       setPayments([newPayment, ...payments]);
-
-      // Also update student feeStatus
-      setStudents(students.map(s => s.name === inv.studentName ? { ...s, feeStatus: "paid" } : s));
+      // Student fee standing is derived from `invoices`, so updating that list
+      // above is enough — no parallel copy to keep in sync.
 
       toast.success(`Payment recorded for ${inv.studentName}!`);
     } catch (err) {
@@ -651,15 +719,22 @@ export default function AdminDashboard() {
     });
   }, [students, studentSearch, diagnosisFilter, statusFilter]);
 
-  const formatRequestDate = (createdAt: any) => {
+  // createdAt arrives either as a Firestore Timestamp (with toDate/seconds) or
+  // as an ISO string, depending on whether it was written by the web SDK or a
+  // backend script.
+  const formatRequestDate = (createdAt: unknown) => {
     if (!createdAt) return "Unknown date";
-    if (typeof createdAt.toDate === "function") {
-      return createdAt.toDate().toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
-    }
-    if (createdAt.seconds) {
-      return new Date(createdAt.seconds * 1000).toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
-    }
-    return new Date(createdAt).toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    const FORMAT: Intl.DateTimeFormatOptions = {
+      day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit",
+    };
+    const ts = createdAt as { toDate?: () => Date; seconds?: number };
+
+    let date: Date;
+    if (typeof ts.toDate === "function") date = ts.toDate();
+    else if (typeof ts.seconds === "number") date = new Date(ts.seconds * 1000);
+    else date = new Date(createdAt as string | number);
+
+    return Number.isNaN(date.getTime()) ? "Unknown date" : date.toLocaleDateString("en-US", FORMAT);
   };
 
   // Color mappings
@@ -675,8 +750,26 @@ export default function AdminDashboard() {
   const feeStatusLabels = {
     paid: <span className="chip chip-success">Paid</span>,
     pending: <span className="chip chip-warning">Pending</span>,
-    overdue: <span className="chip chip-danger">Overdue</span>
+    overdue: <span className="chip chip-danger">Overdue</span>,
+    unknown: <span className="chip chip-gray">No invoices</span>
   };
+
+  // A student's fee standing is whatever their invoices actually say: overdue
+  // wins, then pending, then paid. Nothing is shown as paid by default.
+  const feeStatusByStudent = useMemo(() => {
+    const map: Record<string, AdminStudent["feeStatus"]> = {};
+    for (const inv of invoices) {
+      if (!inv.studentId) continue;
+      const current = map[inv.studentId];
+      if (inv.status === "overdue") map[inv.studentId] = "overdue";
+      else if (inv.status === "pending" && current !== "overdue") map[inv.studentId] = "pending";
+      else if (!current) map[inv.studentId] = "paid";
+    }
+    return map;
+  }, [invoices]);
+
+  const feeStatusOf = (s: AdminStudent): AdminStudent["feeStatus"] =>
+    feeStatusByStudent[String(s.id)] ?? "unknown";
 
   return (
     <div className="animate-fade-in" style={{ paddingBottom: "40px" }}>
@@ -840,7 +933,7 @@ export default function AdminDashboard() {
                         </div>
                       </div>
                     </div>
-                    {feeStatusLabels[s.feeStatus]}
+                    {feeStatusLabels[feeStatusOf(s)]}
                   </div>
                 ))}
               </div>
@@ -851,7 +944,15 @@ export default function AdminDashboard() {
               <h3 style={{ fontSize: "1.1rem", fontWeight: 700, marginBottom: "16px", color: "var(--primary-dark)" }}>Recent Incident Alerts</h3>
               <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
                 
-                {recentAlerts.length === 0 ? (
+                {alertsError ? (
+                  <div style={{ padding: "12px 14px", borderRadius: "10px", background: "rgba(229,62,62,0.08)", border: "1px solid rgba(229,62,62,0.25)", color: "var(--danger)", fontSize: "0.85rem", display: "flex", gap: "10px", alignItems: "flex-start" }}>
+                    <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: "1px" }} />
+                    <span>
+                      Alert feed unavailable — this list may be incomplete. Check your
+                      connection and Firestore rules, then reload.
+                    </span>
+                  </div>
+                ) : recentAlerts.length === 0 ? (
                   <div style={{ padding: "10px 0", color: "var(--text-secondary)", fontSize: "0.88rem" }}>
                     No recent incident alerts.
                   </div>
@@ -917,7 +1018,7 @@ export default function AdminDashboard() {
                           display: "flex", alignItems: "center", justifyContent: "center",
                           fontWeight: 700, fontSize: "0.85rem"
                         }}>
-                          {u.name ? u.name.split(" ").map((w: any) => w[0]).join("").slice(0, 2).toUpperCase() : "?"}
+                          {u.name ? u.name.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase() : "?"}
                         </div>
                         <div>
                           <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>{u.name}</div>
@@ -928,7 +1029,7 @@ export default function AdminDashboard() {
                       </div>
                       <button 
                         className="btn-primary" 
-                        onClick={() => handleApproveUser(u.id, u.name)} 
+                        onClick={() => handleApproveUser(u.id, u.name ?? "this user")} 
                         style={{ padding: "6px 12px", fontSize: "0.75rem", background: "var(--accent-teal)" }}
                       >
                         Approve
@@ -1072,7 +1173,7 @@ export default function AdminDashboard() {
                           <span className={`chip ${chipColor}`}>{s.diagnosis}</span>
                         </td>
                         <td>{s.therapist}</td>
-                        <td>{feeStatusLabels[s.feeStatus]}</td>
+                        <td>{feeStatusLabels[feeStatusOf(s)]}</td>
                         <td>
                           <span className={`chip ${s.status === "Active" ? "chip-success" : "chip-gray"}`}>
                             {s.status}
@@ -1519,7 +1620,7 @@ export default function AdminDashboard() {
                             <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>No IEP goals configured for this student.</p>
                           ) : (
                             <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "24px" }}>
-                              {reportData.carePlan.goals.map((g: any) => (
+                              {reportData.carePlan.goals.map((g) => (
                                 <div key={g.id} style={{ padding: "12px 14px", background: "rgba(255,255,255,0.7)", border: "1px solid rgba(0,0,0,0.06)", borderRadius: "8px" }}>
                                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
                                     <span style={{ fontWeight: 600, fontSize: "0.85rem", color: "var(--text-primary)" }}>{g.title}</span>
@@ -1546,7 +1647,7 @@ export default function AdminDashboard() {
                                 Showing the last {reportData.journals.length} submitted daily journals.
                               </p>
                               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-                                {reportData.journals.slice(0, 4).map((j: any) => (
+                                {reportData.journals.slice(0, 4).map((j) => (
                                   <div key={j.date} style={{ padding: "12px", borderRadius: "10px", background: "rgba(0,0,0,0.02)", border: "1px solid rgba(0,0,0,0.04)" }}>
                                     <div style={{ fontWeight: 700, fontSize: "0.8rem", color: "var(--primary-dark)" }}>{new Date(j.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
                                     <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginTop: "4px" }}>
@@ -1586,18 +1687,18 @@ export default function AdminDashboard() {
                             </div>
                             <div style={{ padding: "12px", background: "rgba(255,255,255,0.7)", borderRadius: "8px", border: "1px solid rgba(0,0,0,0.06)" }}>
                               <div style={{ fontSize: "0.68rem", color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase" }}>Top Trigger</div>
-                              <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--primary-dark)", marginTop: "4px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{reportData.patterns.topAntecedents[0]?.tag || "—"}</div>
+                              <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--primary-dark)", marginTop: "4px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{reportData.patterns.topAntecedents?.[0]?.tag || "—"}</div>
                             </div>
                             <div style={{ padding: "12px", background: "rgba(255,255,255,0.7)", borderRadius: "8px", border: "1px solid rgba(0,0,0,0.06)" }}>
                               <div style={{ fontSize: "0.68rem", color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase" }}>Top Behavior</div>
-                              <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--primary-dark)", marginTop: "4px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{reportData.patterns.topBehaviors[0]?.tag || "—"}</div>
+                              <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--primary-dark)", marginTop: "4px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{reportData.patterns.topBehaviors?.[0]?.tag || "—"}</div>
                             </div>
                           </div>
 
                           <h4 style={{ margin: "0 0 12px", color: "var(--primary-dark)", fontSize: "0.95rem", fontWeight: 700, display: "flex", alignItems: "center", gap: "6px" }}>
                             <AlertTriangle size={16} style={{ color: "var(--danger)" }} /> Recent ABC Incidents
                           </h4>
-                          {reportData.incidents.length === 0 ? (
+                          {reportData.incidents?.length === 0 ? (
                             <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>No behavioral logs recorded for this student.</p>
                           ) : (
                             <div style={{ overflowX: "auto" }}>
@@ -1612,7 +1713,7 @@ export default function AdminDashboard() {
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {reportData.incidents.slice(0, 6).map((inc: any) => (
+                                  {reportData.incidents?.slice(0, 6).map((inc) => (
                                     <tr key={inc.id} style={{ borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
                                       <td style={{ padding: "8px", fontSize: "0.78rem", whiteSpace: "nowrap" }}>{new Date(inc.timestamp).toLocaleDateString()}</td>
                                       <td style={{ padding: "8px", fontSize: "0.78rem" }}>{inc.antecedent?.text}</td>
@@ -1639,19 +1740,19 @@ export default function AdminDashboard() {
                             <div style={{ padding: "14px", background: "rgba(56, 161, 105, 0.05)", border: "1px solid rgba(56, 161, 105, 0.15)", borderRadius: "10px" }}>
                               <div style={{ fontSize: "0.68rem", color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase" }}>Total Payments Received</div>
                               <div style={{ fontSize: "1.2rem", fontWeight: 800, color: "var(--success)", marginTop: "2px" }}>
-                                ₨ {reportData.payments.reduce((sum: number, p: any) => sum + p.amount, 0).toLocaleString()}
+                                ₨ {reportData.payments?.reduce((sum: number, p) => sum + p.amount, 0).toLocaleString()}
                               </div>
                             </div>
                             <div style={{ padding: "14px", background: "rgba(229, 62, 62, 0.05)", border: "1px solid rgba(229, 62, 62, 0.15)", borderRadius: "10px" }}>
                               <div style={{ fontSize: "0.68rem", color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase" }}>Outstanding Overdue Dues</div>
                               <div style={{ fontSize: "1.2rem", fontWeight: 800, color: "var(--danger)", marginTop: "2px" }}>
-                                ₨ {reportData.invoices.filter((i: any) => i.status === "overdue").reduce((sum: number, i: any) => sum + i.amount, 0).toLocaleString()}
+                                ₨ {reportData.invoices.filter((i) => i.status === "overdue").reduce((sum: number, i) => sum + i.amount, 0).toLocaleString()}
                               </div>
                             </div>
                             <div style={{ padding: "14px", background: "rgba(214, 158, 46, 0.05)", border: "1px solid rgba(214, 158, 46, 0.15)", borderRadius: "10px" }}>
                               <div style={{ fontSize: "0.68rem", color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase" }}>Pending Invoices</div>
                               <div style={{ fontSize: "1.2rem", fontWeight: 800, color: "var(--warning)", marginTop: "2px" }}>
-                                ₨ {reportData.invoices.filter((i: any) => i.status === "pending").reduce((sum: number, i: any) => sum + i.amount, 0).toLocaleString()}
+                                ₨ {reportData.invoices.filter((i) => i.status === "pending").reduce((sum: number, i) => sum + i.amount, 0).toLocaleString()}
                               </div>
                             </div>
                           </div>
@@ -1659,14 +1760,14 @@ export default function AdminDashboard() {
                           <h4 style={{ margin: "0 0 12px", color: "var(--primary-dark)", fontSize: "0.95rem", fontWeight: 700 }}>
                             Transaction Records
                           </h4>
-                          {reportData.invoices.length === 0 && reportData.payments.length === 0 ? (
+                          {reportData.invoices.length === 0 && reportData.payments?.length === 0 ? (
                             <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>No financial logs recorded for this student.</p>
                           ) : (
                             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
                               <div>
                                 <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", marginBottom: "8px" }}>Invoices Issued</div>
                                 <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                                  {reportData.invoices.map((inv: any) => (
+                                  {reportData.invoices.map((inv) => (
                                     <div key={inv.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: "rgba(0,0,0,0.02)", border: "1px solid rgba(0,0,0,0.04)", borderRadius: "8px", fontSize: "0.82rem" }}>
                                       <div>
                                         <div style={{ fontWeight: 600 }}>{inv.month}</div>
@@ -1684,10 +1785,10 @@ export default function AdminDashboard() {
                               <div>
                                 <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", marginBottom: "8px" }}>Payments Logged</div>
                                 <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                                  {reportData.payments.length === 0 ? (
+                                  {reportData.payments?.length === 0 ? (
                                     <p style={{ color: "var(--text-secondary)", fontSize: "0.8rem", margin: 0 }}>No payments registered.</p>
                                   ) : (
-                                    reportData.payments.map((p: any) => (
+                                    reportData.payments?.map((p) => (
                                       <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: "rgba(56, 161, 105, 0.02)", border: "1px solid rgba(56, 161, 105, 0.1)", borderRadius: "8px", fontSize: "0.82rem" }}>
                                         <div>
                                           <div style={{ fontWeight: 600, color: "var(--success)" }}>Paid (via {p.method})</div>
@@ -1707,38 +1808,44 @@ export default function AdminDashboard() {
                       {selectedReportType === "attendance" && reportData.attendance && (
                         <div>
                           <h4 style={{ margin: "0 0 12px", color: "var(--primary-dark)", fontSize: "0.95rem", fontWeight: 700, display: "flex", alignItems: "center", gap: "6px" }}>
-                            <Calendar size={16} style={{ color: "var(--accent-teal)" }} /> Session Check-In History
+                            <Calendar size={16} style={{ color: "var(--accent-teal)" }} /> Attendance (derived from daily care journals)
                           </h4>
+                          <p style={{ margin: "0 0 12px", fontSize: "0.75rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                            The centre does not capture check-in and check-out times. A day is
+                            counted as attended when a daily care journal was submitted for it.
+                          </p>
+                          {reportData.attendance.length === 0 ? (
+                            <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", fontStyle: "italic" }}>
+                              No journals recorded for this student, so no attendance can be shown.
+                            </p>
+                          ) : (
                           <div style={{ overflowX: "auto" }}>
                             <table className="data-table" style={{ width: "100%", borderCollapse: "collapse" }}>
                               <thead>
                                 <tr style={{ background: "rgba(0,0,0,0.02)", borderBottom: "1px solid rgba(0,0,0,0.08)" }}>
-                                  <th style={{ padding: "8px", fontSize: "0.75rem", textAlign: "left" }}>Session Date</th>
+                                  <th style={{ padding: "8px", fontSize: "0.75rem", textAlign: "left" }}>Date</th>
                                   <th style={{ padding: "8px", fontSize: "0.75rem", textAlign: "left" }}>Attendance Status</th>
-                                  <th style={{ padding: "8px", fontSize: "0.75rem", textAlign: "left" }}>Check-In Time</th>
-                                  <th style={{ padding: "8px", fontSize: "0.75rem", textAlign: "left" }}>Check-Out Time</th>
-                                  <th style={{ padding: "8px", fontSize: "0.75rem", textAlign: "left" }}>Therapeutic Hours</th>
+                                  <th style={{ padding: "8px", fontSize: "0.75rem", textAlign: "left" }}>Evidence</th>
                                 </tr>
                               </thead>
                               <tbody>
-                                {reportData.attendance.map((att: any, idx: number) => (
+                                {(reportData.attendance as { date: string; status: string; source: string }[]).map((att, idx) => (
                                   <tr key={idx} style={{ borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
                                     <td style={{ padding: "8px", fontSize: "0.8rem", fontWeight: 600 }}>
                                       {new Date(att.date + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
                                     </td>
                                     <td style={{ padding: "8px", fontSize: "0.8rem" }}>
-                                      <span className={`chip ${att.status === "Present" ? "chip-success" : "chip-danger"}`} style={{ fontSize: "0.68rem", padding: "2px 8px" }}>
+                                      <span className="chip chip-success" style={{ fontSize: "0.68rem", padding: "2px 8px" }}>
                                         {att.status}
                                       </span>
                                     </td>
-                                    <td style={{ padding: "8px", fontSize: "0.8rem", color: "var(--text-primary)" }}>{att.checkIn}</td>
-                                    <td style={{ padding: "8px", fontSize: "0.8rem", color: "var(--text-primary)" }}>{att.checkOut}</td>
-                                    <td style={{ padding: "8px", fontSize: "0.8rem", fontWeight: 600 }}>{att.status === "Present" ? "4.7 hrs" : "0 hrs"}</td>
+                                    <td style={{ padding: "8px", fontSize: "0.8rem", color: "var(--text-secondary)" }}>{att.source}</td>
                                   </tr>
                                 ))}
                               </tbody>
                             </table>
                           </div>
+                          )}
                         </div>
                       )}
 
@@ -1997,12 +2104,12 @@ export default function AdminDashboard() {
                   <select
                     className="glass-input"
                     required
-                    value={invoiceForm.studentName}
-                    onChange={e => setInvoiceForm({ ...invoiceForm, studentName: e.target.value })}
+                    value={invoiceForm.studentId}
+                    onChange={e => setInvoiceForm({ ...invoiceForm, studentId: e.target.value })}
                   >
                     <option value="">Select student...</option>
                     {students.map(s => (
-                      <option key={s.id} value={s.name}>{s.name}</option>
+                      <option key={s.id} value={String(s.id)}>{s.name}</option>
                     ))}
                   </select>
                 </div>
@@ -2168,7 +2275,7 @@ export default function AdminDashboard() {
                 fontWeight: 700, fontSize: "1.5rem", margin: "0 auto 12px",
                 boxShadow: "0 4px 12px rgba(155, 142, 196, 0.2)"
               }}>
-                {selectedPendingUser.name ? selectedPendingUser.name.split(" ").map((w: any) => w[0]).join("").slice(0, 2).toUpperCase() : "?"}
+                {selectedPendingUser.name ? selectedPendingUser.name.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase() : "?"}
               </div>
               <h2 style={{ fontSize: "1.25rem", fontWeight: 800, color: "var(--primary-dark)", margin: "0 0 4px" }}>
                 {selectedPendingUser.name}
@@ -2199,7 +2306,7 @@ export default function AdminDashboard() {
               <button 
                 type="button" 
                 className="btn-ghost" 
-                onClick={() => handleRejectUser(selectedPendingUser.id, selectedPendingUser.name)}
+                onClick={() => handleRejectUser(selectedPendingUser.id, selectedPendingUser.name ?? "this user")}
                 style={{ background: "rgba(229,62,62,0.08)", color: "#e53e3e", border: "1px solid rgba(229,62,62,0.15)" }}
               >
                 Reject Request
@@ -2208,7 +2315,7 @@ export default function AdminDashboard() {
                 type="button" 
                 className="btn-primary" 
                 onClick={async () => {
-                  await handleApproveUser(selectedPendingUser.id, selectedPendingUser.name);
+                  await handleApproveUser(selectedPendingUser.id, selectedPendingUser.name ?? "this user");
                   setSelectedPendingUser(null);
                 }}
                 style={{ background: "var(--accent-teal)" }}

@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { collection, query, where, onSnapshot, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { panicDb, studentsDb } from "@/lib/firestore-api";
+import { panicDb, studentsDb, scopeOf } from "@/lib/firestore-api";
 import { PanicAlert } from "@/types";
 import { useAuth } from "@/lib/auth-context";
 import toast from "react-hot-toast";
@@ -28,7 +28,7 @@ export default function AlertsPage() {
   // Load student names for display
   useEffect(() => {
     if (!profile) return;
-    studentsDb.list(profile.centerId ?? "center-001").then((students) => {
+    studentsDb.list(scopeOf(profile)).then((students) => {
       const map: Record<string, string> = {};
       students.forEach((s) => { map[s.id] = s.name; });
       setStudentNames(map);

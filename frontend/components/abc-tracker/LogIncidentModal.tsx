@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import { abcDb, studentsDb } from "@/lib/firestore-api";
+import { abcDb, studentsDb, scopeOf } from "@/lib/firestore-api";
 import { useAuth } from "@/lib/auth-context";
 import toast from "react-hot-toast";
 import { Brain, Search, Zap, MessageSquare, BarChart, Plus } from "lucide-react";
@@ -47,7 +47,7 @@ export default function LogIncidentModal({ onClose, onSaved }: Props) {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    studentsDb.list(profile?.centerId ?? "center-001", profile?.role, profile?.uid).then((s) => {
+    studentsDb.list(scopeOf(profile)).then((s) => {
       setStudents(s);
       if (s.length > 0) setStudentId(s[0].id);
     });

@@ -39,6 +39,8 @@ interface RegisterData {
   centerId: string;
 }
 
+export const DEFAULT_CENTER_ID = "center-001";
+
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -87,8 +89,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         name:     cred.user.displayName || cred.user.email?.split("@")[0] || "Google User",
         email:    cred.user.email || "",
         role:     role as UserProfile["role"],
-        centerId: "center-001",
-        status:   role === "admin" ? "approved" : "pending",
+        centerId: DEFAULT_CENTER_ID,
+        // A self-registration can never approve itself, whatever role was picked.
+        // An existing admin approves it; the first admin is provisioned
+        // out-of-band by backend/seed_firestore.py.
+        status:   "pending",
       };
       await setDoc(userRef, {
         ...profileData,
@@ -108,7 +113,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email:    data.email,
       role:     data.role as UserProfile["role"],
       centerId: data.centerId,
-      status:   data.role === "admin" ? "approved" : "pending",
+      // See loginWithGoogle: self-registration is always pending approval.
+      status:   "pending",
     };
     await setDoc(doc(db, "users", cred.user.uid), {
       ...profileData,

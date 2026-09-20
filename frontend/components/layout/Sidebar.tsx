@@ -8,7 +8,7 @@ import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import toast from "react-hot-toast";
 import { useSidebar } from "@/app/dashboard/layout";
-import { Users, BookOpen, Brain, Bell, Key, AlertTriangle, LogOut, Receipt } from "lucide-react";
+import { Users, BookOpen, Brain, Bell, Key, AlertTriangle, LogOut, Receipt, Video, Home } from "lucide-react";
 
 interface NavItem {
   href: string;
@@ -21,6 +21,8 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/students",    icon: Users, label: "Students",    roles: ["admin","teacher","therapist","parent"] },
   { href: "/dashboard/daily-care",  icon: BookOpen, label: "Daily Care",  roles: ["admin","teacher","parent"] },
   { href: "/dashboard/abc-tracker", icon: Brain, label: "ABC Tracker", roles: ["admin","teacher","therapist","parent"] },
+  { href: "/dashboard/teletherapy", icon: Video, label: "Teletherapy",  roles: ["admin","therapist","teacher","parent"] },
+  { href: "/dashboard/home-plan",   icon: Home, label: "Home Plan",    roles: ["admin","therapist","teacher","parent"] },
   { href: "/dashboard/fees",        icon: Receipt, label: "Fees & Billing", roles: ["parent"] },
   { href: "/dashboard/admin/alerts",icon: Bell, label: "Alerts",      roles: ["admin"] },
   { href: "/dashboard/admin",       icon: Key, label: "Admin Panel", roles: ["admin"] },
@@ -37,21 +39,19 @@ export default function Sidebar() {
   // ─── Real-time active alert count (admin only) ───────────────────────────
   useEffect(() => {
     if (profile?.role !== "admin") return;
-    try {
-      const q = query(
-        collection(db, "panicAlerts"),
-        where("status", "==", "active"),
-        where("centerId", "==", profile.centerId || "center-001")
-      );
-      const unsub = onSnapshot(q, (snap) => {
-        setAlertCount(snap.size);
-      }, () => {
-        setAlertCount(1); // Firebase not configured — use mock
-      });
-      return unsub;
-    } catch {
-      setAlertCount(1);
-    }
+    const q = query(
+      collection(db, "panicAlerts"),
+      where("status", "==", "active"),
+      where("centerId", "==", profile.centerId || "center-001")
+    );
+    return onSnapshot(q, (snap) => {
+      setAlertCount(snap.size);
+    }, (err) => {
+      // Never invent a badge count: a fake "1" here sends an admin looking
+      // for an emergency that does not exist.
+      console.error("Alert badge listener failed:", err);
+      setAlertCount(0);
+    });
   }, [profile]);
 
   const handleLogout = async () => {

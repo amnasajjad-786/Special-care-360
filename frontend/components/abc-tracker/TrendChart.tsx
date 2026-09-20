@@ -6,6 +6,20 @@ import { format, parseISO } from "date-fns";
 
 interface Props { incidents: ABCIncident[]; }
 
+// Defined at module scope: a component declared inside the render body is a
+// brand new type on every render, so React remounts the tooltip each time.
+function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: { name: string; value: number; color: string }[]; label?: string }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={{ background: "rgba(255,255,255,0.95)", backdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,0.6)", borderRadius: "10px", padding: "10px 14px", boxShadow: "0 4px 20px rgba(0,0,0,0.1)" }}>
+      <div style={{ fontWeight: 700, marginBottom: "6px", fontSize: "0.82rem", color: "var(--text-secondary)" }}>{label}</div>
+      {payload.map(p => (
+        <div key={p.name} style={{ fontSize: "0.88rem", color: p.color, fontWeight: 600 }}>{p.name}: {p.value}</div>
+      ))}
+    </div>
+  );
+}
+
 export default function TrendChart({ incidents }: Props) {
   // Group by date
   const byDate: Record<string, { count: number; avgSev: number; totalSev: number }> = {};
@@ -26,18 +40,6 @@ export default function TrendChart({ incidents }: Props) {
     }));
 
   const avgCount = chartData.length ? (chartData.reduce((sum, d) => sum + d.incidents, 0) / chartData.length) : 0;
-
-  const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: { name: string; value: number; color: string }[]; label?: string }) => {
-    if (!active || !payload?.length) return null;
-    return (
-      <div style={{ background: "rgba(255,255,255,0.95)", backdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,0.6)", borderRadius: "10px", padding: "10px 14px", boxShadow: "0 4px 20px rgba(0,0,0,0.1)" }}>
-        <div style={{ fontWeight: 700, marginBottom: "6px", fontSize: "0.82rem", color: "var(--text-secondary)" }}>{label}</div>
-        {payload.map(p => (
-          <div key={p.name} style={{ fontSize: "0.88rem", color: p.color, fontWeight: 600 }}>{p.name}: {p.value}</div>
-        ))}
-      </div>
-    );
-  };
 
   return (
     <div className="glass-card" style={{ padding: "20px" }}>

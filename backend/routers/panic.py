@@ -2,7 +2,9 @@ from fastapi import APIRouter, Depends, Query
 from models.schemas import PanicAlertCreate, PanicAlertResolve
 from firebase_admin_init import get_db
 from middleware.auth_middleware import get_current_user, require_role
+from config import DEFAULT_CENTER_ID
 from datetime import datetime, timezone
+import logging
 import uuid
 
 router = APIRouter(prefix="/api/panic", tags=["panic"])
@@ -13,13 +15,31 @@ async def create_panic_alert(
     body: PanicAlertCreate,
     current_user: dict = Depends(get_current_user)
 ):
+    """
+    Fan out an alert the client has already recorded.
+
+    The frontend writes the panicAlerts document itself so the admin console
+    updates in real time even when this API is unreachable, then calls here
+    with that alert's id. This endpoint used to mint a *second* uuid and write
+    a duplicate document, so every emergency produced two alert records and two
+    rounds of admin notifications.
+
+    Notifying staff requires reading the centre's user directory, which
+    firestore.rules only grants to admins — so a teacher or therapist raising
+    an alert could never notify anyone from the browser. That fan-out lives
+    here, where the Admin SDK is not subject to those rules.
+    """
     require_role(current_user, ["teacher", "therapist", "admin"])
-    db       = get_db()
-    alert_id = str(uuid.uuid4())
+    db = get_db()
+
+    # Trust the caller's own centre, not a centerId supplied in the body.
+    center_id = current_user.get("centerId") or body.centerId
+    alert_id = body.alertId or str(uuid.uuid4())
+
     data = {
         "id":            alert_id,
         "studentId":     body.studentId,
-        "centerId":      body.centerId,
+        "centerId":      center_id,
         "reportedBy":    body.reportedBy,
         "emergencyType": body.emergencyType,
         "description":   body.description,
@@ -29,40 +49,61 @@ async def create_panic_alert(
         "resolvedAt":    None,
         "resolvedBy":    None,
     }
-    db.collection("panicAlerts").document(alert_id).set(data)
 
-    # Notify all admins in the same center
+    # Upsert the same id the client used: creates the record if the client
+    # write failed, and leaves an existing one otherwise.
+    alert_ref = db.collection("panicAlerts").document(alert_id)
+    if not alert_ref.get().exists:
+        alert_ref.set(data)
+
+    # Notify every member of staff at the centre, not just admins.
+    notified = 0
     try:
-        admin_docs = (
+        staff_docs = (
             db.collection("users")
-            .where("centerId", "==", body.centerId)
-            .where("role", "==", "admin")
+            .where("centerId", "==", center_id)
+            .where("status", "==", "approved")
             .stream()
         )
-        for admin in admin_docs:
+        reporter_uid = (body.reportedBy or {}).get("uid") if isinstance(body.reportedBy, dict) else None
+        for staff in staff_docs:
+            staff_data = staff.to_dict() or {}
+            if staff_data.get("role") not in ("admin", "teacher", "therapist"):
+                continue
+            if staff.id == reporter_uid:
+                continue
             db.collection("notifications").add({
-                "recipientId": admin.id,
+                "recipientId": staff.id,
                 "type":        "panic_alert",
                 "alertId":     alert_id,
-                "message":     f"🚨 PANIC ALERT: {body.emergencyType} in {body.location}",
+                "title":       "Panic Alert",
+                "message":     f"PANIC ALERT: {body.emergencyType} in {body.location}",
                 "read":        False,
                 "createdAt":   datetime.now(timezone.utc).isoformat(),
             })
+            notified += 1
     except Exception as e:
-        print(f"[Panic] Notification error (non-critical): {e}")
+        logging.error(f"[Panic] Staff notification fan-out failed: {e}")
 
     # Send email notifications to admins
+    emailed = False
     try:
         from utils.email_util import send_panic_email_alert
-        send_panic_email_alert(data)
+        emailed = send_panic_email_alert(data)
     except Exception as e:
-        print(f"[Panic] Email send error (non-critical): {e}")
-    return {"message": "Panic alert sent", "id": alert_id}
+        logging.error(f"[Panic] Email send error (non-critical): {e}")
+
+    return {
+        "message": "Panic alert dispatched",
+        "id": alert_id,
+        "staffNotified": notified,
+        "emailSent": emailed,
+    }
 
 
 @router.get("/alerts")
 async def list_alerts(
-    centerId: str = Query("demo-center-001"),
+    centerId: str = Query(DEFAULT_CENTER_ID),
     status: str   = Query("all"),
     current_user: dict = Depends(get_current_user)
 ):

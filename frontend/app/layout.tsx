@@ -17,14 +17,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
-          rel="stylesheet"
-        />
-      </head>
+      {/* Inter is imported once by app/globals.css. The <link> tags that used to
+          sit here loaded the same font a second time and tripped Next's
+          no-page-custom-font rule. */}
       <body>
         <AuthProvider>
           {children}
