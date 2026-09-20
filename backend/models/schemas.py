@@ -1,3 +1,4 @@
+from config import DEFAULT_CENTER_ID
 from typing import Optional
 from pydantic import BaseModel, EmailStr
 from datetime import datetime
@@ -10,7 +11,7 @@ class RegisterRequest(BaseModel):
     email: str
     password: str
     role: str          # admin | teacher | therapist | parent
-    centerId: str = "demo-center-001"
+    centerId: str = DEFAULT_CENTER_ID
 
 
 class LoginRequest(BaseModel):
@@ -25,7 +26,7 @@ class StudentCreate(BaseModel):
     name: str
     dob: str
     diagnosis: str
-    centerId: str = "demo-center-001"
+    centerId: str = DEFAULT_CENTER_ID
     teacherId: Optional[str] = None
     therapistIds: list[str] = []
     enrollmentDate: str
@@ -71,7 +72,7 @@ class DailyCareSubmit(BaseModel):
 
 class ABCIncidentCreate(BaseModel):
     studentId: str
-    centerId: str = "demo-center-001"
+    centerId: str = DEFAULT_CENTER_ID
     loggedBy: str       # uid
     timestamp: str      # ISO string
     antecedent: dict    # { text, tags[] }
@@ -86,7 +87,7 @@ class ABCIncidentCreate(BaseModel):
 
 class PanicAlertCreate(BaseModel):
     studentId: str
-    centerId: str = "demo-center-001"
+    centerId: str = DEFAULT_CENTER_ID
     reportedBy: dict    # { uid, name }
     emergencyType: str
     description: Optional[str] = ""

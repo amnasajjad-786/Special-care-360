@@ -14,7 +14,7 @@ import ReactMarkdown from "react-markdown";
 import { Sparkles, BarChart2, TrendingUp, Search, Zap, BrainCircuit, Lightbulb, ClipboardList, Save, X } from "lucide-react";
 
 export default function ABCTrackerPage() {
-  const { profile } = useAuth();
+  const { profile, getIdToken } = useAuth();
   const [students, setStudents] = useState<{ id: string; name: string; parentId?: string }[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<{ id: string; name: string } | null>(null);
   const [incidents, setIncidents] = useState<ABCIncident[]>([]);
@@ -93,7 +93,12 @@ export default function ABCTrackerPage() {
     setAiLoading(true);
     setShowAiModal(true);
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/ai-insights/abc/${selectedStudent.id}`);
+      const token = await getIdToken();
+      if (!token) throw new Error("You must be signed in to generate insights.");
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/ai-insights/abc/${selectedStudent.id}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
         throw new Error(errorData.detail || "Failed to fetch AI insights");

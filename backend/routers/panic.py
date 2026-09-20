@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from models.schemas import PanicAlertCreate, PanicAlertResolve
 from firebase_admin_init import get_db
 from middleware.auth_middleware import get_current_user, require_role
+from config import DEFAULT_CENTER_ID
 from datetime import datetime, timezone
 import uuid
 
@@ -62,7 +63,7 @@ async def create_panic_alert(
 
 @router.get("/alerts")
 async def list_alerts(
-    centerId: str = Query("demo-center-001"),
+    centerId: str = Query(DEFAULT_CENTER_ID),
     status: str   = Query("all"),
     current_user: dict = Depends(get_current_user)
 ):
