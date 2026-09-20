@@ -10,9 +10,18 @@ import { Video, VideoOff, ExternalLink } from "lucide-react";
  * approach needs a third-party script on every page load and gives us nothing
  * we use here. The room name comes from the session id, so it is unguessable.
  *
- * The domain is configurable because the public meet.jit.si instance may ask
- * the first participant to sign in before it will create a room. Point
- * NEXT_PUBLIC_JITSI_DOMAIN at a self-hosted or 8x8 instance to avoid that.
+ * IMPORTANT -- the public meet.jit.si instance will not start a conference
+ * until a moderator has joined, and becoming a moderator requires a Jitsi
+ * account. Participants see "The conference has not yet started because no
+ * moderators have yet arrived" and wait indefinitely. The room embeds and
+ * loads correctly; it is the call itself that will not begin.
+ *
+ * So for anything beyond a click-through demo, set NEXT_PUBLIC_JITSI_DOMAIN to
+ * an instance you control:
+ *   - a self-hosted Jitsi (no moderator gate unless you enable one), or
+ *   - 8x8 JaaS, which needs a JWT and a change to this component.
+ * On meet.jit.si, the therapist must press Log-in inside the frame once per
+ * room to start it; the guardian can then join normally.
  */
 
 const JITSI_DOMAIN = process.env.NEXT_PUBLIC_JITSI_DOMAIN || "meet.jit.si";
@@ -32,12 +41,21 @@ export default function VideoRoom({ roomName, displayName, onLeave }: Props) {
     return () => setJoined(false);
   }, []);
 
-  const params = new URLSearchParams({
-    "userInfo.displayName": displayName,
-    "config.prejoinPageEnabled": "false",
-    "config.disableDeepLinking": "true",
-  });
-  const roomUrl = `https://${JITSI_DOMAIN}/${encodeURIComponent(roomName)}#${params.toString()}`;
+  // Jitsi parses each hash parameter as JSON, so a string value has to arrive
+  // quoted -- `userInfo.displayName=Amna` is invalid JSON and is dropped, which
+  // is why the name never reached the room. Booleans are passed bare.
+  //
+  // URLSearchParams is not usable here: it percent-encodes the dots in the
+  // config keys, and Jitsi then fails to match them.
+  const hashParams = [
+    `userInfo.displayName=${encodeURIComponent(JSON.stringify(displayName))}`,
+    // Renamed upstream. The old key is kept so the setting still applies to
+    // self-hosted instances pinned to an older Jitsi.
+    "config.prejoinConfig.enabled=false",
+    "config.prejoinPageEnabled=false",
+    "config.disableDeepLinking=true",
+  ];
+  const roomUrl = `https://${JITSI_DOMAIN}/${encodeURIComponent(roomName)}#${hashParams.join("&")}`;
 
   if (!joined) {
     return (
