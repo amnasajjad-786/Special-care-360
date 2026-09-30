@@ -30,7 +30,7 @@ import {
   serverTimestamp,
   QueryConstraint,
 } from "firebase/firestore";
-import { db } from "./firebase";
+import { auth, db } from "./firebase";
 import { v4 as uuidv4 } from "uuid";
 
 export const DEFAULT_CENTER_ID = "center-001";
@@ -91,6 +91,7 @@ async function notify(
   try {
     await addDoc(collection(db, "notifications"), {
       recipientId,
+      senderId: auth.currentUser?.uid ?? null,
       read: false,
       createdAt: serverTimestamp(),
       ...payload,
@@ -136,7 +137,7 @@ export const studentsDb = {
       }
     }
 
-    return snap.docs.map((d) => {
+    const listed = snap.docs.map((d) => {
       const data = d.data() as StudentDoc;
       return {
         ...data,
@@ -146,10 +147,20 @@ export const studentsDb = {
         // identifiers, such as notification fan-out.
         teacherId: data.teacherId,
         therapistIds: data.therapistIds ?? [],
-        teacherName: nameMap[data.teacherId] || data.teacherId,
-        therapistNames: (data.therapistIds ?? []).map((id) => nameMap[id] || id),
+        teacherName: nameMap[data.teacherId] || "",
+        therapistNames: (data.therapistIds ?? []).map((id) => nameMap[id] || ""),
       } as StudentDoc;
     });
+
+    // Rules still allow centre-wide staff reads; the UI only shows assigned
+    // children so a teacher is not browsing every medical file in the centre.
+    if (scope.role === "teacher") {
+      return listed.filter((s) => s.teacherId === scope.uid);
+    }
+    if (scope.role === "therapist") {
+      return listed.filter((s) => (s.therapistIds ?? []).includes(scope.uid));
+    }
+    return listed;
   },
 
   get: async (studentId: string): Promise<StudentDoc | null> => {
@@ -185,7 +196,33 @@ export const studentsDb = {
     });
   },
 
-  delete: async (studentId: string): Promise<void> => {
+  delete: async (studentId: string, centerId?: string): Promise<void> => {
+    const cid = centerId || DEFAULT_CENTER_ID;
+    const related = [
+      "dailyCareJournals",
+      "abcIncidents",
+      "panicAlerts",
+      "invoices",
+      "payments",
+      "teletherapySessions",
+      "homePlanActivities",
+      "homePlanLogs",
+      "homePlanMessages",
+    ];
+    await Promise.all(
+      related.map(async (col) => {
+        const snap = await getDocs(
+          query(collection(db, col), where("centerId", "==", cid))
+        );
+        await Promise.all(
+          snap.docs
+            .filter((d) => d.data().studentId === studentId)
+            .map((d) => deleteDoc(d.ref))
+        );
+      })
+    );
+    await deleteDoc(doc(db, "students", studentId, "medicalProfile", "main"));
+    await deleteDoc(doc(db, "students", studentId, "carePlan", "main"));
     await deleteDoc(doc(db, "students", studentId));
   },
 

@@ -496,7 +496,7 @@ export default function AdminDashboard() {
   const handleDeleteStudent = async (id: string | number, name: string) => {
     if (confirm(`Are you sure you want to remove ${name}?`)) {
       try {
-        await studentsDb.delete(id.toString());
+        await studentsDb.delete(id.toString(), profile?.centerId);
         setStudents(students.filter(s => s.id !== id));
         toast.success("Student removed");
       } catch (err) {
