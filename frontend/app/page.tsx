@@ -90,11 +90,12 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const resolvedProfile = await login(email, password);
+      if (resolvedProfile.status === "pending") {
+        router.push(`/dashboard/${resolvedProfile.role}`);
+        return;
+      }
       toast.success("Welcome back!");
-      // Use role from the returned profile — guaranteed correct even if
-      // no role button was clicked before typing credentials manually.
-      const role = resolvedProfile?.role ?? selectedRole ?? "admin";
-      router.push(`/dashboard/${role}`);
+      router.push(`/dashboard/${resolvedProfile.role}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Login failed";
       toast.error(msg.includes("user-not-found") ? "No account found with this email" :

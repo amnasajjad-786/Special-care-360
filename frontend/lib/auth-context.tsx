@@ -24,7 +24,7 @@ interface AuthContextType {
   user: User | null;
   profile: UserProfile | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<UserProfile | null>;
+  login: (email: string, password: string) => Promise<UserProfile>;
   loginWithGoogle: (role: string) => Promise<UserProfile>;
   register: (data: RegisterData) => Promise<void>;
   logout: () => Promise<void>;
@@ -64,10 +64,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // ── Login ──────────────────────────────────────────────────────────────────
-  const login = async (email: string, password: string): Promise<UserProfile | null> => {
+  const login = async (email: string, password: string): Promise<UserProfile> => {
     const cred = await signInWithEmailAndPassword(auth, email, password);
     const snap = await getDoc(doc(db, "users", cred.user.uid));
-    const resolvedProfile = snap.exists() ? (snap.data() as UserProfile) : null;
+    if (!snap.exists()) {
+      await signOut(auth);
+      setUser(null);
+      setProfile(null);
+      throw new Error(
+        "This Firebase account has no matching Special Care 360 profile. Ask an administrator to link your account."
+      );
+    }
+
+    const resolvedProfile = snap.data() as UserProfile;
     setProfile(resolvedProfile);
     return resolvedProfile;
   };

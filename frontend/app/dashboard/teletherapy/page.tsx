@@ -268,10 +268,18 @@ export default function TeletherapyPage() {
       {/* Schedule modal */}
       {showSchedule && (
         <div className="modal-overlay" onClick={() => setShowSchedule(false)}>
-          <div className="modal-box" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "460px" }}>
+          <div
+            className="modal-box teletherapy-schedule-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div style={{ display: "flex", alignItems: "center", marginBottom: "16px" }}>
               <h3 style={{ margin: 0, flex: 1, color: "var(--primary-dark)", fontWeight: 700 }}>Schedule a session</h3>
-              <button onClick={() => setShowSchedule(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)" }}>
+              <button
+                type="button"
+                aria-label="Close schedule dialog"
+                onClick={() => setShowSchedule(false)}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)", padding: "6px", display: "inline-flex" }}
+              >
                 <X size={18} />
               </button>
             </div>
@@ -301,16 +309,16 @@ export default function TeletherapyPage() {
                   style={{ marginTop: "4px" }}
                 />
               </label>
-              <div style={{ display: "flex", gap: "10px" }}>
+              <div className="teletherapy-date-fields">
                 <label style={{ flex: 1, fontSize: "0.78rem", fontWeight: 600, color: "var(--text-secondary)" }}>
                   Date
                   <input type="date" className="glass-input" required value={form.date}
-                    onChange={(e) => setForm({ ...form, date: e.target.value })} style={{ marginTop: "4px" }} />
+                    onChange={(e) => setForm({ ...form, date: e.target.value })} style={{ marginTop: "4px", minWidth: 0 }} />
                 </label>
                 <label style={{ flex: 1, fontSize: "0.78rem", fontWeight: 600, color: "var(--text-secondary)" }}>
                   Time
                   <input type="time" className="glass-input" required value={form.time}
-                    onChange={(e) => setForm({ ...form, time: e.target.value })} style={{ marginTop: "4px" }} />
+                    onChange={(e) => setForm({ ...form, time: e.target.value })} style={{ marginTop: "4px", minWidth: 0 }} />
                 </label>
               </div>
               <label style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-secondary)" }}>
