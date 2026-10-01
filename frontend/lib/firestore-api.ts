@@ -726,9 +726,27 @@ export const iepDb = {
   finalize: async (studentId: string, iepData: Record<string, unknown>, authorUid?: string, authorName?: string): Promise<string> => {
     const iepId = (iepData.id as string) || uuidv4();
 
-    const carePlanGoals = ((iepData.goals as any[]) || []).map((g: any) => ({
+    interface RawGoal {
+      id?: string;
+      title?: string;
+      goalArea?: string;
+      status?: string;
+      progressPercent?: number;
+      targetTimeframe?: string;
+      measurementMethod?: string;
+      rationale?: string;
+      milestones?: Array<{
+        id: string;
+        description: string;
+        completed: boolean;
+        targetDate?: string;
+      }>;
+    }
+
+    const rawGoals = Array.isArray(iepData.goals) ? (iepData.goals as RawGoal[]) : [];
+    const carePlanGoals = rawGoals.map((g) => ({
       id: g.id || uuidv4(),
-      title: g.title,
+      title: g.title || "",
       goalArea: g.goalArea || "General",
       status: g.status || "In Progress",
       progressPercent: g.progressPercent || 0,
@@ -767,7 +785,9 @@ export const iepDb = {
           createdAt: serverTimestamp(),
         });
       }
-    } catch (_) {}
+    } catch {
+      // notification delivery failure is non-fatal
+    }
 
     return iepId;
   },

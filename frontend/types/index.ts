@@ -92,6 +92,8 @@ export interface IEPRecord {
 export interface CarePlan {
   goals: IEPGoal[];
   activeIepId?: string;
+  iepSummary?: string;
+  iepStatus?: string;
   lastAiReport?: {
     report: string;
     timestamp: string;

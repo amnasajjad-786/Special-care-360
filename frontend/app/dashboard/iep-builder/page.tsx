@@ -28,7 +28,6 @@ export default function IEPBuilderPage() {
 
   // Student Context State
   const [medicalProfile, setMedicalProfile] = useState<MedicalProfile | null>(null);
-  const [carePlan, setCarePlan] = useState<CarePlan | null>(null);
   const [abcIncidents, setAbcIncidents] = useState<ABCIncident[]>([]);
   const [loadingStudentData, setLoadingStudentData] = useState(false);
 
@@ -91,23 +90,35 @@ export default function IEPBuilderPage() {
       setLoadingStudentData(true);
 
       // Fetch each independently so one failure doesn't block the others
-      let medData: any = {};
-      let careData: any = {};
-      let abcData: any[] = [];
+      let medData: MedicalProfile | Record<string, unknown> = {};
+      let careData: CarePlan | Record<string, unknown> = {};
+      let abcData: ABCIncident[] = [];
 
-      try { medData = await studentsDb.getMedical(selectedStudentId); } catch (e) { console.warn("getMedical failed:", e); }
-      try { careData = await studentsDb.getCarePlan(selectedStudentId); } catch (e) { console.warn("getCarePlan failed:", e); }
-      try { abcData = (await abcDb.listIncidents(selectedStudentId, scopeOf(profile), 10)) as any[]; } catch (e) { console.warn("listIncidents failed:", e); }
+      try {
+        medData = (await studentsDb.getMedical(selectedStudentId)) as MedicalProfile;
+      } catch (e) {
+        console.warn("getMedical failed:", e);
+      }
+      try {
+        careData = (await studentsDb.getCarePlan(selectedStudentId)) as CarePlan;
+      } catch (e) {
+        console.warn("getCarePlan failed:", e);
+      }
+      try {
+        abcData = (await abcDb.listIncidents(selectedStudentId, scopeOf(profile), 10)) as ABCIncident[];
+      } catch (e) {
+        console.warn("listIncidents failed:", e);
+      }
 
       setMedicalProfile(medData as MedicalProfile);
-      setCarePlan(careData as CarePlan);
       setAbcIncidents(abcData || []);
 
       // Pre-populate with finalized carePlan goals (visible to all roles with read access)
-      if (careData && Array.isArray(careData.goals) && careData.goals.length > 0) {
-        setGoals(careData.goals);
-        if (careData.iepSummary) setIepSummary(careData.iepSummary);
-        if (careData.iepStatus === "Active") {
+      const currentCare = careData as CarePlan;
+      if (currentCare && Array.isArray(currentCare.goals) && currentCare.goals.length > 0) {
+        setGoals(currentCare.goals);
+        if (currentCare.iepSummary) setIepSummary(currentCare.iepSummary);
+        if (currentCare.iepStatus === "Active") {
           setDisclaimer("This is the active finalized IEP plan for this student.");
         }
       }
@@ -116,7 +127,7 @@ export default function IEPBuilderPage() {
     }
 
     fetchStudentContext();
-  }, [selectedStudentId, students]);
+  }, [selectedStudentId, students, profile]);
 
   // Trigger AI Generation
   const handleGenerateIEP = async () => {
@@ -155,16 +166,21 @@ export default function IEPBuilderPage() {
           "DRAFT RECOMMENDATION: Must be reviewed and approved by a certified therapist or educator."
       );
       toast.success("AI Draft IEP generated successfully!");
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : "Failed to generate AI IEP. Ensure Backend is configured.";
       console.warn("AI generation failed, fallback / error notice:", err);
-      toast.error(err.message || "Failed to generate AI IEP. Ensure Backend & Gemini Key are configured.");
+      toast.error(errorMsg);
     } finally {
       setIsGenerating(false);
     }
   };
 
   // Goal Manipulation Helpers
-  const handleUpdateGoalField = (index: number, field: keyof IEPGoal, value: any) => {
+  const handleUpdateGoalField = (
+    index: number,
+    field: keyof IEPGoal,
+    value: IEPGoal[keyof IEPGoal]
+  ) => {
     setGoals((prev) => {
       const updated = [...prev];
       updated[index] = { ...updated[index], [field]: value };
@@ -195,8 +211,8 @@ export default function IEPBuilderPage() {
   const handleUpdateMilestone = (
     goalIndex: number,
     milestoneIndex: number,
-    field: string,
-    value: any
+    field: "description" | "completed" | "targetDate",
+    value: string | boolean
   ) => {
     setGoals((prev) => {
       const updated = [...prev];
@@ -708,7 +724,7 @@ export default function IEPBuilderPage() {
                 No IEP Goals Configured Yet
               </h4>
               <p style={{ color: "var(--text-secondary)", fontSize: "0.88rem", maxWidth: "450px", margin: "0 auto 20px" }}>
-                Click <strong>Generate IEP with AI</strong> to analyze the student's clinical context, or click <strong>Add Manual Goal</strong> to draft custom milestones.
+                Click <strong>Generate IEP with AI</strong> to analyze the student&apos;s clinical context, or click <strong>Add Manual Goal</strong> to draft custom milestones.
               </p>
             </div>
           ) : (
