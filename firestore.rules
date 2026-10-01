@@ -120,6 +120,11 @@ service cloud.firestore {
         allow read:  if isStaffOfStudentCenter(studentId) || isParentOfStudent(studentId);
         allow write: if isStaff() && isStaffOfStudentCenter(studentId);
       }
+
+      match /iepRecords/{doc} {
+        allow read:  if isStaffOfStudentCenter(studentId) || isParentOfStudent(studentId);
+        allow write: if (isAdmin() || isTherapist()) && isStaffOfStudentCenter(studentId);
+      }
     }
 
 

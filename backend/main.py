@@ -19,7 +19,7 @@ app = FastAPI(
 # ── CORS ──────────────────────────────────────────────────────────────────────
 # Set ALLOWED_ORIGINS in your .env file as a comma-separated list.
 # Example: ALLOWED_ORIGINS=http://localhost:3000,https://yourapp.vercel.app
-_raw_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000")
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
 ALLOWED_ORIGINS: list[str] = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 
 app.add_middleware(

@@ -19,6 +19,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/students",    icon: Users, label: "Students",    roles: ["admin","teacher","therapist","parent"] },
+  { href: "/dashboard/iep-builder", icon: Brain, label: "IEP Builder", roles: ["admin","teacher","therapist","parent"] },
   { href: "/dashboard/daily-care",  icon: BookOpen, label: "Daily Care",  roles: ["admin","teacher","parent"] },
   { href: "/dashboard/abc-tracker", icon: Brain, label: "ABC Tracker", roles: ["admin","teacher","therapist","parent"] },
   { href: "/dashboard/teletherapy", icon: Video, label: "Teletherapy",  roles: ["admin","therapist","teacher","parent"] },

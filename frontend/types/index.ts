@@ -62,10 +62,36 @@ export interface IEPGoal {
   title: string;
   status: "In Progress" | "Mastered" | "Regressed";
   progressPercent: number;
+  goalArea?: string;
+  targetTimeframe?: string;
+  measurementMethod?: string;
+  rationale?: string;
+  milestones?: {
+    id: string;
+    description: string;
+    completed: boolean;
+    targetDate?: string;
+  }[];
+}
+
+export interface IEPRecord {
+  id: string;
+  studentId: string;
+  centerId: string;
+  status: "draft" | "finalized";
+  goals: IEPGoal[];
+  generatedByAi: boolean;
+  createdAt: string;
+  updatedAt: string;
+  finalizedAt?: string;
+  authorUid?: string;
+  authorName?: string;
+  disclaimer?: string;
 }
 
 export interface CarePlan {
   goals: IEPGoal[];
+  activeIepId?: string;
   lastAiReport?: {
     report: string;
     timestamp: string;

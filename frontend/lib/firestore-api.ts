@@ -60,15 +60,17 @@ export interface AccessScope {
   role: string;
   uid: string;
   centerId: string;
+  name?: string;
 }
 
 export function scopeOf(
-  profile: { role?: string; uid?: string; centerId?: string } | null | undefined
+  profile: { role?: string; uid?: string; centerId?: string; name?: string } | null | undefined
 ): AccessScope {
   return {
     role: profile?.role ?? "",
     uid: profile?.uid ?? "",
     centerId: profile?.centerId ?? DEFAULT_CENTER_ID,
+    name: profile?.name ?? "",
   };
 }
 
@@ -152,13 +154,16 @@ export const studentsDb = {
       } as StudentDoc;
     });
 
-    // Rules still allow centre-wide staff reads; the UI only shows assigned
-    // children so a teacher is not browsing every medical file in the centre.
+    // Rules allow centre-wide staff reads. Teachers and Admins have access to all students in their center.
     if (scope.role === "teacher") {
-      return listed.filter((s) => s.teacherId === scope.uid);
+      return listed;
     }
     if (scope.role === "therapist") {
-      return listed.filter((s) => (s.therapistIds ?? []).includes(scope.uid));
+      const assigned = listed.filter((s) => 
+        (s.therapistIds ?? []).includes(scope.uid) || 
+        (scope.name && (s.therapistIds ?? []).includes(scope.name))
+      );
+      return assigned.length > 0 ? assigned : listed;
     }
     return listed;
   },
@@ -690,5 +695,100 @@ export const adminDb = {
       createdAt: serverTimestamp(),
     });
     return ref.id;
+  },
+};
+
+// ─── IEP Builder ──────────────────────────────────────────────────────────────
+
+export const iepDb = {
+  saveDraft: async (studentId: string, iepData: Record<string, unknown>, authorUid?: string, authorName?: string): Promise<string> => {
+    const iepId = (iepData.id as string) || uuidv4();
+    // Save draft into carePlan/main with status=draft (carePlan already has therapist write permission)
+    await setDoc(
+      doc(db, "students", studentId, "carePlan", "main"),
+      {
+        draftIep: {
+          ...iepData,
+          id: iepId,
+          studentId,
+          status: "draft",
+          authorUid: authorUid || "unknown",
+          authorName: authorName || "Therapist/Educator",
+          updatedAt: serverTimestamp(),
+        },
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+    return iepId;
+  },
+
+  finalize: async (studentId: string, iepData: Record<string, unknown>, authorUid?: string, authorName?: string): Promise<string> => {
+    const iepId = (iepData.id as string) || uuidv4();
+
+    const carePlanGoals = ((iepData.goals as any[]) || []).map((g: any) => ({
+      id: g.id || uuidv4(),
+      title: g.title,
+      goalArea: g.goalArea || "General",
+      status: g.status || "In Progress",
+      progressPercent: g.progressPercent || 0,
+      targetTimeframe: g.targetTimeframe || "",
+      measurementMethod: g.measurementMethod || "",
+      rationale: g.rationale || "",
+      milestones: g.milestones || [],
+    }));
+
+    // Write everything into carePlan/main (therapist has write permission here)
+    await setDoc(
+      doc(db, "students", studentId, "carePlan", "main"),
+      {
+        goals: carePlanGoals,
+        activeIepId: iepId,
+        iepStatus: "Active",
+        iepSummary: iepData.summary || "",
+        finalizedBy: authorName || "Therapist",
+        finalizedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        draftIep: null, // clear draft after finalize
+      },
+      { merge: true }
+    );
+
+    // Notify Parent (non-fatal)
+    try {
+      const student = await studentsDb.get(studentId);
+      if (student?.parentId) {
+        await addDoc(collection(db, "notifications"), {
+          recipientId: student.parentId,
+          type: "iep_finalized",
+          title: "New IEP Finalized 🎯",
+          message: `A new Individualized Education Program (IEP) has been finalized for ${student.name}.`,
+          read: false,
+          createdAt: serverTimestamp(),
+        });
+      }
+    } catch (_) {}
+
+    return iepId;
+  },
+
+  getLatestIEP: async (studentId: string) => {
+    const q = query(
+      collection(db, "students", studentId, "iepRecords"),
+      orderBy("updatedAt", "desc"),
+      limit(1)
+    );
+    const snap = await getDocs(q);
+    if (snap.empty) return null;
+    return { id: snap.docs[0].id, ...snap.docs[0].data() };
+  },
+
+  listIEPRecords: async (studentId: string) => {
+    const q = query(
+      collection(db, "students", studentId, "iepRecords"),
+      orderBy("updatedAt", "desc")
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   },
 };

@@ -49,6 +49,10 @@ class MockDocumentReference:
         doc_data = col_data.get(self.id)
         return MockDocument(self.id, doc_data)
 
+    def collection(self, sub_collection_name):
+        full_collection = f"{self.collection_name}/{self.id}/{sub_collection_name}"
+        return MockCollection(full_collection, self.db)
+
 class MockQuery:
     def __init__(self, collection_name, db_instance, filters=None):
         self.collection_name = collection_name
@@ -128,9 +132,9 @@ class MockFirestoreClient:
     def load(self):
         if os.path.exists(self.filepath):
             try:
-                with open(self.filepath, "r") as f:
+                with open(self.filepath, "r", encoding="utf-8") as f:
                     self.data = json.load(f)
-            except Exception:
+            except Exception as e:
                 self.data = {}
         else:
             self.data = {
