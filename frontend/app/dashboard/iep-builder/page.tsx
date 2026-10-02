@@ -92,6 +92,8 @@ export default function IEPBuilderPage() {
     setInsufficientDataMsg("");
     setGoals([]);
     setIepSummary("");
+    setAchievedGoals([]);   // clear previous student's history
+    setPendingAiGoal(null); // clear previous student's pending AI suggestion
 
     async function fetchStudentContext() {
       setLoadingStudentData(true);
