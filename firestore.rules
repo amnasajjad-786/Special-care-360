@@ -65,6 +65,21 @@ service cloud.firestore {
         || (!('parentId' in student) && request.resource.data.parentId == null);
     }
 
+    function teletherapyHasApprovedStudentGuardian() {
+      let studentId = request.resource.data.studentId;
+      let studentPath = /databases/$(database)/documents/students/$(studentId);
+      let parentId = request.resource.data.parentId;
+      let parentPath = /databases/$(database)/documents/users/$(parentId);
+      return studentId is string
+        && parentId is string
+        && exists(studentPath)
+        && exists(parentPath)
+        && get(studentPath).data.centerId == request.resource.data.centerId
+        && get(studentPath).data.parentId == parentId
+        && get(parentPath).data.role == 'parent'
+        && get(parentPath).data.status == 'approved';
+    }
+
 
     // ── Users ───────────────────────────────────────────────────────────────
     match /users/{userId} {
@@ -237,7 +252,9 @@ service cloud.firestore {
     match /teletherapySessions/{sessionId} {
       allow read:   if (isStaff() && inMyCenter())
                     || (isParent() && isMyChildRecord());
-      allow create: if (isTherapist() || isAdmin()) && writingMyCenter();
+      allow create: if (isTherapist() || isAdmin())
+                    && writingMyCenter()
+                    && teletherapyHasApprovedStudentGuardian();
       // The guardian may update only attendance/join bookkeeping, never the
       // clinical note or the schedule.
       allow update: if ((isTherapist() || isAdmin()) && inMyCenter() && writingMyCenter())

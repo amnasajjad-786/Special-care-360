@@ -144,6 +144,11 @@ export const teletherapyDb = {
   }): Promise<string> => {
     const student = await studentsDb.get(input.studentId);
     if (!student) throw new Error("Student not found.");
+    if (!student.parentId) {
+      throw new Error(
+        "This student has no linked guardian account. Link an approved parent before scheduling a teletherapy session."
+      );
+    }
 
     if (Number.isNaN(new Date(input.scheduledAt).getTime())) {
       throw new Error("Please choose a valid date and time.");
