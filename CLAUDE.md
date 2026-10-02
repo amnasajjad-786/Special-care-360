@@ -137,6 +137,8 @@ the real path.
 
 ## Conventions
 
+- Commit messages must not name AI assistants or coding agents, and must not add AI/agent
+  co-author trailers. Credit only human contributors who actually authored the change.
 - **Styling is inline `style={{}}` plus the utility classes in `app/globals.css`** (`glass-card`,
   `btn-primary`, `btn-ai`, `btn-danger`, `btn-ghost`, `chip-*`, `data-table`, `tab-item`,
   `modal-box`, `sidebar-*`) driven by CSS custom properties (`--bg-gradient`, `--primary-dark`,
