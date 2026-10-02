@@ -300,3 +300,153 @@ Return ONLY a valid JSON object matching this exact schema:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate IEP goals: {str(e)}")
 
+
+# ─── Next Progressive Goal Endpoint ──────────────────────────────────────────
+
+class AchievedGoalInput(BaseModel):
+    id: str = ""
+    title: str = ""
+    goalArea: str = ""
+    progressPercent: int = 100
+    measurementMethod: str = ""
+    rationale: str = ""
+    achievedAt: str = ""
+    milestones: list = []
+
+class NextGoalRequest(BaseModel):
+    achieved_goal: AchievedGoalInput
+
+class NextGoalResponse(BaseModel):
+    goal: GeneratedIEPGoal
+    disclaimer: str
+
+@router.post("/iep/{student_id}/next-goal", response_model=NextGoalResponse)
+async def generate_next_iep_goal(student_id: str, body: NextGoalRequest):
+    cohere_key = os.getenv("COHERE_API_KEY")
+    if not cohere_key:
+        raise HTTPException(status_code=500, detail="COHERE_API_KEY is missing.")
+
+    db = get_db()
+    student_ref = db.collection("students").document(student_id).get()
+    if not student_ref.exists:
+        raise HTTPException(status_code=404, detail="Student not found")
+    student_data = student_ref.to_dict()
+    student_name = student_data.get("name", "Student")
+    diagnosis = student_data.get("diagnosis", "Unspecified special education needs")
+
+    med_doc = db.collection("students").document(student_id).collection("medicalProfile").document("main").get()
+    med_data = med_doc.to_dict() if med_doc.exists else {}
+    special_needs = med_data.get("specialPhysicalNeeds", "None specified")
+
+    try:
+        docs = db.collection("abcIncidents").where("studentId", "==", student_id).stream()
+        incidents = [doc.to_dict() for doc in docs]
+        incidents.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+        recent_incidents = incidents[:5]
+    except Exception:
+        recent_incidents = []
+
+    behavior_summary = ""
+    if recent_incidents:
+        behavior_summary = "Recent Behavioral Data:\n"
+        for inc in recent_incidents:
+            behavior_summary += (
+                f"- Trigger: {inc.get('antecedent', {}).get('text', 'N/A')}, "
+                f"Behavior: {inc.get('behavior', {}).get('text', 'N/A')}, "
+                f"Severity: {inc.get('severity', 1)}/5\n"
+            )
+
+    ag = body.achieved_goal
+    milestone_text = ""
+    for m in (ag.milestones or []):
+        done = "✅" if m.get("completed") else "⬜"
+        milestone_text += f"  {done} {m.get('description', '')} (Target: {m.get('targetDate', '')})\n"
+
+    prompt = f"""You are an expert Special Education IEP Coordinator.
+
+Student: {student_name}
+Diagnosis: {diagnosis}
+Special Physical/Sensory Needs: {special_needs}
+
+The student has just ACHIEVED this IEP goal:
+- Goal Area: {ag.goalArea}
+- Title: {ag.title}
+- Progress at Achievement: {ag.progressPercent}%
+- Achieved On: {ag.achievedAt or 'Recently'}
+- Milestones:
+{milestone_text or '  (No milestone data)'}
+- Measurement Method: {ag.measurementMethod}
+- Rationale: {ag.rationale}
+
+{behavior_summary}
+
+Suggest ONE next progressive SMART goal that builds on what was achieved. It must be more challenging but realistic. Include 2-4 sequential milestones. Use bullet points (dashes) for measurementMethod and rationale.
+
+Return ONLY a valid JSON object:
+{{
+  "goalArea": "Communication & Speech | Motor Skills | Emotional Regulation | Social | Cognitive | Daily Living",
+  "title": "Clear SMART Goal",
+  "targetTimeframe": "e.g., 3 months",
+  "measurementMethod": "- Bullet 1\\n- Bullet 2",
+  "rationale": "- Bullet 1\\n- Bullet 2",
+  "milestones": [
+    {{"id": "m1", "description": "Step 1", "completed": false, "targetDate": "Month 1"}},
+    {{"id": "m2", "description": "Step 2", "completed": false, "targetDate": "Month 2"}}
+  ]
+}}
+"""
+
+    try:
+        import urllib.request as _req
+        url = "https://api.cohere.com/v1/chat"
+        headers = {
+            "Authorization": f"Bearer {cohere_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+        data = {
+            "model": "command-r-08-2024",
+            "message": prompt,
+            "temperature": 0.3,
+            "response_format": {"type": "json_object"}
+        }
+        request = _req.Request(url, data=json.dumps(data).encode("utf-8"), headers=headers, method="POST")
+        with _req.urlopen(request) as resp:
+            res_json = json.loads(resp.read().decode("utf-8"))
+            ai_text = res_json.get("text", "{}")
+
+        if ai_text.startswith("```"):
+            ai_text = ai_text.strip("`").replace("json\n", "", 1)
+
+        g = json.loads(ai_text)
+
+        def to_str(val, default=""):
+            if isinstance(val, list):
+                return "\n".join(f"- {item}" for item in val if item)
+            return str(val) if val else default
+
+        goal = GeneratedIEPGoal(
+            id=f"iep_next_{uuid.uuid4().hex[:8]}",
+            goalArea=g.get("goalArea", ag.goalArea),
+            title=g.get("title", "Next progressive goal"),
+            targetTimeframe=g.get("targetTimeframe", "3 Months"),
+            measurementMethod=to_str(g.get("measurementMethod"), "Therapist observation"),
+            rationale=to_str(g.get("rationale"), ""),
+            milestones=[
+                MilestoneSchema(
+                    id=f"m_{uuid.uuid4().hex[:6]}",
+                    description=m.get("description", ""),
+                    completed=False,
+                    targetDate=m.get("targetDate", "")
+                ) for m in g.get("milestones", [])
+            ],
+            status="In Progress",
+            progressPercent=0
+        )
+
+        return NextGoalResponse(
+            goal=goal,
+            disclaimer="DRAFT SUGGESTION: This AI-generated next goal must be reviewed and approved by the therapist before being added to the active IEP plan."
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate next goal: {str(e)}")

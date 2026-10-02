@@ -62,12 +62,13 @@ export interface Medication {
 export interface IEPGoal {
   id: string;
   title: string;
-  status: "In Progress" | "Mastered" | "Regressed";
+  status: "In Progress" | "Mastered" | "Regressed" | "Achieved";
   progressPercent: number;
   goalArea?: string;
   targetTimeframe?: string;
   measurementMethod?: string;
   rationale?: string;
+  achievedAt?: string;           // ISO timestamp set when therapist marks goal as Achieved
   milestones?: {
     id: string;
     description: string;
@@ -93,6 +94,8 @@ export interface IEPRecord {
 
 export interface CarePlan {
   goals: IEPGoal[];
+  achievedGoals?: IEPGoal[];     // History: goals that were marked Achieved
+  pendingAiGoal?: IEPGoal | null; // AI-suggested next goal awaiting therapist review
   activeIepId?: string;
   iepSummary?: string;
   iepStatus?: string;

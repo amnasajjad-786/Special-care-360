@@ -811,4 +811,80 @@ export const iepDb = {
     const snap = await getDocs(q);
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   },
+
+  /**
+   * Mark an active goal as "Achieved".
+   * - Stamps achievedAt on the goal.
+   * - Moves it from goals[] to achievedGoals[] in carePlan/main.
+   * - Persisted goals[] reflects only still-active goals.
+   */
+  markGoalAchieved: async (studentId: string, goalId: string): Promise<void> => {
+    const careSnap = await getDoc(doc(db, "students", studentId, "carePlan", "main"));
+    const careData = careSnap.exists() ? careSnap.data() : {};
+
+    const activeGoals: Record<string, unknown>[] = Array.isArray(careData.goals) ? careData.goals : [];
+    const goalIndex = activeGoals.findIndex((g) => (g as { id?: string }).id === goalId);
+    if (goalIndex === -1) return;
+
+    const achievedGoal = {
+      ...activeGoals[goalIndex],
+      status: "Achieved",
+      achievedAt: new Date().toISOString(),
+    };
+    const remainingGoals = activeGoals.filter((_, i) => i !== goalIndex);
+    const previousAchieved: Record<string, unknown>[] = Array.isArray(careData.achievedGoals) ? careData.achievedGoals : [];
+
+    await setDoc(
+      doc(db, "students", studentId, "carePlan", "main"),
+      {
+        goals: remainingGoals,
+        achievedGoals: [...previousAchieved, achievedGoal],
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  },
+
+  /**
+   * Save an AI-suggested next goal as a pending draft in carePlan/main.pendingAiGoal.
+   * The therapist must explicitly accept it to move it into active goals[].
+   */
+  savePendingAiGoal: async (studentId: string, goal: Record<string, unknown>): Promise<void> => {
+    await setDoc(
+      doc(db, "students", studentId, "carePlan", "main"),
+      { pendingAiGoal: goal, updatedAt: serverTimestamp() },
+      { merge: true }
+    );
+  },
+
+  /**
+   * Accept the pending AI goal: move it from pendingAiGoal into active goals[].
+   */
+  acceptPendingAiGoal: async (studentId: string, goal: Record<string, unknown>): Promise<void> => {
+    const careSnap = await getDoc(doc(db, "students", studentId, "carePlan", "main"));
+    const careData = careSnap.exists() ? careSnap.data() : {};
+    const activeGoals: Record<string, unknown>[] = Array.isArray(careData.goals) ? careData.goals : [];
+
+    await setDoc(
+      doc(db, "students", studentId, "carePlan", "main"),
+      {
+        goals: [...activeGoals, goal],
+        pendingAiGoal: null,
+        iepStatus: "In Progress",
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  },
+
+  /**
+   * Dismiss (discard) the pending AI goal suggestion without accepting it.
+   */
+  dismissPendingAiGoal: async (studentId: string): Promise<void> => {
+    await setDoc(
+      doc(db, "students", studentId, "carePlan", "main"),
+      { pendingAiGoal: null, updatedAt: serverTimestamp() },
+      { merge: true }
+    );
+  },
 };

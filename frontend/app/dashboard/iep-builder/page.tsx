@@ -18,6 +18,9 @@ import {
   Target,
   Activity,
   ShieldAlert,
+  Trophy,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 export default function IEPBuilderPage() {
@@ -33,6 +36,10 @@ export default function IEPBuilderPage() {
 
   // IEP Editor State
   const [goals, setGoals] = useState<IEPGoal[]>([]);
+  const [achievedGoals, setAchievedGoals] = useState<IEPGoal[]>([]);
+  const [pendingAiGoal, setPendingAiGoal] = useState<IEPGoal | null>(null);
+  const [isGeneratingNextGoal, setIsGeneratingNextGoal] = useState(false);
+  const [showAchievedHistory, setShowAchievedHistory] = useState(false);
   const [iepSummary, setIepSummary] = useState<string>("");
   const [disclaimer, setDisclaimer] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
@@ -113,14 +120,39 @@ export default function IEPBuilderPage() {
       setMedicalProfile(medData as MedicalProfile);
       setAbcIncidents(abcData || []);
 
-      // Pre-populate with finalized carePlan goals (visible to all roles with read access)
+      // Pre-populate with IEP goals based on role:
+      // - Therapist: only restore if a real IEP was previously saved (Active or draft).
+      //   Seeded care-plan tracking goals are intentionally ignored so therapist
+      //   starts with 0 goals and must click "Generate IEP with AI".
+      // - All other roles (admin, teacher, parent): always show whatever goals exist.
       const currentCare = careData as CarePlan;
-      if (currentCare && Array.isArray(currentCare.goals) && currentCare.goals.length > 0) {
+      const rawCare = careData as unknown as Record<string, unknown>;
+      const hasRealIep =
+        currentCare.iepStatus === "Active" ||
+        rawCare.draftIep != null ||
+        (Array.isArray(currentCare.achievedGoals) && (currentCare.achievedGoals?.length ?? 0) > 0);
+
+      if (
+        currentCare &&
+        Array.isArray(currentCare.goals) &&
+        currentCare.goals.length > 0 &&
+        (profile?.role !== "therapist" || hasRealIep)
+      ) {
         setGoals(currentCare.goals);
         if (currentCare.iepSummary) setIepSummary(currentCare.iepSummary);
         if (currentCare.iepStatus === "Active") {
           setDisclaimer("This is the active finalized IEP plan for this student.");
         }
+      }
+
+      // Always load achieved goals history and pending AI suggestion (therapist workflow)
+      if (Array.isArray(currentCare.achievedGoals)) {
+        setAchievedGoals(currentCare.achievedGoals);
+      }
+      if (currentCare.pendingAiGoal) {
+        setPendingAiGoal(currentCare.pendingAiGoal as IEPGoal);
+      } else {
+        setPendingAiGoal(null);
       }
 
       setLoadingStudentData(false);
@@ -273,6 +305,82 @@ export default function IEPBuilderPage() {
     });
     setShowManualAdd(false);
     toast.success("New goal added.");
+  };
+
+  // Mark a goal as Achieved → moves it to history, triggers "Generate Next Goal" option
+  const handleMarkAchieved = async (goalId: string) => {
+    if (!selectedStudentId) return;
+    try {
+      await iepDb.markGoalAchieved(selectedStudentId, goalId);
+      const achieved = goals.find((g) => g.id === goalId);
+      if (achieved) {
+        const achievedGoal: IEPGoal = { ...achieved, status: "Achieved", achievedAt: new Date().toISOString() };
+        setAchievedGoals((prev) => [...prev, achievedGoal]);
+        setGoals((prev) => prev.filter((g) => g.id !== goalId));
+      }
+      toast.success("Goal marked as Achieved! You can now generate the next progressive goal.");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to mark goal as achieved.");
+    }
+  };
+
+  // Generate next progressive SMART goal based on the most recently achieved goal
+  const handleGenerateNextGoal = async () => {
+    if (!selectedStudentId || achievedGoals.length === 0) return;
+    setIsGeneratingNextGoal(true);
+    try {
+      const lastAchieved = achievedGoals[achievedGoals.length - 1];
+      const response = await fetch(
+        `http://127.0.0.1:8000/ai-insights/iep/${selectedStudentId}/next-goal`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ achieved_goal: lastAchieved }),
+        }
+      );
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        throw new Error(errJson.detail || `Server error ${response.status}`);
+      }
+      const data = await response.json();
+      const suggested: IEPGoal = { ...data.goal, status: "In Progress", progressPercent: 0 };
+      // Save as pending in Firestore so it persists across sessions
+      await iepDb.savePendingAiGoal(selectedStudentId, suggested as unknown as Record<string, unknown>);
+      setPendingAiGoal(suggested);
+      toast.success("AI next goal generated! Review and accept to add it to the active plan.");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to generate next goal.";
+      toast.error(msg);
+    } finally {
+      setIsGeneratingNextGoal(false);
+    }
+  };
+
+  // Accept the pending AI goal → move it into active goals[]
+  const handleAcceptPendingGoal = async () => {
+    if (!selectedStudentId || !pendingAiGoal) return;
+    try {
+      await iepDb.acceptPendingAiGoal(selectedStudentId, pendingAiGoal as unknown as Record<string, unknown>);
+      setGoals((prev) => [...prev, pendingAiGoal]);
+      setPendingAiGoal(null);
+      toast.success("Goal added to active IEP plan!");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to accept goal.");
+    }
+  };
+
+  // Dismiss the pending AI suggestion
+  const handleDismissPendingGoal = async () => {
+    if (!selectedStudentId) return;
+    try {
+      await iepDb.dismissPendingAiGoal(selectedStudentId);
+      setPendingAiGoal(null);
+      toast("AI suggestion dismissed.");
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   // Save as Draft
@@ -750,19 +858,40 @@ export default function IEPBuilderPage() {
                     </div>
 
                     {canEdit && (
-                      <button
-                        onClick={() => handleDeleteGoal(gIdx)}
-                        style={{
-                          background: "none",
-                          border: "none",
-                          color: "var(--danger)",
-                          cursor: "pointer",
-                          padding: "4px",
-                        }}
-                        title="Remove Goal"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                        <button
+                          onClick={() => handleMarkAchieved(goal.id)}
+                          style={{
+                            background: "none",
+                            border: "1px solid var(--success)",
+                            borderRadius: "6px",
+                            color: "var(--success)",
+                            cursor: "pointer",
+                            padding: "4px 10px",
+                            fontSize: "0.75rem",
+                            fontWeight: 700,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "4px",
+                          }}
+                          title="Mark this goal as Achieved"
+                        >
+                          <Trophy size={13} /> Mark Achieved
+                        </button>
+                        <button
+                          onClick={() => handleDeleteGoal(gIdx)}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: "var(--danger)",
+                            cursor: "pointer",
+                            padding: "4px",
+                          }}
+                          title="Remove Goal"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     )}
                   </div>
 
@@ -919,6 +1048,116 @@ export default function IEPBuilderPage() {
             </div>
           )}
 
+          {/* ── Generate Next Goal Banner (Therapist only, when at least one goal achieved) ── */}
+          {canEdit && achievedGoals.length > 0 && !pendingAiGoal && (
+            <div
+              className="glass-card"
+              style={{
+                padding: "20px 24px",
+                background: "linear-gradient(135deg, rgba(16,185,129,0.08), rgba(59,130,246,0.06))",
+                border: "1px solid rgba(16,185,129,0.25)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "16px",
+                flexWrap: "wrap",
+              }}
+            >
+              <div>
+                <div style={{ fontWeight: 800, color: "var(--primary-dark)", fontSize: "0.95rem", display: "flex", alignItems: "center", gap: "8px" }}>
+                  <Trophy size={18} style={{ color: "#10b981" }} />
+                  Goal Achieved! Ready for Next Step
+                </div>
+                <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginTop: "4px" }}>
+                  The last achieved goal: <strong>&quot;{achievedGoals[achievedGoals.length - 1]?.title}&quot;</strong>
+                  <br />Generate the next progressive SMART goal based on this achievement and current student data.
+                </div>
+              </div>
+              <button
+                className="btn-primary"
+                onClick={handleGenerateNextGoal}
+                disabled={isGeneratingNextGoal}
+                style={{
+                  background: "linear-gradient(135deg, #10b981, #3b82f6)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  padding: "10px 20px",
+                  fontWeight: 700,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <Sparkles size={16} />
+                {isGeneratingNextGoal ? "Generating..." : "Generate Next Goal with AI"}
+              </button>
+            </div>
+          )}
+
+          {/* ── Pending AI Goal — Awaiting Therapist Review ── */}
+          {canEdit && pendingAiGoal && (
+            <div
+              className="glass-card"
+              style={{
+                padding: "20px",
+                border: "2px dashed #f59e0b",
+                background: "rgba(254,243,199,0.5)",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "14px", flexWrap: "wrap", gap: "10px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 800, color: "#92400e", fontSize: "0.95rem" }}>
+                  <Sparkles size={18} style={{ color: "#f59e0b" }} />
+                  AI-Suggested Next Goal — Pending Your Review
+                </div>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button
+                    className="btn-ghost"
+                    onClick={handleDismissPendingGoal}
+                    style={{ fontSize: "0.8rem", padding: "6px 14px", color: "#9ca3af" }}
+                  >
+                    Dismiss
+                  </button>
+                  <button
+                    className="btn-primary"
+                    onClick={handleAcceptPendingGoal}
+                    style={{ fontSize: "0.85rem", padding: "8px 18px", fontWeight: 700, background: "#10b981", display: "flex", alignItems: "center", gap: "6px" }}
+                  >
+                    <CheckCircle size={15} /> Accept & Add to Plan
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ background: "white", borderRadius: "8px", padding: "16px", border: "1px solid rgba(245,158,11,0.2)" }}>
+                <div style={{ display: "flex", gap: "8px", marginBottom: "10px", flexWrap: "wrap" }}>
+                  <span className="chip chip-info" style={{ fontWeight: 700 }}>{pendingAiGoal.goalArea || "General"}</span>
+                  <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: "4px" }}>
+                    <Clock size={13} /> {pendingAiGoal.targetTimeframe || "3 Months"}
+                  </span>
+                </div>
+                <div style={{ fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.95rem", marginBottom: "10px" }}>
+                  {pendingAiGoal.title}
+                </div>
+                {pendingAiGoal.measurementMethod && (
+                  <div style={{ marginBottom: "8px" }}>
+                    <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase" }}>Measurement Method</span>
+                    <pre style={{ margin: "4px 0 0", fontFamily: "inherit", fontSize: "0.82rem", color: "var(--text-primary)", whiteSpace: "pre-wrap" }}>
+                      {pendingAiGoal.measurementMethod}
+                    </pre>
+                  </div>
+                )}
+                {pendingAiGoal.milestones && pendingAiGoal.milestones.length > 0 && (
+                  <div>
+                    <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase" }}>Milestones</span>
+                    <ul style={{ margin: "4px 0 0", paddingLeft: "16px", fontSize: "0.82rem" }}>
+                      {pendingAiGoal.milestones.map((m) => (
+                        <li key={m.id}>{m.description} — <em>{m.targetDate}</em></li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Action Footer for Saving / Finalizing */}
           {goals.length > 0 && canEdit && (
             <div
@@ -961,6 +1200,65 @@ export default function IEPBuilderPage() {
               >
                 <CheckCircle size={18} /> Finalize IEP Plan
               </button>
+            </div>
+          )}
+
+          {/* ── Achieved Goals History ── */}
+          {achievedGoals.length > 0 && (
+            <div className="glass-card" style={{ padding: "16px 20px" }}>
+              <button
+                onClick={() => setShowAchievedHistory((v) => !v)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  fontWeight: 800,
+                  color: "var(--primary-dark)",
+                  fontSize: "0.95rem",
+                  width: "100%",
+                  justifyContent: "space-between",
+                  padding: 0,
+                }}
+              >
+                <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <Trophy size={18} style={{ color: "#10b981" }} />
+                  Achieved Goals History ({achievedGoals.length})
+                </span>
+                {showAchievedHistory ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+              </button>
+
+              {showAchievedHistory && (
+                <div style={{ marginTop: "14px", display: "flex", flexDirection: "column", gap: "10px" }}>
+                  {achievedGoals.map((ag) => (
+                    <div
+                      key={ag.id}
+                      style={{
+                        background: "rgba(16,185,129,0.06)",
+                        border: "1px solid rgba(16,185,129,0.2)",
+                        borderRadius: "8px",
+                        padding: "12px 16px",
+                        display: "flex",
+                        alignItems: "flex-start",
+                        gap: "12px",
+                      }}
+                    >
+                      <Trophy size={20} style={{ color: "#10b981", flexShrink: 0, marginTop: "2px" }} />
+                      <div>
+                        <div style={{ fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.9rem" }}>{ag.title}</div>
+                        <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginTop: "2px" }}>
+                          {ag.goalArea} &nbsp;·&nbsp; Achieved on {ag.achievedAt ? new Date(ag.achievedAt).toLocaleDateString() : "—"}
+                        </div>
+                      </div>
+                      <span className="chip" style={{ marginLeft: "auto", background: "rgba(16,185,129,0.15)", color: "#065f46", fontWeight: 700, fontSize: "0.72rem", flexShrink: 0 }}>
+                        ✅ Achieved
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
