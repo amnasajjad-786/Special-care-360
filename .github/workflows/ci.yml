@@ -11,6 +11,21 @@ permissions:
   contents: read
 
 jobs:
+  commit-metadata:
+    name: Check commit attribution
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reject AI or agent attribution
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: node scripts/check-commit-messages.mjs "$HEAD_SHA" "$BASE_SHA"
+
   verify:
     name: Verify frontend
     runs-on: ubuntu-latest
