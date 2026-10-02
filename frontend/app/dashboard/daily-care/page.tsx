@@ -6,6 +6,8 @@ import { dailyCareDb, studentsDb, scopeOf } from "@/lib/firestore-api";
 import { DailyCareJournal } from "@/types";
 import JournalForm from "@/components/daily-care/JournalForm";
 import DailyDigest from "@/components/daily-care/DailyDigest";
+import MedicationAdministration from "@/components/daily-care/MedicationAdministration";
+import { currentCareDate } from "@/lib/medication-api";
 
 import toast from "react-hot-toast";
 import { CheckCircle, Clock, ClipboardList } from "lucide-react";
@@ -14,7 +16,7 @@ export default function DailyCarePage() {
   const { profile } = useAuth();
   const [students, setStudents] = useState<{ id: string; name: string; parentId?: string }[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<{ id: string; name: string } | null>(null);
-  const [date, setDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [date, setDate] = useState(currentCareDate);
   const [existingJournal, setExistingJournal] = useState<DailyCareJournal | null>(null);
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<DailyCareJournal[]>([]);
@@ -115,7 +117,7 @@ export default function DailyCarePage() {
           </div>
           <div>
             <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 700, color: "var(--text-secondary)", marginBottom: "4px", textTransform: "uppercase" }}>Date</label>
-            <input id="dc-date-select" type="date" className="glass-input" value={date} max={format(new Date(), "yyyy-MM-dd")} onChange={e => setDate(e.target.value)} style={{ minWidth: "160px" }} />
+            <input id="dc-date-select" type="date" className="glass-input" value={date} max={currentCareDate()} onChange={e => setDate(e.target.value)} style={{ minWidth: "160px" }} />
           </div>
         </div>
         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
@@ -159,6 +161,8 @@ export default function DailyCarePage() {
           {selectedStudent.name} · {new Date(date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
         </p>
       </div>
+
+      <MedicationAdministration studentId={selectedStudent.id} date={date} />
 
       {loading ? (
         <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>

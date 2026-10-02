@@ -4,13 +4,20 @@ import { MedicalProfile, Medication } from "@/types";
 import toast from "react-hot-toast";
 import { Sparkles, Zap, Pill, Phone, Activity, Save, AlertTriangle } from "lucide-react";
 import { studentsDb } from "@/lib/firestore-api";
+import { v4 as uuidv4 } from "uuid";
 
 const BLOOD_TYPES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "Unknown"];
 
 interface Props { studentId: string; profile: MedicalProfile; canEdit: boolean; onChange?: (data: MedicalProfile) => void; }
 
 export default function MedicalTab({ studentId, profile: initial, canEdit, onChange }: Props) {
-  const [data, setData] = useState<MedicalProfile>(initial);
+  const [data, setData] = useState<MedicalProfile>(() => ({
+    ...initial,
+    medications: (initial.medications || []).map((medication, index) => ({
+      ...medication,
+      id: medication.id || `legacy-${index}`,
+    })),
+  }));
 
   useEffect(() => {
     if (onChange) onChange(data);
@@ -18,14 +25,21 @@ export default function MedicalTab({ studentId, profile: initial, canEdit, onCha
   const [saving, setSaving] = useState(false);
   const [newAllergy, setNewAllergy] = useState("");
   const [showAddMed, setShowAddMed] = useState(false);
-  const [newMed, setNewMed] = useState<Medication>({ name: "", dosage: "", frequency: "", time: "", administeredBy: "" });
+  const [newMed, setNewMed] = useState<Medication>({ id: "", name: "", dosage: "", frequency: "", time: "", times: [], administeredBy: "" });
 
   const save = async () => {
     setSaving(true);
     try {
-      await studentsDb.updateMedical(studentId, data as unknown as Record<string, unknown>);
+      const medications = (data.medications || []).map((medication, index) => ({
+        ...medication,
+        id: medication.id || `legacy-${index}`,
+      }));
+      await studentsDb.updateMedical(studentId, { ...data, medications } as unknown as Record<string, unknown>);
       toast.success("Medical profile updated");
-    } catch { toast.error("Failed to save"); }
+    } catch (err) {
+      console.error("Failed to save medical profile:", err);
+      toast.error("Failed to save medical profile.");
+    }
     finally { setSaving(false); }
   };
 
@@ -39,9 +53,25 @@ export default function MedicalTab({ studentId, profile: initial, canEdit, onCha
     setData(d => ({ ...d, allergies: d.allergies.filter((_, i) => i !== idx) }));
 
   const addMedication = () => {
-    if (!newMed.name) return;
-    setData(d => ({ ...d, medications: [...(d.medications || []), newMed] }));
-    setNewMed({ name: "", dosage: "", frequency: "", time: "", administeredBy: "" });
+    const times = [...new Set(newMed.time.split(",").map((value) => value.trim()).filter(Boolean))].sort();
+    if (!newMed.name.trim() || !newMed.dosage.trim() || times.length === 0) {
+      toast.error("Enter the medication, dosage, and at least one scheduled time.");
+      return;
+    }
+    if (times.some((time) => !/^([01]\d|2[0-3]):[0-5]\d$/.test(time))) {
+      toast.error("Use 24-hour times such as 08:00, 14:30.");
+      return;
+    }
+    setData(d => ({
+      ...d,
+      medications: [...(d.medications || []), {
+        ...newMed,
+        id: uuidv4(),
+        times,
+        time: times[0],
+      }],
+    }));
+    setNewMed({ id: "", name: "", dosage: "", frequency: "", time: "", times: [], administeredBy: "" });
     setShowAddMed(false);
   };
 
@@ -129,7 +159,7 @@ export default function MedicalTab({ studentId, profile: initial, canEdit, onCha
                       <td style={{ fontWeight: 600 }}>{med.name}</td>
                       <td>{med.dosage}</td>
                       <td>{med.frequency}</td>
-                      <td>{med.time}</td>
+                      <td>{med.times?.join(", ") || med.time}</td>
                       <td>{med.administeredBy}</td>
                       {canEdit && <td><button onClick={() => removeMed(i)} style={{ background: "none", border: "none", color: "var(--danger)", cursor: "pointer", fontWeight: 700, fontSize: "1.1rem" }}>×</button></td>}
                     </tr>
@@ -145,8 +175,7 @@ export default function MedicalTab({ studentId, profile: initial, canEdit, onCha
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
               {[
                 { label: "Name", key: "name" }, { label: "Dosage", key: "dosage" },
-                { label: "Frequency", key: "frequency" }, { label: "Time", key: "time" },
-                { label: "Administered By", key: "administeredBy" }
+                { label: "Frequency", key: "frequency" }, { label: "Administered By", key: "administeredBy" }
               ].map(({ label, key }) => (
                 <div key={key}>
                   <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "4px" }}>{label}</label>
@@ -154,6 +183,18 @@ export default function MedicalTab({ studentId, profile: initial, canEdit, onCha
                     onChange={e => setNewMed(m => ({ ...m, [key]: e.target.value }))} />
                 </div>
               ))}
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "4px" }}>
+                  Scheduled dose times (24-hour, comma-separated)
+                </label>
+                <input
+                  className="glass-input"
+                  inputMode="text"
+                  placeholder="08:00, 20:00"
+                  value={newMed.time}
+                  onChange={(e) => setNewMed((medication) => ({ ...medication, time: e.target.value }))}
+                />
+              </div>
             </div>
             <div style={{ display: "flex", gap: "8px", marginTop: "12px" }}>
               <button className="btn-ghost" onClick={() => setShowAddMed(false)} style={{ flex: 1 }}>Cancel</button>

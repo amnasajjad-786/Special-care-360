@@ -1,19 +1,56 @@
+import asyncio
+import logging
+import os
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from firebase_admin_init import init_firebase
+from firebase_admin_init import init_firebase, is_placeholder_mode
+from medication_monitor import check_missed_medication_doses
 from routers import auth, students, daily_care, abc_tracker, panic, ai_insights, teletherapy
-import os
 from dotenv import load_dotenv
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 # Initialize Firebase (non-blocking — app starts even in placeholder mode)
 init_firebase()
+
+
+async def _medication_monitor_loop():
+    interval = max(30, int(os.getenv("MEDICATION_MONITOR_INTERVAL_SECONDS", "60")))
+    while True:
+        try:
+            await asyncio.to_thread(check_missed_medication_doses)
+        except Exception:
+            logger.exception("Medication missed-dose check failed.")
+        await asyncio.sleep(interval)
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    monitor_task = None
+    if is_placeholder_mode():
+        logger.warning("Missed-dose monitoring is disabled in placeholder Firestore mode.")
+    else:
+        monitor_task = asyncio.create_task(_medication_monitor_loop())
+
+    try:
+        yield
+    finally:
+        if monitor_task:
+            monitor_task.cancel()
+            try:
+                await monitor_task
+            except asyncio.CancelledError:
+                pass
+
 
 app = FastAPI(
     title="Special Care 360 API",
     description="HIPAA-compliant platform for special education centers",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # ── CORS ──────────────────────────────────────────────────────────────────────

@@ -59,6 +59,12 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/students/$(studentId)).data.centerId == getCenterId();
     }
 
+    function doseParentMatchesStudent(studentId) {
+      let student = get(/databases/$(database)/documents/students/$(studentId)).data;
+      return ('parentId' in student && request.resource.data.parentId == student.parentId)
+        || (!('parentId' in student) && request.resource.data.parentId == null);
+    }
+
 
     // ── Users ───────────────────────────────────────────────────────────────
     match /users/{userId} {
@@ -125,6 +131,34 @@ service cloud.firestore {
         allow read:  if isStaffOfStudentCenter(studentId) || isParentOfStudent(studentId);
         allow write: if (isAdmin() || isTherapist()) && isStaffOfStudentCenter(studentId);
       }
+
+      match /medicationAdministrations/{doseId} {
+        allow read: if isStaffOfStudentCenter(studentId)
+                    || isParentOfStudent(studentId);
+        allow create: if (isTeacher() || isAdmin())
+                      && isStaffOfStudentCenter(studentId)
+                      && writingMyCenter()
+                      && request.resource.data.studentId == studentId
+                      && doseParentMatchesStudent(studentId)
+                      && request.resource.data.administeredBy == request.auth.uid
+                      && request.resource.data.status in ['administered', 'not_administered']
+                      && (request.resource.data.status != 'not_administered'
+                          || request.resource.data.notes.size() > 0);
+        allow update: if (isTeacher() || isAdmin())
+                      && isStaffOfStudentCenter(studentId)
+                      && inMyCenter()
+                      && writingMyCenter()
+                      && resource.data.studentId == studentId
+                      && resource.data.medicationId == request.resource.data.medicationId
+                      && resource.data.date == request.resource.data.date
+                      && resource.data.scheduledTime == request.resource.data.scheduledTime
+                      && doseParentMatchesStudent(studentId)
+                      && request.resource.data.administeredBy == request.auth.uid
+                      && request.resource.data.status in ['administered', 'not_administered']
+                      && (request.resource.data.status != 'not_administered'
+                          || request.resource.data.notes.size() > 0);
+        allow delete: if isAdmin() && isStaffOfStudentCenter(studentId);
+      }
     }
 
 
@@ -136,7 +170,6 @@ service cloud.firestore {
       allow update: if (isTeacher() || isAdmin()) && inMyCenter();
       allow delete: if isAdmin() && inMyCenter();
     }
-
 
     // ── ABC Behavioral Incidents ────────────────────────────────────────────
     match /abcIncidents/{incidentId} {

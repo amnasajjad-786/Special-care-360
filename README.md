@@ -8,11 +8,12 @@ A platform for special education centres built with **Next.js 16**, **FastAPI** 
 | 1 | **Auth** | Role-based login (Admin / Teacher / Therapist / Parent) with Firebase Auth. Every self-registration requires admin approval. |
 | 2 | **Student Profiles** | Searchable student list with tabbed profiles — Overview, Medical, Care Plan, Emergency |
 | 3 | **Daily Care Journal** | Teacher meal/mood/hygiene journaling + parent read-only Daily Digest |
-| 4 | **ABC Behavioural Tracker** | Incident logging, heatmap, trend charts, AI pattern insights |
-| 5 | **Panic Alert System** | Real-time emergency alerts with Firestore `onSnapshot`, staff fan-out and email |
-| 6 | **Fees & Billing** | Admin invoicing and payment recording, parent-facing billing view |
-| 7 | **Teletherapy** | Scheduled remote sessions in an embedded Jitsi room, with therapist session summaries |
-| 8 | **Home Plan Bridge** | Therapist-assigned home activities, guardian daily logging, adherence tracking and per-activity discussion threads |
+| 4 | **Medication Safety** | Scheduled dose administration records and missed-dose alerts for parents and center admins |
+| 5 | **ABC Behavioural Tracker** | Incident logging, heatmap, trend charts, AI pattern insights |
+| 6 | **Panic Alert System** | Real-time emergency alerts with Firestore `onSnapshot`, staff fan-out and email |
+| 7 | **Fees & Billing** | Admin invoicing and payment recording, parent-facing billing view |
+| 8 | **Teletherapy** | Scheduled remote sessions in an embedded Jitsi room, with therapist session summaries |
+| 9 | **Home Plan Bridge** | Therapist-assigned home activities, guardian daily logging, adherence tracking and per-activity discussion threads |
 
 ## Tech Stack
 - **Frontend:** Next.js 16 (App Router) + React 19 + TypeScript
@@ -90,6 +91,12 @@ Staff must register with an `@specialcare360.com` address; parents may use any e
 - Authorisation lives in `firestore.rules`, not in the backend. Records carry a denormalised
   `centerId` and `parentId`, and list queries must filter on the matching field — see `CLAUDE.md`
   for why.
+- Medication schedules use 24-hour times in the `Asia/Karachi` timezone. The FastAPI backend
+  checks overdue doses every 60 seconds and, after the 60-minute grace period, creates a
+  deterministic missed-dose record and in-app notifications for the child's parent and center
+  admins. The checker requires the real Firebase service account and a continuously running
+  backend; it is intentionally disabled in placeholder/mock mode. Deploy the updated Firestore
+  rules before using dose records from the frontend.
 ### Teletherapy video
 
 Two modes, chosen automatically by whether the backend has JaaS credentials.
@@ -107,5 +114,6 @@ participants can load the room and still never connect — they sit on *"The con
 started because no moderators have yet arrived"*. Workable for a click-through demo if the
 therapist presses **Log-in** inside the frame once per room. Set `NEXT_PUBLIC_JITSI_DOMAIN` to
 point at a self-hosted Jitsi instead if you have one.
-- There is no automated test suite. `npx tsc --noEmit && npm run lint && npm run build` is the
-  verification loop.
+- Frontend behavior has no automated test suite yet; the backend has focused medication-monitor
+  tests, run by CI with `python -m unittest discover -s tests` from `backend/`. For local frontend
+  verification, use `npm run typecheck`, `npm run lint`, and `npm run build` from `frontend/`.

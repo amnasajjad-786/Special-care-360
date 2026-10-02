@@ -48,3 +48,19 @@ jobs:
           NEXT_PUBLIC_FIREBASE_APP_ID: "1:000000000000:web:ci-placeholder"
           NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: ""
           NEXT_PUBLIC_API_URL: http://localhost:8000
+
+  backend-tests:
+    name: Verify backend medication logic
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run backend unit tests
+        working-directory: backend
+        run: python -m unittest discover -s tests

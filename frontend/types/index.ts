@@ -50,10 +50,12 @@ export interface MedicalProfile {
 }
 
 export interface Medication {
+  id?: string;
   name: string;
   dosage: string;
   frequency: string;
   time: string;
+  times?: string[];
   administeredBy: string;
 }
 

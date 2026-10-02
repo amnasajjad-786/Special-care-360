@@ -231,6 +231,12 @@ def get_app():
         init_firebase()
     return _app
 
+def is_placeholder_mode():
+    """Return whether the backend is using its local mock database."""
+    if _app is None and not _placeholder_mode:
+        init_firebase()
+    return _placeholder_mode
+
 def get_db():
     """Returns Firestore client or MockFirestore client depending on configuration"""
     global _mock_db
