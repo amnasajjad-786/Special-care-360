@@ -138,8 +138,10 @@ service cloud.firestore {
       }
 
       match /carePlan/{doc} {
+        // All staff + parents can read the care plan (monitoring / viewing).
         allow read:  if isStaffOfStudentCenter(studentId) || isParentOfStudent(studentId);
-        allow write: if isStaff() && isStaffOfStudentCenter(studentId);
+        // ONLY the therapist may write clinical goals — admin/teacher/parent are read-only.
+        allow write: if isTherapist() && isStaffOfStudentCenter(studentId);
       }
 
       match /iepRecords/{doc} {
@@ -302,6 +304,18 @@ service cloud.firestore {
                     && request.resource.data.senderId == request.auth.uid;
       allow update: if false;
       allow delete: if isAdmin() && inMyCenter();
+    }
+
+
+    // ── Regression Alerts ────────────────────────────────────────────────────
+    // Created automatically by updateCarePlan when a skill regression is detected.
+    // Therapist and admin can read + resolve. Parents cannot see clinical alerts.
+    match /regressionAlerts/{alertId} {
+      allow read:   if (isTherapist() || isAdmin()) && inMyCenter();
+      allow create: if (isTherapist() || isAdmin()) && writingMyCenter();
+      // Only update allowed: mark as resolved (resolved: true). No deletion.
+      allow update: if (isTherapist() || isAdmin()) && inMyCenter();
+      allow delete: if false;
     }
   }
 }
