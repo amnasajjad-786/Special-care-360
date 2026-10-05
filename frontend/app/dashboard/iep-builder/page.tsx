@@ -175,9 +175,15 @@ export default function IEPBuilderPage() {
 
     try {
       // Call backend AI endpoint
-      const response = await fetch(`http://127.0.0.1:8000/ai-insights/iep/${selectedStudentId}`, {
+      const token = await user?.getIdToken();
+      if (!token) throw new Error("Your session has expired. Please sign in again.");
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/ai-insights/iep/${selectedStudentId}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
       });
 
       if (!response.ok) {
@@ -333,11 +339,16 @@ export default function IEPBuilderPage() {
     setIsGeneratingNextGoal(true);
     try {
       const lastAchieved = achievedGoals[achievedGoals.length - 1];
+      const token = await user?.getIdToken();
+      if (!token) throw new Error("Your session has expired. Please sign in again.");
       const response = await fetch(
-        `http://127.0.0.1:8000/ai-insights/iep/${selectedStudentId}/next-goal`,
+        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/ai-insights/iep/${selectedStudentId}/next-goal`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
           body: JSON.stringify({ achieved_goal: lastAchieved }),
         }
       );

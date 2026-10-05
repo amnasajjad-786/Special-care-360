@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import toast from "react-hot-toast";
 import { collection, query, where, onSnapshot, doc, deleteDoc, orderBy, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { studentsDb, adminDb, dailyCareDb, abcDb, scopeOf, studentAge, type PanicAlertDoc, type StudentDoc } from "@/lib/firestore-api";
+import { studentsDb, adminDb, dailyCareDb, abcDb, scopeOf, studentAge, type PanicAlertDoc } from "@/lib/firestore-api";
 import {
   LayoutDashboard,
   Users,
@@ -95,6 +95,14 @@ interface PendingUser {
   createdAt?: unknown;
 }
 
+interface UserAccount {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  status: string;
+}
+
 interface TagCount { tag: string; count: number }
 
 /** Only the fields the report actually renders. */
@@ -151,6 +159,8 @@ export default function AdminDashboard() {
   const [payments, setPayments] = useState<AdminPayment[]>(INITIAL_PAYMENTS);
   const [staff, setStaff] = useState<AdminStaff[]>(INITIAL_STAFF);
   const [pendingUsers, setPendingUsers] = useState<PendingUser[]>([]);
+  const [parentAccounts, setParentAccounts] = useState<UserAccount[]>([]);
+  const [therapistAccounts, setTherapistAccounts] = useState<UserAccount[]>([]);
   const [selectedPendingUser, setSelectedPendingUser] = useState<PendingUser | null>(null);
 
   // --- Search & Filters ---
@@ -169,12 +179,12 @@ export default function AdminDashboard() {
   const [studentForm, setStudentForm] = useState({
     firstName: "",
     lastName: "",
-    age: "",
+    dob: "",
     gender: "Male",
     diagnosis: "Autism",
-    guardianName: "",
+    parentId: "",
     contactNo: "",
-    therapist: "Sara Raza",
+    therapist: "",
     notes: ""
   });
 
@@ -298,6 +308,18 @@ export default function AdminDashboard() {
       }
     };
 
+    const fetchFeeConfig = async () => {
+      try {
+        const saved = await adminDb.getFeeConfig(profile.centerId || "center-001");
+        if (saved && typeof saved === "object") {
+          setFeeConfig((current) => ({ ...current, ...saved }));
+        }
+      } catch (err) {
+        console.error("Failed to load fee configuration", err);
+        toast.error("Could not load the saved fee structure.");
+      }
+    };
+
     const fetchPendingUsers = async () => {
       try {
         const cid = profile.centerId || "center-001";
@@ -308,10 +330,32 @@ export default function AdminDashboard() {
       }
     };
 
+    const fetchLinkedAccounts = async () => {
+      try {
+        const data = await adminDb.listAllUsers(profile.centerId || "center-001");
+        const approved = data
+          .map((user: Record<string, unknown>) => ({
+            id: user.id as string,
+            name: (user.name as string) ?? "",
+            email: (user.email as string) ?? "",
+            role: (user.role as string) ?? "",
+            status: (user.status as string) ?? "",
+          }))
+          .filter((user) => user.status === "approved");
+        setParentAccounts(approved.filter((user) => user.role === "parent"));
+        setTherapistAccounts(approved.filter((user) => user.role === "therapist"));
+      } catch (err) {
+        console.error("Failed to load approved parent and therapist accounts", err);
+        toast.error("Could not load approved parent and therapist accounts.");
+      }
+    };
+
     fetchStudents();
     fetchStaff();
     fetchFees();
+    fetchFeeConfig();
     fetchPendingUsers();
+    fetchLinkedAccounts();
   }, [profile]);
 
   useEffect(() => {
@@ -439,54 +483,62 @@ export default function AdminDashboard() {
     }
 
     const fullName = `${studentForm.firstName} ${studentForm.lastName}`.trim();
-    const ageNum = parseInt(studentForm.age);
-    if (isNaN(ageNum) || ageNum < 0 || ageNum > 12) {
-      toast.error("Student age must be between 0 and 12 years.");
+    const dobDate = new Date(`${studentForm.dob}T00:00:00`);
+    const ageNum = studentAge(studentForm.dob);
+    if (!studentForm.dob || Number.isNaN(dobDate.getTime()) || ageNum === null || ageNum < 0 || ageNum > 12) {
+      toast.error("Enter a valid date of birth for a student aged 0 to 12 years.");
       return;
     }
-    const dob = new Date(Date.now() - ageNum * 365.25 * 24 * 3600 * 1000).toISOString();
+    if (!parentAccounts.some((parent) => parent.id === studentForm.parentId)) {
+      toast.error("Select an approved parent account before enrolling this student.");
+      return;
+    }
 
     try {
+      const parent = parentAccounts.find((account) => account.id === studentForm.parentId);
+      const therapist = therapistAccounts.find((account) => account.id === studentForm.therapist);
+      if (!parent) throw new Error("The selected parent account is no longer available.");
       const newId = await studentsDb.create({
         name: fullName,
-        dob: dob,
+        dob: dobDate.toISOString(),
+        gender: studentForm.gender,
         diagnosis: studentForm.diagnosis,
         centerId: profile?.centerId || "center-001",
         teacherId: "", 
-        therapistIds: studentForm.therapist ? [studentForm.therapist] : [], 
+        therapistIds: therapist ? [therapist.id] : [],
         enrollmentDate: new Date().toISOString(),
         iepStatus: "Active",
         photoUrl: "",
-        parentId: "",
-        guardianName: studentForm.guardianName,
+        parentId: parent.id,
+        guardianName: parent.name,
         contactNo: studentForm.contactNo,
         notes: studentForm.notes
-      } as unknown as Omit<StudentDoc, "id">);
+      });
 
       const newStudent: AdminStudent = {
         id: newId,
         name: fullName,
         age: ageNum,
         diagnosis: studentForm.diagnosis,
-        therapist: studentForm.therapist,
+        therapist: therapist?.name ?? "",
         feeStatus: "unknown",
         status: "Active"
       };
 
       setStudents([newStudent, ...students]);
     setIsAddStudentOpen(false);
-    setStudentForm({
-      firstName: "",
-      lastName: "",
-      age: "",
-      gender: "Male",
-      diagnosis: "Autism",
-      guardianName: "",
-      contactNo: "",
-      therapist: "Sara Raza",
-      notes: ""
-    });
-    toast.success("Student added successfully");
+      setStudentForm({
+        firstName: "",
+        lastName: "",
+        dob: "",
+        gender: "Male",
+        diagnosis: "Autism",
+        parentId: "",
+        contactNo: "",
+        therapist: "",
+        notes: ""
+      });
+      toast.success("Student added successfully");
     } catch (err) {
       console.error(err);
       toast.error("Failed to add student");
@@ -509,7 +561,19 @@ export default function AdminDashboard() {
   const handleApproveUser = async (uid: string, name: string) => {
     try {
       await adminDb.approveUser(uid);
-      setPendingUsers(pendingUsers.filter(u => u.id !== uid));
+      const approvedUser = pendingUsers.find(user => user.id === uid);
+      setPendingUsers(current => current.filter(user => user.id !== uid));
+      if (approvedUser?.role === "parent") {
+        setParentAccounts(current => [
+          ...current.filter(account => account.id !== uid),
+          { id: uid, name: approvedUser.name ?? name, email: approvedUser.email ?? "", role: "parent", status: "approved" },
+        ]);
+      } else if (approvedUser?.role === "therapist") {
+        setTherapistAccounts(current => [
+          ...current.filter(account => account.id !== uid),
+          { id: uid, name: approvedUser.name ?? name, email: approvedUser.email ?? "", role: "therapist", status: "approved" },
+        ]);
+      }
       toast.success(`${name} has been approved successfully!`);
     } catch (err) {
       console.error(err);
@@ -652,36 +716,24 @@ export default function AdminDashboard() {
     if (!inv) return;
 
     try {
-      // Update invoice status in DB
-      await adminDb.updateInvoiceStatus(invoiceId, "paid");
-
-      // Add payment entry to DB
-      const payDate = new Date().toLocaleDateString("en-US", { day: "2-digit", month: "short", year: "numeric" });
-      const student = students.find(s => String(s.id) === inv.studentId);
-      const payId = await adminDb.addPayment({
-        studentId: inv.studentId,
-        studentName: inv.studentName,
-        parentId: student?.parentId ?? null,
-        amount: inv.amount,
+      const payment = await adminDb.recordInvoicePayment(invoiceId, {
         method: "Bank Transfer",
-        date: payDate,
         recordedBy: profile?.name || "Admin",
-        centerId: profile?.centerId || "center-001"
       });
 
       // Update Local State
-      setInvoices(invoices.map(i => i.id === invoiceId ? { ...i, status: "paid" } : i));
+      setInvoices(current => current.map(i => i.id === invoiceId ? { ...i, status: "paid" } : i));
 
       const newPayment: AdminPayment = {
-        id: payId,
-        studentId: inv.studentId,
-        studentName: inv.studentName,
-        amount: inv.amount,
-        method: "Bank Transfer",
-        date: payDate,
-        recordedBy: profile?.name || "Admin"
+        id: payment.id,
+        studentId: payment.studentId,
+        studentName: payment.studentName,
+        amount: payment.amount,
+        method: payment.method,
+        date: payment.date,
+        recordedBy: payment.recordedBy
       };
-      setPayments([newPayment, ...payments]);
+      setPayments(current => [newPayment, ...current]);
       // Student fee standing is derived from `invoices`, so updating that list
       // above is enough — no parallel copy to keep in sync.
 
@@ -692,10 +744,16 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleSaveFeeConfig = (e: React.FormEvent) => {
+  const handleSaveFeeConfig = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsConfigureFeeOpen(false);
-    toast.success("Fee structure configuration saved successfully!");
+    try {
+      await adminDb.saveFeeConfig(profile?.centerId || "center-001", feeConfig);
+      setIsConfigureFeeOpen(false);
+      toast.success("Fee structure configuration saved successfully!");
+    } catch (err) {
+      console.error("Failed to save fee configuration", err);
+      toast.error("Failed to save fee structure.");
+    }
   };
 
   const generateReport = (type: string) => {
@@ -1902,16 +1960,14 @@ export default function AdminDashboard() {
                   />
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                  <label style={{ fontSize: "0.75rem", fontWeight: 600 }}>Age (0-12)</label>
+                  <label style={{ fontSize: "0.75rem", fontWeight: 600 }}>Date of Birth</label>
                   <input
-                    type="number"
+                    type="date"
                     className="glass-input"
-                    placeholder="e.g. 8"
                     required
-                    min="0"
-                    max="12"
-                    value={studentForm.age}
-                    onChange={e => setStudentForm({ ...studentForm, age: e.target.value })}
+                    max={new Date().toISOString().slice(0, 10)}
+                    value={studentForm.dob}
+                    onChange={e => setStudentForm({ ...studentForm, dob: e.target.value })}
                   />
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
@@ -1954,20 +2010,37 @@ export default function AdminDashboard() {
                     value={studentForm.therapist}
                     onChange={e => setStudentForm({ ...studentForm, therapist: e.target.value })}
                   >
-                    {staff.filter(st => st.role === "Therapist").map(ther => (
-                      <option key={ther.id} value={ther.name}>{ther.name} – {ther.subRole}</option>
+                    <option value="">No therapist assigned</option>
+                    {therapistAccounts.map(therapist => (
+                      <option key={therapist.id} value={therapist.id}>
+                        {therapist.name}{therapist.email ? ` – ${therapist.email}` : ""}
+                      </option>
                     ))}
                   </select>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "4px", gridColumn: "span 2" }}>
-                  <label style={{ fontSize: "0.75rem", fontWeight: 600 }}>Guardian Name</label>
-                  <input
-                    type="text"
+                  <label style={{ fontSize: "0.75rem", fontWeight: 600 }}>Parent Account</label>
+                  <select
                     className="glass-input"
-                    placeholder="Parent / Guardian Name"
-                    value={studentForm.guardianName}
-                    onChange={e => setStudentForm({ ...studentForm, guardianName: e.target.value })}
-                  />
+                    required
+                    value={studentForm.parentId}
+                    disabled={parentAccounts.length === 0}
+                    onChange={e => setStudentForm({ ...studentForm, parentId: e.target.value })}
+                  >
+                    <option value="">
+                      {parentAccounts.length ? "Select an approved parent account" : "No approved parent accounts"}
+                    </option>
+                    {parentAccounts.map(parent => (
+                      <option key={parent.id} value={parent.id}>
+                        {parent.name}{parent.email ? ` – ${parent.email}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {parentAccounts.length === 0 && (
+                    <span style={{ color: "var(--text-secondary)", fontSize: "0.75rem" }}>
+                      Register and approve the parent account before enrolling the student.
+                    </span>
+                  )}
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "4px", gridColumn: "span 2" }}>
                   <label style={{ fontSize: "0.75rem", fontWeight: 600 }}>Medical Notes</label>

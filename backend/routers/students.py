@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from models.schemas import StudentCreate, StudentUpdate, MedicalProfileUpdate
 from firebase_admin_init import get_db
 from middleware.auth_middleware import get_current_user, require_role
+from config import DEFAULT_CENTER_ID
 from datetime import datetime, timezone
 import uuid
 
@@ -41,7 +42,7 @@ def validate_age(dob: str):
 
 @router.get("")
 async def list_students(
-    centerId: str = Query("demo-center-001"),
+    centerId: str = Query(DEFAULT_CENTER_ID),
     current_user: dict = Depends(get_current_user)
 ):
     db   = get_db()

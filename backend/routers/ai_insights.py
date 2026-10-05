@@ -9,6 +9,19 @@ from middleware.auth_middleware import get_current_user, require_role
 
 router = APIRouter(prefix="/ai-insights", tags=["AI Insights"])
 
+
+def authorize_iep_student(current_user: dict, student_data: dict) -> None:
+    require_role(current_user, ["admin", "therapist"])
+    if current_user.get("status") != "approved":
+        raise HTTPException(status_code=403, detail="An approved account is required")
+    if student_data.get("centerId") != current_user.get("centerId"):
+        raise HTTPException(status_code=403, detail="Student belongs to a different centre")
+    if current_user.get("role") == "therapist":
+        assigned_therapists = student_data.get("therapistIds", [])
+        if not isinstance(assigned_therapists, list) or current_user.get("uid") not in assigned_therapists:
+            raise HTTPException(status_code=403, detail="Student is not assigned to this therapist")
+
+
 class AIResponse(BaseModel):
     report: str
 
@@ -113,7 +126,20 @@ class IEPGenerationResponse(BaseModel):
     summary: str
 
 @router.post("/iep/{student_id}", response_model=IEPGenerationResponse)
-async def generate_iep_goals(student_id: str):
+async def generate_iep_goals(
+    student_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    require_role(current_user, ["admin", "therapist"])
+    db = get_db()
+
+    # 1. Fetch Student Core Profile
+    student_ref = db.collection("students").document(student_id).get()
+    if not student_ref.exists:
+        raise HTTPException(status_code=404, detail="Student not found")
+    student_data = student_ref.to_dict()
+    authorize_iep_student(current_user, student_data)
+
     gemini_key = os.getenv("GEMINI_API_KEY")
     if not gemini_key:
         raise HTTPException(
@@ -122,13 +148,7 @@ async def generate_iep_goals(student_id: str):
         )
 
     genai.configure(api_key=gemini_key)
-    db = get_db()
 
-    # 1. Fetch Student Core Profile
-    student_ref = db.collection("students").document(student_id).get()
-    if not student_ref.exists:
-        raise HTTPException(status_code=404, detail="Student not found")
-    student_data = student_ref.to_dict()
     student_name = student_data.get("name", "Student")
     diagnosis = student_data.get("diagnosis", "Unspecified special education needs")
     dob = student_data.get("dob", "")
@@ -321,18 +341,24 @@ class NextGoalResponse(BaseModel):
     disclaimer: str
 
 @router.post("/iep/{student_id}/next-goal", response_model=NextGoalResponse)
-async def generate_next_iep_goal(student_id: str, body: NextGoalRequest):
-    cohere_key = os.getenv("COHERE_API_KEY")
-    if not cohere_key:
-        raise HTTPException(status_code=500, detail="COHERE_API_KEY is missing.")
-
+async def generate_next_iep_goal(
+    student_id: str,
+    body: NextGoalRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    require_role(current_user, ["admin", "therapist"])
     db = get_db()
     student_ref = db.collection("students").document(student_id).get()
     if not student_ref.exists:
         raise HTTPException(status_code=404, detail="Student not found")
     student_data = student_ref.to_dict()
+    authorize_iep_student(current_user, student_data)
     student_name = student_data.get("name", "Student")
     diagnosis = student_data.get("diagnosis", "Unspecified special education needs")
+
+    cohere_key = os.getenv("COHERE_API_KEY")
+    if not cohere_key:
+        raise HTTPException(status_code=500, detail="COHERE_API_KEY is missing.")
 
     med_doc = db.collection("students").document(student_id).collection("medicalProfile").document("main").get()
     med_data = med_doc.to_dict() if med_doc.exists else {}

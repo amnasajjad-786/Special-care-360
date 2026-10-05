@@ -50,9 +50,15 @@ export default function ParentFeesPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [childrenError, setChildrenError] = useState(false);
   const [activeInvoice, setActiveInvoice] = useState<Invoice | null>(null);
   
-  const [billingError, setBillingError] = useState(false);
+  const [invoiceErrorChildId, setInvoiceErrorChildId] = useState<string | null>(null);
+  const [paymentsErrorChildId, setPaymentsErrorChildId] = useState<string | null>(null);
+  const billingError = Boolean(
+    selectedChildId &&
+    (invoiceErrorChildId === selectedChildId || paymentsErrorChildId === selectedChildId)
+  );
 
   // Load Parent's Children
   useEffect(() => {
@@ -62,11 +68,13 @@ export default function ParentFeesPage() {
       try {
         const res = await studentsDb.list(scopeOf(profile));
         setChildren(res);
+        setChildrenError(false);
         if (res.length > 0) {
           setSelectedChildId(res[0].id);
         }
       } catch (err) {
         console.error("Failed to load children in fees:", err);
+        setChildrenError(true);
         toast.error("Failed to load child accounts.");
       } finally {
         setLoading(false);
@@ -83,9 +91,9 @@ export default function ParentFeesPage() {
   useEffect(() => {
     if (!selectedChildId || !profile) return;
 
-    const onError = (label: string) => (err: unknown) => {
+    const onError = (label: string, setError: (value: string | null) => void) => (err: unknown) => {
       console.error(`Failed to sync ${label}:`, err);
-      setBillingError(true);
+      setError(selectedChildId);
     };
 
     const qInvoices = query(
@@ -96,12 +104,12 @@ export default function ParentFeesPage() {
     const unsubInvoices = onSnapshot(qInvoices, (snap) => {
       const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Invoice));
       setInvoices(list);
-      setBillingError(false);
+      setInvoiceErrorChildId(current => current === selectedChildId ? null : current);
 
       // Surface the most pressing invoice: overdue, then pending, then latest.
       const unpaid = list.find(i => i.status === "overdue") || list.find(i => i.status === "pending") || list[0] || null;
       setActiveInvoice(unpaid);
-    }, onError("invoices"));
+    }, onError("invoices", setInvoiceErrorChildId));
 
     const qPayments = query(
       collection(db, "payments"),
@@ -110,7 +118,8 @@ export default function ParentFeesPage() {
     );
     const unsubPayments = onSnapshot(qPayments, (snap) => {
       setPayments(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Payment)));
-    }, onError("payments"));
+      setPaymentsErrorChildId(current => current === selectedChildId ? null : current);
+    }, onError("payments", setPaymentsErrorChildId));
 
     return () => {
       unsubInvoices();
@@ -173,13 +182,17 @@ export default function ParentFeesPage() {
 
   if (children.length === 0) {
     return (
-      <div className="glass-card animate-fade-in" style={{ padding: "60px", textAlign: "center" }}>
+      <div role={childrenError ? "alert" : undefined} className="glass-card animate-fade-in" style={{ padding: "60px", textAlign: "center" }}>
         <div style={{ display: "flex", justifyContent: "center", color: "var(--text-secondary)", marginBottom: "16px" }}>
-          <Receipt size={52} />
+          {childrenError ? <AlertTriangle size={52} style={{ color: "var(--danger)" }} /> : <Receipt size={52} />}
         </div>
-        <h2 style={{ margin: 0, color: "var(--primary-dark)" }}>No Billings Available</h2>
+        <h2 style={{ margin: 0, color: childrenError ? "var(--danger)" : "var(--primary-dark)" }}>
+          {childrenError ? "Could Not Load Billings" : "No Billings Available"}
+        </h2>
         <p style={{ color: "var(--text-secondary)", marginTop: "8px" }}>
-          There are no students associated with your parent account.
+          {childrenError
+            ? "Student accounts could not be loaded. Reload the page to try again."
+            : "There are no students associated with your parent account."}
         </p>
       </div>
     );

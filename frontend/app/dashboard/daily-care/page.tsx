@@ -10,7 +10,7 @@ import MedicationAdministration from "@/components/daily-care/MedicationAdminist
 import { currentCareDate } from "@/lib/medication-api";
 
 import toast from "react-hot-toast";
-import { CheckCircle, Clock, ClipboardList } from "lucide-react";
+import { AlertTriangle, CheckCircle, Clock, ClipboardList } from "lucide-react";
 
 export default function DailyCarePage() {
   const { profile } = useAuth();
@@ -20,6 +20,10 @@ export default function DailyCarePage() {
   const [existingJournal, setExistingJournal] = useState<DailyCareJournal | null>(null);
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<DailyCareJournal[]>([]);
+  const [journalError, setJournalError] = useState(false);
+  const [historyError, setHistoryError] = useState(false);
+  const [studentsLoading, setStudentsLoading] = useState(true);
+  const [studentsError, setStudentsError] = useState(false);
 
   const isTeacher = profile?.role === "teacher" || profile?.role === "admin";
 
@@ -28,8 +32,10 @@ export default function DailyCarePage() {
     try {
       const logs = await dailyCareDb.history(selectedStudent.id, scopeOf(profile));
       setHistory(logs as DailyCareJournal[]);
+      setHistoryError(false);
     } catch (err) {
       console.error("Failed to load history:", err);
+      setHistoryError(true);
     }
   }, [selectedStudent, profile]);
 
@@ -63,9 +69,13 @@ export default function DailyCarePage() {
         if (allowed.length > 0) {
           setSelectedStudent(allowed[0]);
         }
+        setStudentsError(false);
       } catch (err) {
         console.error("Failed to load students:", err);
+        setStudentsError(true);
         toast.error("Failed to load students");
+      } finally {
+        setStudentsLoading(false);
       }
     };
     if (profile) {
@@ -75,24 +85,35 @@ export default function DailyCarePage() {
 
   useEffect(() => {
     if (!selectedStudent) return;
+    let active = true;
     const fetchJournal = async () => {
       setLoading(true);
+      setJournalError(false);
+      setExistingJournal(null);
       try {
         const data = await dailyCareDb.get(selectedStudent.id, date);
-        setExistingJournal((data as DailyCareJournal) || null);
+        if (active) setExistingJournal((data as DailyCareJournal) || null);
       } catch (err) {
         console.error("Failed to load journal:", err);
-        setExistingJournal(null);
+        if (active) setJournalError(true);
+      } finally {
+        if (active) setLoading(false);
       }
-      setLoading(false);
     };
     fetchJournal();
+    return () => { active = false; };
   }, [selectedStudent, date]);
 
   if (!selectedStudent) {
     return (
       <div className="glass-card animate-fade-in" style={{ padding: "40px", textAlign: "center" }}>
-        <p style={{ color: "var(--text-secondary)" }}>Loading student profile...</p>
+        {studentsLoading ? (
+          <p style={{ color: "var(--text-secondary)" }}>Loading student profile...</p>
+        ) : studentsError ? (
+          <p role="alert" style={{ color: "var(--danger)" }}>Student profiles could not be loaded. Reload the page to try again.</p>
+        ) : (
+          <p style={{ color: "var(--text-secondary)" }}>No student profiles are linked to this account.</p>
+        )}
       </div>
     );
   }
@@ -121,9 +142,9 @@ export default function DailyCarePage() {
           </div>
         </div>
         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-          <span className={`chip ${existingJournal ? "chip-success" : "chip-warning"}`} style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-            {existingJournal ? <CheckCircle size={14} /> : <Clock size={14} />}
-            {existingJournal ? "Submitted" : "Pending"}
+          <span className={`chip ${journalError ? "chip-danger" : existingJournal ? "chip-success" : "chip-warning"}`} style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+            {journalError ? <AlertTriangle size={14} /> : existingJournal ? <CheckCircle size={14} /> : <Clock size={14} />}
+            {journalError ? "Could not load" : existingJournal ? "Submitted" : "Pending"}
           </span>
           {isTeacher && existingJournal && (
             <button
@@ -168,6 +189,11 @@ export default function DailyCarePage() {
         <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
           {Array.from({ length: 4 }).map((_, i) => <div key={i} className="skeleton" style={{ height: "120px", borderRadius: "16px" }} />)}
         </div>
+      ) : journalError ? (
+        <div role="alert" className="glass-card" style={{ padding: "24px", color: "var(--danger)", display: "flex", alignItems: "center", gap: "10px" }}>
+          <AlertTriangle size={20} />
+          <span>Daily care data could not be loaded. Please try again before making changes.</span>
+        </div>
       ) : profile?.role === "parent" ? (
         existingJournal
           ? <DailyDigest journal={existingJournal} studentName={selectedStudent.name} />
@@ -188,7 +214,11 @@ export default function DailyCarePage() {
           <ClipboardList size={18} /> Journal History (Last 15 Days)
         </h3>
         
-        {history.length === 0 ? (
+        {historyError ? (
+          <p role="alert" style={{ color: "var(--danger)", fontSize: "0.88rem", margin: 0 }}>
+            Journal history could not be loaded. Please try again.
+          </p>
+        ) : history.length === 0 ? (
           <p style={{ color: "var(--text-secondary)", fontSize: "0.88rem", margin: 0 }}>No history logs found for this student.</p>
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "12px" }}>

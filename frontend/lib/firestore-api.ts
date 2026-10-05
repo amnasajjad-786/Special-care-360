@@ -28,6 +28,7 @@ import {
   orderBy,
   limit,
   serverTimestamp,
+  runTransaction,
   QueryConstraint,
 } from "firebase/firestore";
 import { auth, db } from "./firebase";
@@ -159,11 +160,10 @@ export const studentsDb = {
       return listed;
     }
     if (scope.role === "therapist") {
-      const assigned = listed.filter((s) => 
-        (s.therapistIds ?? []).includes(scope.uid) || 
+      return listed.filter((s) =>
+        (s.therapistIds ?? []).includes(scope.uid) ||
         (scope.name && (s.therapistIds ?? []).includes(scope.name))
       );
-      return assigned.length > 0 ? assigned : listed;
     }
     return listed;
   },
@@ -672,6 +672,19 @@ export const adminDb = {
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   },
 
+  getFeeConfig: async (centerId: string) => {
+    const snap = await getDoc(doc(db, "centers", centerId));
+    return snap.exists() ? snap.data().feeConfig ?? null : null;
+  },
+
+  saveFeeConfig: async (centerId: string, feeConfig: Record<string, unknown>): Promise<void> => {
+    await setDoc(
+      doc(db, "centers", centerId),
+      { centerId, feeConfig, updatedAt: serverTimestamp() },
+      { merge: true }
+    );
+  },
+
   addInvoice: async (data: Record<string, unknown>): Promise<string> => {
     const ref = await addDoc(collection(db, "invoices"), {
       ...data,
@@ -682,6 +695,47 @@ export const adminDb = {
 
   updateInvoiceStatus: async (invoiceId: string, status: string): Promise<void> => {
     await updateDoc(doc(db, "invoices", invoiceId), { status });
+  },
+
+  recordInvoicePayment: async (
+    invoiceId: string,
+    payment: { method: string; recordedBy: string }
+  ) => {
+    const invoiceRef = doc(db, "invoices", invoiceId);
+    const paymentRef = doc(collection(db, "payments"));
+    const date = new Date().toISOString();
+
+    return runTransaction(db, async (transaction) => {
+      const invoiceSnap = await transaction.get(invoiceRef);
+      if (!invoiceSnap.exists()) throw new Error("Invoice not found.");
+
+      const invoice = invoiceSnap.data();
+      if (invoice.status === "paid") throw new Error("This invoice is already paid.");
+
+      const paymentData = {
+        invoiceId,
+        studentId: invoice.studentId,
+        studentName: invoice.studentName,
+        parentId: invoice.parentId ?? null,
+        amount: invoice.amount,
+        method: payment.method,
+        date,
+        recordedBy: payment.recordedBy,
+        centerId: invoice.centerId,
+      };
+
+      transaction.update(invoiceRef, {
+        status: "paid",
+        paymentId: paymentRef.id,
+        paidAt: serverTimestamp(),
+      });
+      transaction.set(paymentRef, {
+        ...paymentData,
+        createdAt: serverTimestamp(),
+      });
+
+      return { id: paymentRef.id, ...paymentData };
+    });
   },
 
   listPayments: async (scope: AccessScope) => {

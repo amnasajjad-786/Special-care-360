@@ -65,6 +65,29 @@ service cloud.firestore {
         || (!('parentId' in student) && request.resource.data.parentId == null);
     }
 
+    function recordMatchesStudent(studentId) {
+      let studentPath = /databases/$(database)/documents/students/$(studentId);
+      let student = get(studentPath).data;
+      return studentId is string
+        && exists(studentPath)
+        && request.resource.data.studentId == studentId
+        && request.resource.data.centerId == student.centerId
+        && (
+          ('parentId' in student && request.resource.data.parentId == student.parentId)
+          || (!('parentId' in student)
+              && (!('parentId' in request.resource.data) || request.resource.data.parentId == null))
+        );
+    }
+
+    function approvedParentInCenter(parentId, centerId) {
+      let parentPath = /databases/$(database)/documents/users/$(parentId);
+      return parentId is string
+        && exists(parentPath)
+        && get(parentPath).data.role == 'parent'
+        && get(parentPath).data.status == 'approved'
+        && get(parentPath).data.centerId == centerId;
+    }
+
     function teletherapyHasApprovedStudentGuardian() {
       let studentId = request.resource.data.studentId;
       let studentPath = /databases/$(database)/documents/students/$(studentId);
@@ -116,7 +139,13 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       // Centres are provisioned out-of-band by backend/seed_firestore.py using
       // the Admin SDK, which is not subject to these rules.
-      allow write: if false;
+      allow create: if isAdmin()
+                    && centerId == getCenterId()
+                    && request.resource.data.centerId == centerId;
+      allow update: if isAdmin()
+                    && centerId == getCenterId()
+                    && request.resource.data.centerId == centerId;
+      allow delete: if false;
     }
 
 
@@ -124,8 +153,13 @@ service cloud.firestore {
     match /students/{studentId} {
       allow read: if (isStaff() && inMyCenter())
                   || (isParent() && isMyChildRecord());
-      allow create: if isAdmin() && writingMyCenter();
-      allow update: if (isAdmin() || isTherapist()) && inMyCenter() && writingMyCenter();
+      allow create: if isAdmin()
+                    && writingMyCenter()
+                    && approvedParentInCenter(request.resource.data.parentId, getCenterId());
+      allow update: if (isAdmin() || isTherapist())
+                    && inMyCenter()
+                    && writingMyCenter()
+                    && approvedParentInCenter(request.resource.data.parentId, getCenterId());
       allow delete: if isAdmin() && inMyCenter();
 
       // Medical profile — previously `isStaff() || isParent()`, with no check
@@ -183,8 +217,14 @@ service cloud.firestore {
     match /dailyCareJournals/{journalId} {
       allow read: if (isStaff() && inMyCenter())
                   || (isParent() && isMyChildRecord());
-      allow create: if (isTeacher() || isAdmin()) && writingMyCenter();
-      allow update: if (isTeacher() || isAdmin()) && inMyCenter();
+      allow create: if (isTeacher() || isAdmin())
+                    && writingMyCenter()
+                    && recordMatchesStudent(request.resource.data.studentId);
+      allow update: if (isTeacher() || isAdmin())
+                    && inMyCenter()
+                    && writingMyCenter()
+                    && resource.data.studentId == request.resource.data.studentId
+                    && recordMatchesStudent(request.resource.data.studentId);
       allow delete: if isAdmin() && inMyCenter();
     }
 
@@ -195,8 +235,14 @@ service cloud.firestore {
       // rule denied.
       allow read: if (isStaff() && inMyCenter())
                   || (isParent() && isMyChildRecord());
-      allow create: if isStaff() && writingMyCenter();
-      allow update: if isAdmin() && inMyCenter();
+      allow create: if isStaff()
+                    && writingMyCenter()
+                    && recordMatchesStudent(request.resource.data.studentId);
+      allow update: if isAdmin()
+                    && inMyCenter()
+                    && writingMyCenter()
+                    && resource.data.studentId == request.resource.data.studentId
+                    && recordMatchesStudent(request.resource.data.studentId);
       allow delete: if isAdmin() && inMyCenter();
     }
 
