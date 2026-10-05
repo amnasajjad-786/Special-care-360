@@ -9,7 +9,6 @@ import OverviewTab from "@/components/students/OverviewTab";
 import MedicalTab from "@/components/students/MedicalTab";
 import CarePlanTab from "@/components/students/CarePlanTab";
 import EmergencyTab from "@/components/students/EmergencyTab";
-import RegressionAlertsBanner from "@/components/students/RegressionAlertsBanner";
 import toast from "react-hot-toast";
 import { User, Heart, Target, AlertTriangle } from "lucide-react";
 
@@ -141,14 +140,6 @@ export default function StudentsPage() {
             </div>
           ) : (
             <>
-              {/* Regression Alerts (therapist / admin only) */}
-              {canEdit && profile?.centerId && (
-                <RegressionAlertsBanner
-                  centerId={profile.centerId}
-                  studentId={selectedStudent.id}
-                />
-              )}
-
               {/* Tab bar */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
                 <div className="tab-bar">
