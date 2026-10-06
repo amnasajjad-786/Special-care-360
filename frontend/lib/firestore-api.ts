@@ -656,15 +656,28 @@ export const milestoneObservationsDb = {
   },
 
   /** Fetch all observations for a student (append-only history) */
-  listForStudent: async (studentId: string): Promise<MilestoneObservationDoc[]> => {
-    const snap = await getDocs(
-      query(
+  listForStudent: async (studentId: string, centerId?: string): Promise<MilestoneObservationDoc[]> => {
+    // Always include centerId in the query when available so the Firestore rule
+    // (inMyCenter — checks resource.data.centerId == caller's centerId) is satisfied,
+    // and the composite index (studentId + centerId + observedAt) is used.
+    let q;
+    if (centerId) {
+      q = query(
+        collection(db, "milestoneObservations"),
+        where("studentId", "==", studentId),
+        where("centerId", "==", centerId),
+        orderBy("observedAt", "desc"),
+        limit(50)
+      );
+    } else {
+      q = query(
         collection(db, "milestoneObservations"),
         where("studentId", "==", studentId),
         orderBy("observedAt", "desc"),
         limit(50)
-      )
-    );
+      );
+    }
+    const snap = await getDocs(q);
     return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<MilestoneObservationDoc, "id">) }));
   },
 };

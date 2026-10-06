@@ -98,17 +98,25 @@ export default function TeacherCarePlanTab({
   // Observation history for this student
   const [history, setHistory] = useState<MilestoneObservationDoc[]>([]);
 
+  const resolvedCenterId = centerId || profile?.centerId || "";
+
   useEffect(() => {
+    if (!studentId) return;
     milestoneObservationsDb
-      .listForStudent(studentId)
+      .listForStudent(studentId, resolvedCenterId || undefined)
       .then(setHistory)
       .catch((err) => console.error("Could not load observation history:", err));
-  }, [studentId]);
+  }, [studentId, resolvedCenterId]);
 
   const handleRecordStatus = async (goal: IEPGoal) => {
     const currentStatus = selectedStatus[goal.id];
     if (!currentStatus) {
       toast.error("Please select current skill performance first.");
+      return;
+    }
+
+    if (!resolvedCenterId) {
+      toast.error("Profile not loaded yet — please wait a moment and try again.");
       return;
     }
 
@@ -120,7 +128,7 @@ export default function TeacherCarePlanTab({
       const observation: Omit<MilestoneObservationDoc, "id"> = {
         studentId,
         studentName,
-        centerId: centerId || profile?.centerId || "",
+        centerId: resolvedCenterId,
         goalId: goal.id,
         goalTitle: goal.title,
         observedStatus: currentStatus,
@@ -159,15 +167,17 @@ export default function TeacherCarePlanTab({
       }
 
       // Refresh history list
-      const updatedHistory = await milestoneObservationsDb.listForStudent(studentId);
+      const updatedHistory = await milestoneObservationsDb.listForStudent(studentId, resolvedCenterId || undefined);
       setHistory(updatedHistory);
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to record observation.");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[TeacherCarePlanTab] Save failed:", message, err);
+      toast.error(`Failed to save: ${message}`);
     } finally {
       setSavingGoalId(null);
     }
   };
+
 
   return (
     <div className="animate-fade-in" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
