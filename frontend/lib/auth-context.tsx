@@ -54,7 +54,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(firebaseUser);
       if (firebaseUser) {
         const snap = await getDoc(doc(db, "users", firebaseUser.uid));
-        setProfile(snap.exists() ? (snap.data() as UserProfile) : null);
+        // Always merge the real Firebase Auth UID so profile.uid is guaranteed
+        // correct for therapistIds filtering even if the Firestore doc lacks it.
+        setProfile(snap.exists() ? ({ uid: firebaseUser.uid, ...snap.data() } as UserProfile) : null);
       } else {
         setProfile(null);
       }
