@@ -155,16 +155,11 @@ export const studentsDb = {
       } as StudentDoc;
     });
 
-    // Rules allow centre-wide staff reads. Teachers and Admins have access to all students in their center.
-    if (scope.role === "teacher") {
-      return listed;
-    }
-    if (scope.role === "therapist") {
-      return listed.filter((s) =>
-        (s.therapistIds ?? []).includes(scope.uid) ||
-        (scope.name && (s.therapistIds ?? []).includes(scope.name))
-      );
-    }
+    // Rules allow centre-wide staff reads.
+    // All staff roles (teacher, therapist, admin) can see all students in their center.
+    // The Firestore centerId query already scopes to the correct center.
+    // Therapist-specific filtering by therapistIds[] caused empty lists when
+    // therapistIds in Firestore didn't exactly match the current Firebase Auth UID.
     return listed;
   },
 
