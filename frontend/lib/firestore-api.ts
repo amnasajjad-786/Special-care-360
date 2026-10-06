@@ -552,6 +552,7 @@ export const milestoneObservationsDb = {
     const existingSnap = await getDocs(
       query(
         collection(db, "regressionAlerts"),
+        where("centerId", "==", observation.centerId),
         where("studentId", "==", observation.studentId),
         where("goalId", "==", observation.goalId),
         where("resolved", "==", false),

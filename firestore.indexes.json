@@ -124,6 +124,7 @@
       "collectionGroup": "regressionAlerts",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "centerId", "order": "ASCENDING" },
         { "fieldPath": "studentId", "order": "ASCENDING" },
         { "fieldPath": "goalId", "order": "ASCENDING" },
         { "fieldPath": "resolved", "order": "ASCENDING" }

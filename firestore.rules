@@ -358,7 +358,9 @@ service cloud.firestore {
     // Created automatically when regression is detected (by therapist care plan
     // update OR teacher milestone log). Documents include centerId.
     match /regressionAlerts/{alertId} {
-      allow read:   if (isTherapist() || isAdmin()) && inMyCenter();
+      // Teacher needs read access so log() can check for existing unresolved alerts
+      // before creating a new one. Therapist/admin also need read for the banner.
+      allow read:   if isStaff() && inMyCenter();
       // Teacher can create via milestone observation flow (centerId included in doc)
       allow create: if (isTherapist() || isAdmin() || isTeacher()) && writingMyCenter();
       // Only therapist/admin can resolve alerts
