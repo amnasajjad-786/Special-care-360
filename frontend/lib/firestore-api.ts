@@ -393,6 +393,7 @@ export interface RegressionAlertDoc {
   observationNotes?: string;
   triggeredBy?: "milestone_log" | "care_plan_update";
   previousMasteryDate?: string;
+  currentObservationStatus?: string;
   reason?: string;
 }
 
@@ -481,52 +482,73 @@ export const milestoneObservationsDb = {
   log: async (
     observation: Omit<MilestoneObservationDoc, "id">,
     studentDoc: StudentDoc
-  ): Promise<{ alertCreated: boolean; alertLevel: "Monitoring" | "Regression Warning" | null }> => {
+  ): Promise<{
+    alertCreated: boolean;
+    alertLevel: "Monitoring" | "Regression Warning" | null;
+    previousStatus: string;
+    currentStatus: string;
+    change: "Mastered/Maintaining" | "Declining" | "In Progress";
+    reason?: string;
+  }> => {
     // ── 1. Save the observation (append-only) ─────────────────────────────────
     await addDoc(collection(db, "milestoneObservations"), {
       ...observation,
       observedAt: observation.observedAt || new Date().toISOString(),
     });
 
-    // ── 2. If not a decline, no regression check needed ───────────────────────
-    if (observation.observedStatus !== "Failed/Declined") {
-      return { alertCreated: false, alertLevel: null };
-    }
-
-    // ── 3. Check achievedGoals[] for prior mastery of this goal ───────────────
+    // ── 2. Check achievedGoals[] for prior mastery of this goal ───────────────
     const careSnap = await getDoc(doc(db, "students", observation.studentId, "carePlan", "main"));
     const careData = careSnap.exists() ? careSnap.data() : {};
     const achievedGoals: Array<{ id: string; title: string; achievedAt?: string }> =
       Array.isArray(careData.achievedGoals) ? careData.achievedGoals : [];
 
     const previouslyMastered = achievedGoals.find((g) => g.id === observation.goalId);
+    const prevMasteryText = previouslyMastered
+      ? `Achieved / Mastered${previouslyMastered.achievedAt ? ` (${new Date(previouslyMastered.achievedAt).toLocaleDateString()})` : ""}`
+      : "No Prior Mastery";
 
-    // ── Rule: No previous mastery → save only, no alert ──────────────────────
+    // ── 3. Rule: No previous mastery → normal progress history, no alert ─────
     if (!previouslyMastered) {
-      return { alertCreated: false, alertLevel: null };
+      return {
+        alertCreated: false,
+        alertLevel: null,
+        previousStatus: prevMasteryText,
+        currentStatus: observation.observedStatus,
+        change: observation.observedStatus === "Achieved" ? "Mastered/Maintaining" : "In Progress",
+        reason: "Skill has no prior finalized mastered baseline in IEP history. Saved as standard progress observation.",
+      };
     }
 
-    // ── 4. Count recent "Failed/Declined" observations for this goal ──────────
-    const recentObsSnap = await getDocs(
+    // ── 4. Rule: Previously mastered and maintaining/achieved ────────────────
+    if (observation.observedStatus !== "Failed/Declined") {
+      return {
+        alertCreated: false,
+        alertLevel: null,
+        previousStatus: prevMasteryText,
+        currentStatus: observation.observedStatus,
+        change: "Mastered/Maintaining",
+        reason: "Student continues to meet or work toward previously mastered IEP criteria. No regression alert needed.",
+      };
+    }
+
+    // ── 5. Declining: Count prior "Failed/Declined" observations for this goal 
+    const priorObsSnap = await getDocs(
       query(
         collection(db, "milestoneObservations"),
         where("studentId", "==", observation.studentId),
         where("goalId", "==", observation.goalId),
-        where("observedStatus", "==", "Failed/Declined"),
-        orderBy("observedAt", "desc"),
-        limit(5)
+        where("observedStatus", "==", "Failed/Declined")
       )
     );
-    // +1 for the observation we just saved above
-    const failCount = recentObsSnap.size + 1;
+    // priorObsSnap contains the previous observations plus the one just added in step 1
+    const totalDeclineCount = priorObsSnap.size;
 
-    // ── 5. Determine alert level ──────────────────────────────────────────────
     // 1 decline → Monitoring (one-time outlier)
     // 2+ declines → Regression Warning
     const alertLevel: "Monitoring" | "Regression Warning" =
-      failCount >= 2 ? "Regression Warning" : "Monitoring";
+      totalDeclineCount >= 2 ? "Regression Warning" : "Monitoring";
 
-    // ── 6. Avoid duplicate unresolved alert for same goal ─────────────────────
+    // ── 6. Handle existing unresolved alert or create new ────────────────────
     const existingSnap = await getDocs(
       query(
         collection(db, "regressionAlerts"),
@@ -536,17 +558,53 @@ export const milestoneObservationsDb = {
         limit(1)
       )
     );
-    if (!existingSnap.empty && alertLevel === "Monitoring") {
-      // Already has an open alert — upgrade it if now a Warning
+
+    const reasonText = `Skill previously achieved on ${
+      previouslyMastered.achievedAt
+        ? new Date(previouslyMastered.achievedAt).toLocaleDateString()
+        : "an earlier date"
+    }. Teacher logged "${observation.observedStatus}" ${
+      totalDeclineCount >= 2 ? `(${totalDeclineCount} repeated declines observed)` : "(first decline observed - Monitoring)"
+    }.`;
+
+    if (!existingSnap.empty) {
       const existing = existingSnap.docs[0];
-      if (existing.data().alertLevel !== "Regression Warning") {
+      const existingData = existing.data();
+      // Upgrade existing Monitoring alert to Regression Warning if we now have 2+ declines
+      if (alertLevel === "Regression Warning" && existingData.alertLevel !== "Regression Warning") {
         await updateDoc(doc(db, "regressionAlerts", existing.id), {
-          alertLevel,
+          alertLevel: "Regression Warning",
           currentObservationStatus: observation.observedStatus,
+          reason: reasonText,
           updatedAt: serverTimestamp(),
         });
+        // Send notification on escalation to Regression Warning
+        const notifyPayload = {
+          type: "regression_warning",
+          title: `⚠️ Regression Warning — ${observation.studentName}`,
+          message: `Skill "${observation.goalTitle}" regressed. Teacher observed: "${observation.observedStatus}". ${totalDeclineCount} confirmed declines recorded.`,
+          studentId: observation.studentId,
+          goalId: observation.goalId,
+          alertLevel: "Regression Warning",
+        };
+        for (const uid of staffRecipients(studentDoc)) await notify(uid, notifyPayload);
+        return {
+          alertCreated: true,
+          alertLevel: "Regression Warning",
+          previousStatus: prevMasteryText,
+          currentStatus: observation.observedStatus,
+          change: "Declining",
+          reason: reasonText,
+        };
       }
-      return { alertCreated: false, alertLevel };
+      return {
+        alertCreated: false,
+        alertLevel: existingData.alertLevel as "Monitoring" | "Regression Warning",
+        previousStatus: prevMasteryText,
+        currentStatus: observation.observedStatus,
+        change: "Declining",
+        reason: reasonText,
+      };
     }
 
     // ── 7. Create new regression alert ────────────────────────────────────────
@@ -558,7 +616,6 @@ export const milestoneObservationsDb = {
       goalTitle: observation.goalTitle,
       milestoneId: observation.milestoneId ?? null,
       milestoneDescription: observation.milestoneDescription ?? null,
-      // previousProgress / currentProgress kept as 100/0 to preserve interface
       previousProgress: 100,
       currentProgress: 0,
       decline: 100,
@@ -568,13 +625,7 @@ export const milestoneObservationsDb = {
       observedBy: observation.observedBy,
       observedByName: observation.observedByName,
       observationNotes: observation.notes,
-      reason: `Skill previously achieved on ${
-        previouslyMastered.achievedAt
-          ? new Date(previouslyMastered.achievedAt).toLocaleDateString()
-          : "an earlier date"
-      }. Teacher logged "${observation.observedStatus}" ${
-        failCount >= 2 ? `(${failCount} consecutive declines)` : "(first decline observed)"
-      }.`,
+      reason: reasonText,
       triggeredBy: "milestone_log" as const,
       resolved: false,
       createdAt: serverTimestamp(),
@@ -586,7 +637,7 @@ export const milestoneObservationsDb = {
       const notifyPayload = {
         type: "regression_warning",
         title: `⚠️ Regression Warning — ${observation.studentName}`,
-        message: `Skill "${observation.goalTitle}" regressed. Teacher observed: "${observation.observedStatus}". ${failCount} consecutive declines recorded.`,
+        message: `Skill "${observation.goalTitle}" regressed. Teacher observed: "${observation.observedStatus}". ${totalDeclineCount} repeated declines recorded.`,
         studentId: observation.studentId,
         goalId: observation.goalId,
         alertLevel,
@@ -594,7 +645,14 @@ export const milestoneObservationsDb = {
       for (const uid of staffRecipients(studentDoc)) await notify(uid, notifyPayload);
     }
 
-    return { alertCreated: true, alertLevel };
+    return {
+      alertCreated: true,
+      alertLevel,
+      previousStatus: prevMasteryText,
+      currentStatus: observation.observedStatus,
+      change: "Declining",
+      reason: reasonText,
+    };
   },
 
   /** Fetch all observations for a student (append-only history) */

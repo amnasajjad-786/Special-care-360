@@ -47,20 +47,20 @@ interface Props {
 const OBS_OPTIONS: { value: MilestoneObservationStatus; label: string; description: string; color: string }[] = [
   {
     value: "Achieved",
-    label: "✅ Achieved",
-    description: "Student consistently meets the skill/milestone criteria today",
+    label: "✅ Mastered / Consistent Performance",
+    description: "Student successfully meets the defined skill/milestone criteria during activity",
     color: "#10b981",
   },
   {
     value: "In Progress",
-    label: "🔄 In Progress",
-    description: "Student shows improvement but has not yet consistently met the criteria",
+    label: "🔄 Progressing / Partial Performance",
+    description: "Student shows developing ability or requires partial assistance with criteria",
     color: "#f59e0b",
   },
   {
     value: "Failed/Declined",
-    label: "⚠️ Failed / Declined",
-    description: "Student does not meet a previously achieved skill — clear loss or significant decline observed",
+    label: "⚠️ Not Demonstrated / Unable to Perform",
+    description: "Student cannot demonstrate or fails to perform the skill/milestone criteria",
     color: "#ef4444",
   },
 ];
@@ -81,6 +81,16 @@ export default function MilestoneObservationPanel({ studentId, studentName, cent
   const [history, setHistory] = useState<MilestoneObservationDoc[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
+
+  const [lastResult, setLastResult] = useState<{
+    goalTitle: string;
+    previousStatus: string;
+    currentStatus: string;
+    change: "Mastered/Maintaining" | "Declining" | "In Progress";
+    alertCreated: boolean;
+    alertLevel: "Monitoring" | "Regression Warning" | null;
+    reason?: string;
+  } | null>(null);
 
   const selectedGoal = allGoals.find((g) => g.id === selectedGoalId) ?? null;
   const milestones = selectedGoal?.milestones ?? [];
@@ -125,23 +135,33 @@ export default function MilestoneObservationPanel({ studentId, studentName, cent
         observedAt: new Date().toISOString(),
       };
 
-      const { alertCreated, alertLevel } = await milestoneObservationsDb.log(observation, studentDoc);
+      const result = await milestoneObservationsDb.log(observation, studentDoc);
 
-      if (alertCreated && alertLevel === "Regression Warning") {
-        toast("⚠️ Regression Warning created and sent to therapist/admin.", {
+      setLastResult({
+        goalTitle: selectedGoal?.title ?? "Selected Skill",
+        previousStatus: result.previousStatus,
+        currentStatus: result.currentStatus,
+        change: result.change,
+        alertCreated: result.alertCreated,
+        alertLevel: result.alertLevel,
+        reason: result.reason,
+      });
+
+      if (result.alertCreated && result.alertLevel === "Regression Warning") {
+        toast("⚠️ Early Regression Warning created for Therapist/Admin.", {
           icon: "🚨",
           style: { background: "#fef2f2", color: "#991b1b", border: "1px solid #fca5a5" },
         });
-      } else if (alertLevel === "Monitoring") {
-        toast("📋 Monitoring alert created. One more decline will trigger a Regression Warning.", {
+      } else if (result.alertLevel === "Monitoring") {
+        toast("📋 Monitoring alert updated. Confirmed downward trend will trigger Warning.", {
           icon: "⚠️",
           style: { background: "#fffbeb", color: "#92400e", border: "1px solid #fcd34d" },
         });
       } else {
-        toast.success("Observation logged successfully.");
+        toast.success("Progress observation saved (Mastered/Maintaining).");
       }
 
-      // Reset form
+      // Reset form fields
       setSelectedGoalId("");
       setSelectedMilestoneId("");
       setObservedStatus("");
@@ -187,28 +207,37 @@ export default function MilestoneObservationPanel({ studentId, studentName, cent
       {/* Observation Form */}
       <div className="glass-card" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "14px" }}>
 
-        {/* Goal selector */}
+        {/* Mastery History Info & Goal Selector */}
         <div>
-          <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", display: "block", marginBottom: "6px" }}>
-            IEP Goal / Skill *
-          </label>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
+            <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase" }}>
+              Select Skill / Milestone from History *
+            </label>
+            {achievedGoals.length > 0 && (
+              <span style={{ fontSize: "0.74rem", background: "rgba(16,185,129,0.12)", color: "var(--success)", padding: "2px 8px", borderRadius: "999px", fontWeight: 700 }}>
+                {achievedGoals.length} Mastered Skill{achievedGoals.length > 1 ? "s" : ""} in Mastery History
+              </span>
+            )}
+          </div>
           <select
             className="glass-input"
             value={selectedGoalId}
             onChange={(e) => { setSelectedGoalId(e.target.value); setSelectedMilestoneId(""); }}
           >
-            <option value="">— Select a goal —</option>
-            {activeGoals.length > 0 && (
-              <optgroup label="Active Goals">
-                {activeGoals.map((g) => (
-                  <option key={g.id} value={g.id}>{g.title}</option>
+            <option value="">— Select a skill/goal to observe —</option>
+            {achievedGoals.length > 0 && (
+              <optgroup label="⭐ PREVIOUSLY MASTERED / ACHIEVED SKILLS (Mastery History)">
+                {achievedGoals.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    🏆 {g.title} {g.achievedAt ? `(Achieved: ${new Date(g.achievedAt).toLocaleDateString()})` : "(Mastered)"}
+                  </option>
                 ))}
               </optgroup>
             )}
-            {achievedGoals.length > 0 && (
-              <optgroup label="Previously Achieved Goals (monitoring for regression)">
-                {achievedGoals.map((g) => (
-                  <option key={g.id} value={g.id}>✅ {g.title}</option>
+            {activeGoals.length > 0 && (
+              <optgroup label="📋 Active / In-Progress Goals (No prior mastery)">
+                {activeGoals.map((g) => (
+                  <option key={g.id} value={g.id}>⏳ {g.title}</option>
                 ))}
               </optgroup>
             )}
@@ -219,16 +248,18 @@ export default function MilestoneObservationPanel({ studentId, studentName, cent
         {milestones.length > 0 && (
           <div>
             <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", display: "block", marginBottom: "6px" }}>
-              Specific Milestone (optional)
+              Target Milestone Criteria ({milestones.length} defined)
             </label>
             <select
               className="glass-input"
               value={selectedMilestoneId}
               onChange={(e) => setSelectedMilestoneId(e.target.value)}
             >
-              <option value="">— Whole goal (no specific milestone) —</option>
+              <option value="">— Whole Skill / Goal Criteria —</option>
               {milestones.map((m) => (
-                <option key={m.id} value={m.id}>{m.description}</option>
+                <option key={m.id} value={m.id}>
+                  {m.completed ? "✅ " : "⏳ "}{m.description}
+                </option>
               ))}
             </select>
           </div>
@@ -286,6 +317,90 @@ export default function MilestoneObservationPanel({ studentId, studentName, cent
             style={{ width: "100%", resize: "vertical", fontSize: "0.85rem" }}
           />
         </div>
+
+        {/* Automated Comparison Result Card (shown when an observation is logged) */}
+        {lastResult && (
+          <div
+            style={{
+              padding: "14px 16px",
+              borderRadius: "8px",
+              border: `1.5px solid ${
+                lastResult.change === "Declining"
+                  ? lastResult.alertLevel === "Regression Warning"
+                    ? "rgba(239, 68, 68, 0.4)"
+                    : "rgba(245, 158, 11, 0.4)"
+                  : "rgba(16, 185, 129, 0.3)"
+              }`,
+              background:
+                lastResult.change === "Declining"
+                  ? lastResult.alertLevel === "Regression Warning"
+                    ? "rgba(239, 68, 68, 0.05)"
+                    : "rgba(245, 158, 11, 0.05)"
+                  : "rgba(16, 185, 129, 0.05)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "8px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>
+              <span style={{ fontWeight: 700, fontSize: "0.88rem", color: "var(--primary-dark)" }}>
+                Analysis for &quot;{lastResult.goalTitle}&quot;:
+              </span>
+              <span
+                style={{
+                  fontSize: "0.75rem",
+                  fontWeight: 700,
+                  padding: "2px 10px",
+                  borderRadius: "999px",
+                  background:
+                    lastResult.change === "Declining"
+                      ? lastResult.alertLevel === "Regression Warning"
+                        ? "rgba(239, 68, 68, 0.15)"
+                        : "rgba(245, 158, 11, 0.15)"
+                      : "rgba(16, 185, 129, 0.15)",
+                  color:
+                    lastResult.change === "Declining"
+                      ? lastResult.alertLevel === "Regression Warning"
+                        ? "var(--danger)"
+                        : "#92400e"
+                      : "var(--success)",
+                }}
+              >
+                {lastResult.change === "Declining"
+                  ? `⚠️ ${lastResult.alertLevel || "Early Regression Alert"}`
+                  : `✅ ${lastResult.change}`}
+              </span>
+            </div>
+
+            <div style={{ display: "flex", gap: "16px", fontSize: "0.82rem", color: "var(--text-secondary)", flexWrap: "wrap" }}>
+              <div>
+                Previous/Mastered Value: <strong style={{ color: "var(--text-primary)" }}>{lastResult.previousStatus}</strong>
+              </div>
+              <div>
+                Current Observed Value: <strong style={{ color: "var(--text-primary)" }}>{lastResult.currentStatus}</strong>
+              </div>
+              <div>
+                Detected Status:{" "}
+                <strong
+                  style={{
+                    color:
+                      lastResult.change === "Declining"
+                        ? "var(--danger)"
+                        : "var(--success)",
+                  }}
+                >
+                  {lastResult.change}
+                </strong>
+              </div>
+            </div>
+
+            {lastResult.reason && (
+              <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", fontStyle: "italic" }}>
+                {lastResult.reason}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Submit */}
         <div style={{ display: "flex", justifyContent: "flex-end" }}>

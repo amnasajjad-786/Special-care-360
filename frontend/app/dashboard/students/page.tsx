@@ -142,6 +142,14 @@ export default function StudentsPage() {
             </div>
           ) : (
             <>
+              {/* Early Regression Alerts (Therapist & Admin) */}
+              {canEdit && profile?.centerId && (
+                <RegressionAlertsBanner
+                  centerId={profile.centerId}
+                  studentId={selectedStudent.id}
+                />
+              )}
+
               {/* Tab bar */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
                 <div className="tab-bar">

@@ -131,14 +131,32 @@ export default function RegressionAlertsBanner({ centerId, studentId }: Props) {
                   </div>
                   <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginTop: "3px" }}>
                     Skill: <strong style={{ color: "var(--text-primary)" }}>&quot;{alert.goalTitle}&quot;</strong>
+                    {alert.milestoneDescription && (
+                      <span style={{ marginLeft: "6px", color: "var(--text-secondary)", fontSize: "0.78rem" }}>
+                        (Milestone: {alert.milestoneDescription})
+                      </span>
+                    )}
                   </div>
-                  <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginTop: "2px", display: "flex", gap: "12px", flexWrap: "wrap" }}>
-                    <span>Previous: <strong>{alert.previousProgress}%</strong></span>
-                    <span>Current: <strong style={{ color: isWarning ? "var(--danger)" : "#d97706" }}>{alert.currentProgress}%</strong></span>
-                    <span>Decline: <strong style={{ color: isWarning ? "var(--danger)" : "#d97706" }}>↓{alert.decline}%</strong></span>
-                  </div>
+                  {alert.triggeredBy === "milestone_log" ? (
+                    <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginTop: "3px", display: "flex", gap: "12px", flexWrap: "wrap" }}>
+                      <span>Previous Mastery: <strong style={{ color: "var(--success)" }}>Achieved / Mastered {alert.previousMasteryDate ? `(${new Date(alert.previousMasteryDate).toLocaleDateString()})` : ""}</strong></span>
+                      <span>Current Status: <strong style={{ color: isWarning ? "var(--danger)" : "#d97706" }}>{alert.currentObservationStatus || "Failed/Declined"}</strong></span>
+                      <span>Change: <strong style={{ color: isWarning ? "var(--danger)" : "#d97706" }}>Declined</strong></span>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginTop: "3px", display: "flex", gap: "12px", flexWrap: "wrap" }}>
+                      <span>Previous: <strong>{alert.previousProgress}%</strong></span>
+                      <span>Current: <strong style={{ color: isWarning ? "var(--danger)" : "#d97706" }}>{alert.currentProgress}%</strong></span>
+                      <span>Change: <strong style={{ color: isWarning ? "var(--danger)" : "#d97706" }}>↓{alert.decline}%</strong></span>
+                    </div>
+                  )}
+                  {alert.reason && (
+                    <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginTop: "4px", background: "rgba(0,0,0,0.03)", padding: "4px 8px", borderRadius: "4px" }}>
+                      Reason: <span style={{ color: "var(--text-primary)", fontWeight: 500 }}>{alert.reason}</span>
+                    </div>
+                  )}
                   {typeof alert.createdAt === "string" && (
-                    <div style={{ fontSize: "0.73rem", color: "var(--text-secondary)", marginTop: "2px" }}>
+                    <div style={{ fontSize: "0.73rem", color: "var(--text-secondary)", marginTop: "4px" }}>
                       Detected: {new Date(alert.createdAt).toLocaleString()}
                     </div>
                   )}

@@ -16,7 +16,15 @@ const STATUS_STYLES: Record<string, string> = {
 interface Props { studentId: string; carePlan: CarePlan; canEdit: boolean; onChange?: (data: CarePlan) => void; }
 
 export default function CarePlanTab({ studentId, carePlan: initial, canEdit, onChange }: Props) {
-  const [goals, setGoals] = useState<IEPGoal[]>(initial?.goals || []);
+  // Therapist Care Plan shows current Finalized but NOT Achieved IEP Goals & Milestones
+  // Filter out any goals that have status === "Achieved" or have been archived to achievedGoals
+  const unachievedInitialGoals = (initial?.goals || []).filter(g => g.status !== "Achieved");
+  const [goals, setGoals] = useState<IEPGoal[]>(unachievedInitialGoals);
+
+  useEffect(() => {
+    const unachieved = (initial?.goals || []).filter(g => g.status !== "Achieved");
+    setGoals(unachieved);
+  }, [initial]);
 
   useEffect(() => {
     if (onChange) onChange({ ...initial, goals });
@@ -53,9 +61,11 @@ export default function CarePlanTab({ studentId, carePlan: initial, canEdit, onC
     <div className="animate-fade-in" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px" }}>
         <div>
-          <h3 style={{ margin: 0, fontWeight: 700, color: "var(--primary-dark)", fontSize: "1.05rem" }}>IEP Goals</h3>
+          <h3 style={{ margin: 0, fontWeight: 700, color: "var(--primary-dark)", fontSize: "1.05rem" }}>
+            Active Care Plan Goals (IEP)
+          </h3>
           <p style={{ margin: "4px 0 0", fontSize: "0.82rem", color: "var(--text-secondary)" }}>
-            {goals.filter(g => g.status === "Mastered").length} of {goals.length} goals mastered
+            Current Finalized &amp; Ongoing Goals ({goals.length} active)
           </p>
         </div>
         {canEdit && <button className="btn-primary" onClick={() => setShowAdd(true)} style={{ padding: "8px 18px", fontSize: "0.85rem" }}>+ Add Goal</button>}
@@ -110,6 +120,26 @@ export default function CarePlanTab({ studentId, carePlan: initial, canEdit, onC
                   {goal.progressPercent}%
                 </span>
               </div>
+
+              {/* Milestones list if defined */}
+              {Array.isArray(goal.milestones) && goal.milestones.length > 0 && (
+                <div style={{ marginTop: "12px", background: "rgba(0,0,0,0.02)", padding: "10px 12px", borderRadius: "8px", border: "1px solid rgba(0,0,0,0.05)" }}>
+                  <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-secondary)", marginBottom: "6px", textTransform: "uppercase" }}>
+                    Milestones ({goal.milestones.filter(m => m.completed).length}/{goal.milestones.length} completed):
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                    {goal.milestones.map((m) => (
+                      <div key={m.id} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.82rem" }}>
+                        <span style={{ fontSize: "0.9rem" }}>{m.completed ? "✅" : "⏳"}</span>
+                        <span style={{ color: m.completed ? "var(--success)" : "var(--text-primary)", textDecoration: m.completed ? "line-through" : "none" }}>
+                          {m.description}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {canEdit && (
                 <div style={{ display: "flex", gap: "10px", marginTop: "12px", alignItems: "center" }}>
                   <input type="range" min={0} max={100} value={goal.progressPercent}
