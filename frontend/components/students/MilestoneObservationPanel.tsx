@@ -35,6 +35,7 @@ import {
   ChevronDown,
   ChevronUp,
   Send,
+  Trophy,
 } from "lucide-react";
 
 interface Props {
@@ -81,6 +82,7 @@ export default function MilestoneObservationPanel({ studentId, studentName, cent
   const [history, setHistory] = useState<MilestoneObservationDoc[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [showAchievedHistory, setShowAchievedHistory] = useState(true);
 
   const [lastResult, setLastResult] = useState<{
     goalTitle: string;
@@ -463,6 +465,76 @@ export default function MilestoneObservationPanel({ studentId, studentName, cent
           </div>
         )}
       </div>
+
+      {/* ── Achieved Goals History (Student's IEP Mastery Baseline) ── */}
+      {achievedGoals.length > 0 && (
+        <div className="glass-card" style={{ padding: "16px 20px" }}>
+          <button
+            onClick={() => setShowAchievedHistory((v) => !v)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              fontWeight: 800,
+              color: "var(--primary-dark)",
+              fontSize: "0.95rem",
+              width: "100%",
+              justifyContent: "space-between",
+              padding: 0,
+            }}
+          >
+            <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <Trophy size={18} style={{ color: "#10b981" }} />
+              {studentName}&apos;s Achieved Goals History ({achievedGoals.length})
+            </span>
+            {showAchievedHistory ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+          </button>
+
+          {showAchievedHistory && (
+            <div style={{ marginTop: "14px", display: "flex", flexDirection: "column", gap: "10px" }}>
+              {achievedGoals.map((ag) => (
+                <div
+                  key={ag.id}
+                  style={{
+                    background: "rgba(16,185,129,0.06)",
+                    border: "1px solid rgba(16,185,129,0.2)",
+                    borderRadius: "8px",
+                    padding: "12px 16px",
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: "12px",
+                  }}
+                >
+                  <Trophy size={20} style={{ color: "#10b981", flexShrink: 0, marginTop: "2px" }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.9rem" }}>{ag.title}</div>
+                    <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginTop: "2px" }}>
+                      {ag.goalArea || "General"} &nbsp;·&nbsp; Achieved on {ag.achievedAt ? new Date(ag.achievedAt).toLocaleDateString() : "Prior IEP Milestone"}
+                    </div>
+                    {/* Render target milestones if available */}
+                    {Array.isArray(ag.milestones) && ag.milestones.length > 0 && (
+                      <div style={{ marginTop: "8px", display: "flex", flexDirection: "column", gap: "4px" }}>
+                        {ag.milestones.map((m) => (
+                          <div key={m.id} style={{ fontSize: "0.76rem", color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: "6px" }}>
+                            <span>✅</span>
+                            <span>{m.description}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <span className="chip" style={{ marginLeft: "auto", background: "rgba(16,185,129,0.15)", color: "#065f46", fontWeight: 700, fontSize: "0.72rem", flexShrink: 0 }}>
+                    ✅ Achieved
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
