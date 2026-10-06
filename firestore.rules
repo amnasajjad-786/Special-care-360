@@ -353,14 +353,28 @@ service cloud.firestore {
     }
 
 
+
     // ── Regression Alerts ────────────────────────────────────────────────────
-    // Created automatically by updateCarePlan when a skill regression is detected.
-    // Therapist and admin can read + resolve. Parents cannot see clinical alerts.
+    // Created automatically when regression is detected (by therapist care plan
+    // update OR teacher milestone log). Documents include centerId.
     match /regressionAlerts/{alertId} {
       allow read:   if (isTherapist() || isAdmin()) && inMyCenter();
-      allow create: if (isTherapist() || isAdmin()) && writingMyCenter();
-      // Only update allowed: mark as resolved (resolved: true). No deletion.
+      // Teacher can create via milestone observation flow (centerId included in doc)
+      allow create: if (isTherapist() || isAdmin() || isTeacher()) && writingMyCenter();
+      // Only therapist/admin can resolve alerts
       allow update: if (isTherapist() || isAdmin()) && inMyCenter();
+      allow delete: if false;
+    }
+
+
+    // ── Milestone Observations (Teacher classroom/therapy logging) ────────────
+    // Append-only — teachers write, all staff can read. Never deleted.
+    match /milestoneObservations/{obsId} {
+      allow read:   if isStaff() && inMyCenter();
+      // Teacher creates observations (centerId stored on doc for centre scoping)
+      allow create: if isTeacher() && writingMyCenter();
+      // No updates or deletes — history is immutable
+      allow update: if false;
       allow delete: if false;
     }
   }

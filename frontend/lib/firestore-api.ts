@@ -260,19 +260,362 @@ export const studentsDb = {
   },
 
   updateCarePlan: async (studentId: string, data: Record<string, unknown>): Promise<void> => {
-    await setDoc(doc(db, "students", studentId, "carePlan", "main"), data, { merge: true });
+    // ── 1. Load previous snapshot BEFORE writing ──────────────────────────────
+    const prevSnap = await getDoc(doc(db, "students", studentId, "carePlan", "main"));
+    const prevData = prevSnap.exists() ? prevSnap.data() : {};
+    const prevGoals: Array<{ id: string; title: string; progressPercent: number; status: string }> =
+      Array.isArray(prevData.goals) ? prevData.goals : [];
+    const prevHistory: Array<{ goalId: string; title: string; progressPercent: number; status: string; recordedAt: string }> =
+      Array.isArray(prevData.progressHistory) ? prevData.progressHistory : [];
+
+    // ── 2. Snapshot current goals into history (append-only) ──────────────────
+    const timestamp = new Date().toISOString();
+    const newSnapshots = prevGoals.map((g) => ({
+      goalId: g.id,
+      title: g.title,
+      progressPercent: g.progressPercent,
+      status: g.status,
+      recordedAt: timestamp,
+    }));
+    const updatedHistory = [...prevHistory, ...newSnapshots];
+
+    // ── 3. Write care plan with appended history ──────────────────────────────
+    await setDoc(
+      doc(db, "students", studentId, "carePlan", "main"),
+      { ...data, progressHistory: updatedHistory },
+      { merge: true }
+    );
+
+    // ── 4. Regression Detection ───────────────────────────────────────────────
+    // Baseline = prevGoals (what is currently in Firestore BEFORE this save).
+    // This means detection works on the VERY FIRST save — no history needed.
+    // History is only used to detect a CONSECUTIVE decline (→ Regression Warning).
+    //
+    // Thresholds:
+    //   Single drop ≥15%                          → Monitoring
+    //   Consecutive drops AND cumulative ≥20%      → Regression Warning
+    const incomingGoals: Array<{ id: string; title: string; progressPercent: number; status: string }> =
+      Array.isArray(data.goals)
+        ? (data.goals as Array<{ id: string; title: string; progressPercent: number; status: string }>)
+        : [];
+
     const student = await studentsDb.get(studentId);
-    if (!student) return;
-    const payload = {
-      type: "care_plan_update",
-      title: "Care Plan Updated",
-      message: `The care plan goals for ${student.name} have been updated.`,
-      studentId,
-    };
-    await notify(student.parentId, payload);
-    for (const uid of staffRecipients(student)) await notify(uid, payload);
+
+    for (const goal of incomingGoals) {
+      // Direct baseline: the progress value that was in Firestore before this save
+      const prevGoal = prevGoals.find((g) => g.id === goal.id);
+      if (!prevGoal) continue; // brand-new goal — no baseline to compare against
+
+      const drop = prevGoal.progressPercent - goal.progressPercent;
+      if (drop <= 0) continue; // stable or improved — no alert
+
+      // Check for a prior drop using history (for consecutive Regression Warning)
+      const goalHistory = prevHistory
+        .filter((h) => h.goalId === goal.id)
+        .sort((a, b) => a.recordedAt.localeCompare(b.recordedAt));
+
+      let alertLevel: "Monitoring" | "Regression Warning" | null = null;
+
+      if (goalHistory.length >= 1) {
+        // Last history entry is the value BEFORE prevGoal was set.
+        // If that also showed a drop toward prevGoal, we have a consecutive decline.
+        const lastHistoryEntry = goalHistory[goalHistory.length - 1];
+        const prevDrop = lastHistoryEntry.progressPercent - prevGoal.progressPercent;
+        if (prevDrop > 0 && prevDrop + drop >= 20) {
+          alertLevel = "Regression Warning";
+        }
+      }
+
+      if (!alertLevel && drop >= 15) {
+        alertLevel = "Monitoring";
+      }
+
+      if (!alertLevel) continue;
+
+      // ── 5. Write regression alert to Firestore ────────────────────────────
+      // centerId is required so the Firestore security rule (writingMyCenter) passes.
+      const alertPayload = {
+        studentId,
+        studentName: student?.name ?? "Unknown Student",
+        centerId: student?.centerId ?? "",   // required for Firestore security rule
+        goalId: goal.id,
+        goalTitle: goal.title,
+        previousProgress: prevGoal.progressPercent,
+        currentProgress: goal.progressPercent,
+        decline: drop,
+        alertLevel,
+        resolved: false,
+        createdAt: serverTimestamp(),
+      };
+      await addDoc(collection(db, "regressionAlerts"), alertPayload);
+
+      // ── 6. Notify therapists + admin for Regression Warning ───────────────
+      if (alertLevel === "Regression Warning" && student) {
+        const notifyPayload = {
+          type: "regression_warning",
+          title: `⚠️ Regression Warning — ${student.name}`,
+          message: `Skill "${goal.title}" regressed from ${prevGoal.progressPercent}% → ${goal.progressPercent}% (↓${drop}%). Consecutive decline detected.`,
+          studentId,
+          goalId: goal.id,
+          alertLevel,
+        };
+        for (const uid of staffRecipients(student)) await notify(uid, notifyPayload);
+      }
+    }
+
+    // ── 7. Standard care-plan-updated notification ────────────────────────────
+    if (student) {
+      const payload = {
+        type: "care_plan_update",
+        title: "Care Plan Updated",
+        message: `The care plan goals for ${student.name} have been updated.`,
+        studentId,
+      };
+      await notify(student.parentId, payload);
+      for (const uid of staffRecipients(student)) await notify(uid, payload);
+    }
   },
 };
+
+// ─── Regression Alerts ────────────────────────────────────────────────────────
+
+export interface RegressionAlertDoc {
+  id: string;
+  studentId: string;
+  studentName: string;
+  centerId: string;
+  goalId: string;
+  goalTitle: string;
+  previousProgress: number;
+  currentProgress: number;
+  decline: number;
+  alertLevel: "Monitoring" | "Regression Warning";
+  resolved: boolean;
+  createdAt: string;
+  // Fields added for milestone-log triggered alerts
+  milestoneId?: string;
+  milestoneDescription?: string;
+  observationNotes?: string;
+  triggeredBy?: "milestone_log" | "care_plan_update";
+  previousMasteryDate?: string;
+  reason?: string;
+}
+
+export const regressionDb = {
+  /** Fetch all unresolved regression alerts for a centre (therapist/admin dashboard) */
+  listUnresolved: async (centerId: string): Promise<RegressionAlertDoc[]> => {
+    // Alerts now carry centerId directly — query it directly without student join.
+    const snap = await getDocs(
+      query(
+        collection(db, "regressionAlerts"),
+        where("centerId", "==", centerId),
+        where("resolved", "==", false),
+        orderBy("createdAt", "desc"),
+        limit(50)
+      )
+    );
+    return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<RegressionAlertDoc, "id">) }));
+  },
+
+  /** Fetch alerts for a specific student (student detail view) */
+  listForStudent: async (studentId: string, centerId: string): Promise<RegressionAlertDoc[]> => {
+    // Include centerId so the Firestore inMyCenter() rule can be satisfied.
+    const snap = await getDocs(
+      query(
+        collection(db, "regressionAlerts"),
+        where("studentId", "==", studentId),
+        where("centerId", "==", centerId),
+        orderBy("createdAt", "desc"),
+        limit(20)
+      )
+    );
+    return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<RegressionAlertDoc, "id">) }));
+  },
+
+  /** Mark an alert as resolved */
+  resolve: async (alertId: string): Promise<void> => {
+    await updateDoc(doc(db, "regressionAlerts", alertId), { resolved: true });
+  },
+
+  /** Fetch ALL regression alerts (resolved + unresolved) for a centre */
+  listAll: async (centerId: string): Promise<RegressionAlertDoc[]> => {
+    const snap = await getDocs(
+      query(
+        collection(db, "regressionAlerts"),
+        where("centerId", "==", centerId),
+        orderBy("createdAt", "desc"),
+        limit(100)
+      )
+    );
+    return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<RegressionAlertDoc, "id">) }));
+  },
+};
+
+// ─── Milestone Observations (Teacher logging) ─────────────────────────────────
+//
+// Flow:
+//   Teacher observes student → logs milestone status
+//   → System checks achievedGoals[] for prior mastery of that goal
+//   → No prior mastery  → just save, no alert
+//   → Prior mastery + first "Failed/Declined" → Monitoring
+//   → Prior mastery + repeated "Failed/Declined" → Regression Warning
+
+export type MilestoneObservationStatus = "Achieved" | "In Progress" | "Failed/Declined";
+
+export interface MilestoneObservationDoc {
+  id: string;
+  studentId: string;
+  studentName: string;
+  centerId: string;
+  goalId: string;
+  goalTitle: string;
+  milestoneId?: string;
+  milestoneDescription?: string;
+  observedStatus: MilestoneObservationStatus;
+  notes: string;
+  observedBy: string;       // teacher's uid
+  observedByName: string;   // teacher's display name
+  observedAt: string;       // ISO date
+}
+
+export const milestoneObservationsDb = {
+  /**
+   * Save a teacher observation and run regression detection.
+   * Uses achievedGoals[] in carePlan/main as the mastery baseline.
+   */
+  log: async (
+    observation: Omit<MilestoneObservationDoc, "id">,
+    studentDoc: StudentDoc
+  ): Promise<{ alertCreated: boolean; alertLevel: "Monitoring" | "Regression Warning" | null }> => {
+    // ── 1. Save the observation (append-only) ─────────────────────────────────
+    await addDoc(collection(db, "milestoneObservations"), {
+      ...observation,
+      observedAt: observation.observedAt || new Date().toISOString(),
+    });
+
+    // ── 2. If not a decline, no regression check needed ───────────────────────
+    if (observation.observedStatus !== "Failed/Declined") {
+      return { alertCreated: false, alertLevel: null };
+    }
+
+    // ── 3. Check achievedGoals[] for prior mastery of this goal ───────────────
+    const careSnap = await getDoc(doc(db, "students", observation.studentId, "carePlan", "main"));
+    const careData = careSnap.exists() ? careSnap.data() : {};
+    const achievedGoals: Array<{ id: string; title: string; achievedAt?: string }> =
+      Array.isArray(careData.achievedGoals) ? careData.achievedGoals : [];
+
+    const previouslyMastered = achievedGoals.find((g) => g.id === observation.goalId);
+
+    // ── Rule: No previous mastery → save only, no alert ──────────────────────
+    if (!previouslyMastered) {
+      return { alertCreated: false, alertLevel: null };
+    }
+
+    // ── 4. Count recent "Failed/Declined" observations for this goal ──────────
+    const recentObsSnap = await getDocs(
+      query(
+        collection(db, "milestoneObservations"),
+        where("studentId", "==", observation.studentId),
+        where("goalId", "==", observation.goalId),
+        where("observedStatus", "==", "Failed/Declined"),
+        orderBy("observedAt", "desc"),
+        limit(5)
+      )
+    );
+    // +1 for the observation we just saved above
+    const failCount = recentObsSnap.size + 1;
+
+    // ── 5. Determine alert level ──────────────────────────────────────────────
+    // 1 decline → Monitoring (one-time outlier)
+    // 2+ declines → Regression Warning
+    const alertLevel: "Monitoring" | "Regression Warning" =
+      failCount >= 2 ? "Regression Warning" : "Monitoring";
+
+    // ── 6. Avoid duplicate unresolved alert for same goal ─────────────────────
+    const existingSnap = await getDocs(
+      query(
+        collection(db, "regressionAlerts"),
+        where("studentId", "==", observation.studentId),
+        where("goalId", "==", observation.goalId),
+        where("resolved", "==", false),
+        limit(1)
+      )
+    );
+    if (!existingSnap.empty && alertLevel === "Monitoring") {
+      // Already has an open alert — upgrade it if now a Warning
+      const existing = existingSnap.docs[0];
+      if (existing.data().alertLevel !== "Regression Warning") {
+        await updateDoc(doc(db, "regressionAlerts", existing.id), {
+          alertLevel,
+          currentObservationStatus: observation.observedStatus,
+          updatedAt: serverTimestamp(),
+        });
+      }
+      return { alertCreated: false, alertLevel };
+    }
+
+    // ── 7. Create new regression alert ────────────────────────────────────────
+    const alertPayload = {
+      studentId: observation.studentId,
+      studentName: observation.studentName,
+      centerId: observation.centerId,
+      goalId: observation.goalId,
+      goalTitle: observation.goalTitle,
+      milestoneId: observation.milestoneId ?? null,
+      milestoneDescription: observation.milestoneDescription ?? null,
+      // previousProgress / currentProgress kept as 100/0 to preserve interface
+      previousProgress: 100,
+      currentProgress: 0,
+      decline: 100,
+      alertLevel,
+      previousMasteryDate: previouslyMastered.achievedAt ?? null,
+      currentObservationStatus: observation.observedStatus,
+      observedBy: observation.observedBy,
+      observedByName: observation.observedByName,
+      observationNotes: observation.notes,
+      reason: `Skill previously achieved on ${
+        previouslyMastered.achievedAt
+          ? new Date(previouslyMastered.achievedAt).toLocaleDateString()
+          : "an earlier date"
+      }. Teacher logged "${observation.observedStatus}" ${
+        failCount >= 2 ? `(${failCount} consecutive declines)` : "(first decline observed)"
+      }.`,
+      triggeredBy: "milestone_log" as const,
+      resolved: false,
+      createdAt: serverTimestamp(),
+    };
+    await addDoc(collection(db, "regressionAlerts"), alertPayload);
+
+    // ── 8. Notify therapists for Regression Warning ───────────────────────────
+    if (alertLevel === "Regression Warning") {
+      const notifyPayload = {
+        type: "regression_warning",
+        title: `⚠️ Regression Warning — ${observation.studentName}`,
+        message: `Skill "${observation.goalTitle}" regressed. Teacher observed: "${observation.observedStatus}". ${failCount} consecutive declines recorded.`,
+        studentId: observation.studentId,
+        goalId: observation.goalId,
+        alertLevel,
+      };
+      for (const uid of staffRecipients(studentDoc)) await notify(uid, notifyPayload);
+    }
+
+    return { alertCreated: true, alertLevel };
+  },
+
+  /** Fetch all observations for a student (append-only history) */
+  listForStudent: async (studentId: string): Promise<MilestoneObservationDoc[]> => {
+    const snap = await getDocs(
+      query(
+        collection(db, "milestoneObservations"),
+        where("studentId", "==", studentId),
+        orderBy("observedAt", "desc"),
+        limit(50)
+      )
+    );
+    return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<MilestoneObservationDoc, "id">) }));
+  },
+};
+
 
 export function studentAge(dob?: string | null): number | null {
   if (!dob) return null;

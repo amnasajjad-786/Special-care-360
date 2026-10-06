@@ -9,6 +9,8 @@ import OverviewTab from "@/components/students/OverviewTab";
 import MedicalTab from "@/components/students/MedicalTab";
 import CarePlanTab from "@/components/students/CarePlanTab";
 import EmergencyTab from "@/components/students/EmergencyTab";
+import RegressionAlertsBanner from "@/components/students/RegressionAlertsBanner";
+import MilestoneObservationPanel from "@/components/students/MilestoneObservationPanel";
 import toast from "react-hot-toast";
 import { User, Heart, Target, AlertTriangle } from "lucide-react";
 
@@ -178,7 +180,20 @@ export default function StudentsPage() {
                   )}
                   {activeTab === "Care Plan" && (
                     carePlan
-                      ? <CarePlanTab studentId={selectedStudent.id} carePlan={carePlan} canEdit={canEditCarePlan} onChange={setCarePlan} />
+                      ? <>
+                          <CarePlanTab studentId={selectedStudent.id} carePlan={carePlan} canEdit={canEditCarePlan} onChange={setCarePlan} />
+                          {/* Teacher milestone observation panel — separate from care plan editing */}
+                          {profile?.role === "teacher" && profile?.centerId && (
+                            <div style={{ marginTop: "24px" }}>
+                              <MilestoneObservationPanel
+                                studentId={selectedStudent.id}
+                                studentName={selectedStudent.name}
+                                centerId={profile.centerId}
+                                carePlan={carePlan}
+                              />
+                            </div>
+                          )}
+                        </>
                       : <div className="glass-card" style={{ padding: "40px", textAlign: "center" }}>
                           <div className="skeleton" style={{ height: "200px", borderRadius: "12px" }} />
                         </div>
