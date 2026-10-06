@@ -190,7 +190,12 @@ export default function StudentsPage() {
                     carePlan
                       ? (
                           profile?.role === "teacher"
-                            ? <TeacherCarePlanTab studentName={selectedStudent.name} carePlan={carePlan} />
+                            ? <TeacherCarePlanTab
+                                studentId={selectedStudent.id}
+                                studentName={selectedStudent.name}
+                                centerId={profile?.centerId || ""}
+                                carePlan={carePlan}
+                              />
                             : <CarePlanTab studentId={selectedStudent.id} carePlan={carePlan} canEdit={canEditCarePlan} onChange={setCarePlan} />
                         )
                       : <div className="glass-card" style={{ padding: "40px", textAlign: "center" }}>
