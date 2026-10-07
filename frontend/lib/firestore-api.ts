@@ -507,6 +507,18 @@ export const milestoneObservationsDb = {
       ? `Achieved / Mastered${previouslyMastered.achievedAt ? ` (${new Date(previouslyMastered.achievedAt).toLocaleDateString()})` : ""}`
       : "No Prior Mastery";
 
+    // ── Status → Skill Score mapping ─────────────────────────────────────────
+    // IEP mastered baseline = 100%. Teacher log maps to:
+    //   Maintaining Mastery (Achieved)       → 100%
+    //   Improving / Developing (In Progress) → 60%
+    //   Skill Loss / Declining (Failed)      → 20%
+    const statusToScore = (s: MilestoneObservationStatus): number =>
+      s === "Achieved" ? 100 : s === "In Progress" ? 60 : 20;
+    const previousScore = 100;
+    const currentScore = statusToScore(observation.observedStatus);
+    const declineAmount = previousScore - currentScore;
+
+
     // ── 3. Rule: No previous mastery → normal progress history, no alert ─────
     if (!previouslyMastered) {
       return {
@@ -560,13 +572,14 @@ export const milestoneObservationsDb = {
       )
     );
 
-    const reasonText = `Skill previously achieved on ${
-      previouslyMastered.achievedAt
-        ? new Date(previouslyMastered.achievedAt).toLocaleDateString()
-        : "an earlier date"
-    }. Teacher logged "${observation.observedStatus}" ${
-      totalDeclineCount >= 2 ? `(${totalDeclineCount} repeated declines observed)` : "(first decline observed - Monitoring)"
-    }.`;
+    const masteryDateStr = previouslyMastered.achievedAt
+      ? new Date(previouslyMastered.achievedAt).toLocaleDateString()
+      : "an earlier date";
+    const reasonText = `Current performance is below the student's previously mastered level. Skill mastered on ${masteryDateStr}. Previous Mastered Level: ${previousScore}% → Current Teacher Log: ${currentScore}% (↓${declineAmount}%). ${
+      totalDeclineCount >= 2
+        ? `${totalDeclineCount} repeated declines observed — Regression Warning triggered.`
+        : "First decline observed — flagged for Monitoring (one-time outlier)."
+    }`;
 
     if (!existingSnap.empty) {
       const existing = existingSnap.docs[0];
@@ -576,6 +589,8 @@ export const milestoneObservationsDb = {
         await updateDoc(doc(db, "regressionAlerts", existing.id), {
           alertLevel: "Regression Warning",
           currentObservationStatus: observation.observedStatus,
+          currentProgress: currentScore,
+          decline: declineAmount,
           reason: reasonText,
           updatedAt: serverTimestamp(),
         });
@@ -583,7 +598,7 @@ export const milestoneObservationsDb = {
         const notifyPayload = {
           type: "regression_warning",
           title: `⚠️ Regression Warning — ${observation.studentName}`,
-          message: `Skill "${observation.goalTitle}" regressed. Teacher observed: "${observation.observedStatus}". ${totalDeclineCount} confirmed declines recorded.`,
+          message: `Skill "${observation.goalTitle}" regressed. Previous: ${previousScore}% → Current: ${currentScore}% (↓${declineAmount}%). ${totalDeclineCount} confirmed declines.`,
           studentId: observation.studentId,
           goalId: observation.goalId,
           alertLevel: "Regression Warning",
@@ -617,9 +632,9 @@ export const milestoneObservationsDb = {
       goalTitle: observation.goalTitle,
       milestoneId: observation.milestoneId ?? null,
       milestoneDescription: observation.milestoneDescription ?? null,
-      previousProgress: 100,
-      currentProgress: 0,
-      decline: 100,
+      previousProgress: previousScore,
+      currentProgress: currentScore,
+      decline: declineAmount,
       alertLevel,
       previousMasteryDate: previouslyMastered.achievedAt ?? null,
       currentObservationStatus: observation.observedStatus,
@@ -638,7 +653,7 @@ export const milestoneObservationsDb = {
       const notifyPayload = {
         type: "regression_warning",
         title: `⚠️ Regression Warning — ${observation.studentName}`,
-        message: `Skill "${observation.goalTitle}" regressed. Teacher observed: "${observation.observedStatus}". ${totalDeclineCount} repeated declines recorded.`,
+        message: `Skill "${observation.goalTitle}" regressed. Previous: ${previousScore}% → Current: ${currentScore}% (↓${declineAmount}%). ${totalDeclineCount} repeated declines recorded.`,
         studentId: observation.studentId,
         goalId: observation.goalId,
         alertLevel,
