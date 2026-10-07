@@ -61,3 +61,26 @@ export const authApi = {
   createProfile: (data: Record<string, unknown>) => api.post("/api/auth/profile", data),
   getMe:         () => api.get("/api/auth/me"),
 };
+
+export const therapyTimelineApi = {
+  listSessions: (params?: Record<string, string | undefined>) =>
+    api.get("/api/therapy-timeline/sessions", { params }),
+  getSession: (id: string) =>
+    api.get(`/api/therapy-timeline/sessions/${id}`),
+  createSession: (data: Record<string, unknown>) =>
+    api.post("/api/therapy-timeline/sessions", data),
+  updateSession: (id: string, data: Record<string, unknown>) =>
+    api.put(`/api/therapy-timeline/sessions/${id}`, data),
+  deleteSession: (id: string) =>
+    api.delete(`/api/therapy-timeline/sessions/${id}`),
+  checkConflict: (data: {
+    centerId: string;
+    therapistId: string;
+    studentId: string;
+    date: string;
+    startTime: string;
+    endTime: string;
+    excludeSessionId?: string;
+  }) => api.post("/api/therapy-timeline/check-conflict", data),
+};
+

@@ -379,5 +379,26 @@ service cloud.firestore {
       allow update: if false;
       allow delete: if false;
     }
+
+
+    // ── Dynamic Therapy Timeline ─────────────────────────────────────────────
+    // therapySessions: created by staff (admin/therapist/teacher), read by staff + parent
+    // Parent can read ONLY their child's sessions (parentId == their uid).
+    match /therapySessions/{sessionId} {
+      allow read:   if (isStaff() && inMyCenter())
+                    || (isParent() && isMyChildRecord());
+      allow create: if (isAdmin() || isTherapist() || isTeacher())
+                    && writingMyCenter();
+      allow update: if (
+                      (isAdmin() && inMyCenter() && writingMyCenter())
+                      || (isTherapist() && inMyCenter() && writingMyCenter() && (resource.data.therapistId == request.auth.uid || resource.data.createdBy == request.auth.uid))
+                      || (isTeacher() && inMyCenter() && writingMyCenter() && resource.data.createdBy == request.auth.uid)
+                    );
+      allow delete: if (
+                      (isAdmin() && inMyCenter())
+                      || (isTherapist() && inMyCenter() && (resource.data.therapistId == request.auth.uid || resource.data.createdBy == request.auth.uid))
+                    );
+    }
   }
 }
+

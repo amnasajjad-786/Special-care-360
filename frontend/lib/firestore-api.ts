@@ -394,8 +394,11 @@ export interface RegressionAlertDoc {
   triggeredBy?: "milestone_log" | "care_plan_update";
   previousMasteryDate?: string;
   currentObservationStatus?: string;
+  observedBy?: string;
+  observedByName?: string;
   reason?: string;
 }
+
 
 export const regressionDb = {
   /** Fetch all unresolved regression alerts for a centre (therapist/admin dashboard) */

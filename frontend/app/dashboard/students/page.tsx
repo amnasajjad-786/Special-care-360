@@ -12,9 +12,10 @@ import TeacherCarePlanTab from "@/components/students/TeacherCarePlanTab";
 import EmergencyTab from "@/components/students/EmergencyTab";
 import RegressionAlertsBanner from "@/components/students/RegressionAlertsBanner";
 import toast from "react-hot-toast";
-import { User, Heart, Target, AlertTriangle } from "lucide-react";
+import { User, Heart, Target, AlertTriangle, Calendar } from "lucide-react";
+import TherapyTimelineTab from "@/components/students/TherapyTimelineTab";
 
-const TABS = ["Overview", "Medical", "Care Plan", "Emergency"];
+const TABS = ["Overview", "Medical", "Care Plan", "Emergency", "Therapy Timeline"];
 
 
 export default function StudentsPage() {
@@ -164,6 +165,7 @@ export default function StudentsPage() {
                         {tab === "Medical" && <Heart size={15} />}
                         {tab === "Care Plan" && <Target size={15} />}
                         {tab === "Emergency" && <AlertTriangle size={15} />}
+                        {tab === "Therapy Timeline" && <Calendar size={15} />}
                         <span>{tab}</span>
                       </span>
                     </button>
@@ -208,6 +210,12 @@ export default function StudentsPage() {
                       studentName={selectedStudent.name}
                       medical={medical}
                       canEdit={canEdit}
+                    />
+                  )}
+                  {activeTab === "Therapy Timeline" && (
+                    <TherapyTimelineTab
+                      studentId={selectedStudent.id}
+                      studentName={selectedStudent.name}
                     />
                   )}
                 </>
