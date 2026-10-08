@@ -687,7 +687,9 @@ export default function IEPBuilderPage() {
                     onClick={handleGenerateIEP}
                     disabled={isGenerating || loadingStudentData}
                     style={{
-                      background: "linear-gradient(135deg, var(--accent-purple), var(--primary))",
+                      background: "#e6edf5",
+                      color: "var(--primary-dark)",
+                      border: "1px solid var(--accent-teal)",
                       display: "flex",
                       alignItems: "center",
                       gap: "8px",
