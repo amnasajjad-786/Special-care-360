@@ -138,7 +138,7 @@ service cloud.firestore {
       allow read: if approved() && resource.data.recipientId == request.auth.uid;
       allow create: if staff() && linked(request.resource.data)
         && request.resource.data.senderId == request.auth.uid
-        && request.resource.data.type in ['daily_journal','behavior_incident','medical_update','care_plan_update','iep_finalized','teletherapy_session','home_plan_activity']
+        && request.resource.data.type in ['daily_journal','behavior_incident','medical_update','care_plan_update','iep_finalized','teletherapy_session','home_plan_activity','therapy_session_scheduled','therapy_session_cancelled','therapy_session_rescheduled']
         && (request.resource.data.recipientId == student(request.resource.data.studentId).parentId
           || request.resource.data.recipientId == student(request.resource.data.studentId).teacherId
           || request.resource.data.recipientId in student(request.resource.data.studentId).therapistIds);
@@ -205,6 +205,13 @@ service cloud.firestore {
     }
     match /regressionState/{id} {
       allow read, write: if false;
+    }
+    // Timeline retains centre-wide staff scheduling and linked parent access.
+    match /therapySessions/{sessionId} {
+      allow read: if (staff() && center(resource.data)) || (role('parent') && center(resource.data) && resource.data.parentId == request.auth.uid);
+      allow create: if staff() && linked(request.resource.data) && request.resource.data.createdBy == request.auth.uid;
+      allow update: if center(resource.data) && linked(request.resource.data) && unchangedLink() && (admin() || (role('therapist') && (resource.data.therapistId == request.auth.uid || resource.data.createdBy == request.auth.uid)) || (role('teacher') && resource.data.createdBy == request.auth.uid));
+      allow delete: if center(resource.data) && (admin() || (role('therapist') && (resource.data.therapistId == request.auth.uid || resource.data.createdBy == request.auth.uid)));
     }
   }
 }

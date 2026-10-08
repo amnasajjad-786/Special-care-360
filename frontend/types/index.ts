@@ -192,3 +192,64 @@ export interface PanicAlert {
   resolvedAt: string | null;
   resolvedBy: string | null;
 }
+
+// ─── Dynamic Therapy Timeline ──────────────────────────────────────────────
+
+export type TherapySessionStatus =
+  | "Scheduled"
+  | "Completed"
+  | "Cancelled"
+  | "Rescheduled"
+  | "No Show"
+  | "scheduled"
+  | "completed"
+  | "cancelled"
+  | "rescheduled"
+  | "no-show";
+
+export type TherapyType =
+  | "Speech Therapy"
+  | "Physiotherapy"
+  | "Occupational Therapy"
+  | "Behavioral Therapy"
+  | "Special Education"
+  | "Psychology Session"
+  | "Other";
+
+export type SessionType =
+  | "In-Person"
+  | "Tele-Therapy"
+  | "Home Session"
+  | "in-person"
+  | "tele-therapy"
+  | "home-session"
+  | "group";
+
+export interface TherapySession {
+  id: string;
+  centerId: string;
+  studentId: string;
+  studentName: string;
+  therapistId: string;
+  therapistName: string;
+  therapyType: TherapyType | string;
+  date: string;              // YYYY-MM-DD
+  startTime: string;         // HH:mm (24h)
+  endTime: string;           // HH:mm (24h)
+  startDateTime: string;     // ISO 8601
+  endDateTime: string;       // ISO 8601
+  location: string;
+  sessionType: SessionType | string;
+  notes?: string;
+  status: TherapySessionStatus;
+  parentId?: string | null;
+  teletherapySessionId?: string | null;
+  repeatRule?: string;       // e.g. "none" | "daily" | "weekly" | "biweekly"
+  title?: string;
+  durationMinutes?: number;
+  scheduledAt?: string;      // Backwards compatibility alias for startDateTime
+  goals?: string[];
+  createdBy: string;
+  createdAt?: string | unknown;
+  updatedAt?: string | unknown;
+}

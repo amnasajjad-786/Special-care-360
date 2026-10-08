@@ -16,7 +16,7 @@ const STATUS_STYLES: Record<string, string> = {
 interface Props { studentId: string; carePlan: CarePlan; canEdit: boolean; onChange?: (data: CarePlan) => void; }
 
 export default function CarePlanTab({ studentId, carePlan: initial, canEdit, onChange }: Props) {
-  const [goals, setGoals] = useState<IEPGoal[]>(initial?.goals || []);
+  const [goals, setGoals] = useState<IEPGoal[]>((initial?.goals || []).filter(goal => goal.status !== "Achieved"));
   const [version, setVersion] = useState(initial?.version ?? 0);
 
   const [saving, setSaving] = useState(false);

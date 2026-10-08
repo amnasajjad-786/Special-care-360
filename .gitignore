@@ -33,3 +33,5 @@ Thumbs.db
 # ─── Misc ─────────────────────────────────────────────────────────────────────
 *.log
 *.pid
+REGRESSION_ALERT_ISSUES_AND_FIXES.md
+REGRESSION_ALERT_ISSUES_SIMPLE.txt

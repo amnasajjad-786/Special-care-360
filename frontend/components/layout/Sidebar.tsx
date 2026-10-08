@@ -8,7 +8,7 @@ import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import toast from "react-hot-toast";
 import { useSidebar } from "@/app/dashboard/layout";
-import { Users, BookOpen, Brain, Bell, Key, AlertTriangle, LogOut, Receipt, Video, Home } from "lucide-react";
+import { Users, BookOpen, Brain, Bell, Key, AlertTriangle, LogOut, Receipt, Video, Home, Calendar } from "lucide-react";
 
 interface NavItem {
   href: string;
@@ -22,6 +22,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/iep-builder", icon: Brain, label: "IEP Builder", roles: ["admin","teacher","therapist","parent"] },
   { href: "/dashboard/daily-care",  icon: BookOpen, label: "Daily Care",  roles: ["admin","teacher","parent"] },
   { href: "/dashboard/abc-tracker", icon: Brain, label: "ABC Tracker", roles: ["admin","teacher","therapist","parent"] },
+  { href: "/dashboard/therapy-timeline", icon: Calendar, label: "Dynamic Therapy Timeline", roles: ["admin","teacher","therapist","parent"] },
   { href: "/dashboard/teletherapy", icon: Video, label: "Teletherapy",  roles: ["admin","therapist","teacher","parent"] },
   { href: "/dashboard/home-plan",   icon: Home, label: "Home Plan",    roles: ["admin","therapist","teacher","parent"] },
   { href: "/dashboard/fees",        icon: Receipt, label: "Fees & Billing", roles: ["parent"] },

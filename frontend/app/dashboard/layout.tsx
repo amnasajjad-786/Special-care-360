@@ -25,10 +25,10 @@ export const useSidebar = () => useContext(SidebarContext);
 // gates the route, that list gates the link. A path in one and not the other
 // either hides a reachable page or offers a link that bounces.
 const ROLE_PATHS: Record<string, string[]> = {
-  admin:     ["/dashboard/admin", "/dashboard/iep-builder", "/dashboard/students", "/dashboard/daily-care", "/dashboard/abc-tracker", "/dashboard/panic", "/dashboard/teletherapy", "/dashboard/home-plan"],
-  teacher:   ["/dashboard/students", "/dashboard/iep-builder", "/dashboard/daily-care", "/dashboard/abc-tracker", "/dashboard/panic", "/dashboard/teletherapy", "/dashboard/home-plan"],
-  therapist: ["/dashboard/students", "/dashboard/iep-builder", "/dashboard/abc-tracker", "/dashboard/panic", "/dashboard/teletherapy", "/dashboard/home-plan"],
-  parent:    ["/dashboard/students", "/dashboard/iep-builder", "/dashboard/daily-care", "/dashboard/abc-tracker", "/dashboard/fees", "/dashboard/teletherapy", "/dashboard/home-plan"],
+  admin:     ["/dashboard/admin", "/dashboard/iep-builder", "/dashboard/students", "/dashboard/daily-care", "/dashboard/abc-tracker", "/dashboard/panic", "/dashboard/teletherapy", "/dashboard/home-plan", "/dashboard/therapy-timeline", "/dashboard/calendar"],
+  teacher:   ["/dashboard/students", "/dashboard/iep-builder", "/dashboard/daily-care", "/dashboard/abc-tracker", "/dashboard/panic", "/dashboard/teletherapy", "/dashboard/home-plan", "/dashboard/therapy-timeline", "/dashboard/calendar"],
+  therapist: ["/dashboard/students", "/dashboard/iep-builder", "/dashboard/abc-tracker", "/dashboard/panic", "/dashboard/teletherapy", "/dashboard/home-plan", "/dashboard/therapy-timeline", "/dashboard/calendar"],
+  parent:    ["/dashboard/students", "/dashboard/iep-builder", "/dashboard/daily-care", "/dashboard/abc-tracker", "/dashboard/fees", "/dashboard/teletherapy", "/dashboard/home-plan", "/dashboard/therapy-timeline", "/dashboard/calendar"],
 };
 
 export default function DashboardLayout({

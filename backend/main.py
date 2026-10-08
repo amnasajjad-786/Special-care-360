@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from firebase_admin_init import init_firebase, is_placeholder_mode
 from medication_monitor import check_missed_medication_doses
 from panic_delivery import process_pending_alerts, process_pending_emails
-from routers import auth, students, daily_care, abc_tracker, panic, ai_insights, teletherapy, regression
+from routers import auth, students, daily_care, abc_tracker, panic, ai_insights, teletherapy, regression, therapy_sessions, therapy_timeline
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -106,6 +106,8 @@ app.include_router(panic.router)
 app.include_router(ai_insights.router)
 app.include_router(teletherapy.router)
 app.include_router(regression.router)
+app.include_router(therapy_sessions.router)
+app.include_router(therapy_timeline.router)
 
 
 @app.get("/")

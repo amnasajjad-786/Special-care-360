@@ -152,7 +152,7 @@ export default function TeacherCarePlanTab({
       }));
 
       if (result.alertCreated && result.alertLevel === "Regression Warning") {
-        toast("Regression warning sent to assigned therapists.", {
+        toast("⚠️ Regression warning sent to assigned therapists.", {
           style: { background: "#fef2f2", color: "#991b1b", border: "1px solid #fca5a5" },
         });
       } else if (result.alertLevel === "Monitoring") {
