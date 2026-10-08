@@ -14,10 +14,25 @@ router = APIRouter(prefix="/ai-insights", tags=["AI Insights"])
 
 async def request_cohere(url, headers, payload):
     # Awaited networking leaves the event loop available for safety requests.
-    async with httpx.AsyncClient(timeout=httpx.Timeout(20, connect=5)) as client:
-        response = await client.post(url, headers=headers, json=payload)
-        response.raise_for_status()
-        return response.json()
+    # Full structured plans can take longer than a short chat response.
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10)) as client:
+            response = await client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            return response.json()
+    except httpx.TimeoutException:
+        raise RuntimeError("The AI service timed out. Please retry or add a manual goal.") from None
+    except httpx.HTTPStatusError as err:
+        status = err.response.status_code
+        if status in (401, 403):
+            message = "The AI service rejected its API credentials. Ask your administrator to check the Cohere key."
+        elif status == 429:
+            message = "The AI service usage limit was reached. Wait and retry, or check your Cohere quota."
+        else:
+            message = f"The AI service returned an error (status {status}). Please retry or add a manual goal."
+        raise RuntimeError(message) from None
+    except httpx.RequestError:
+        raise RuntimeError("The backend could not reach the AI service. Check its internet connection and retry.") from None
 
 
 def authorize_iep_student(current_user: dict, student_data: dict) -> None:
