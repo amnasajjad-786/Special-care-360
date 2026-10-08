@@ -170,7 +170,8 @@ export const therapyTimelineDb = {
     return onSnapshot(
       query(
         collection(db, "therapySessions"),
-        scopeFilter(scope)
+        scopeFilter(scope),
+        ...(scope.role === "parent" ? [where("centerId", "==", scope.centerId)] : [])
       ),
       (snap) => {
         const list = snap.docs.map((d) => {
@@ -217,6 +218,7 @@ export const therapyTimelineDb = {
     }
   ): Promise<TherapySession[]> => {
     const constraints: QueryConstraint[] = [scopeFilter(scope)];
+    if (scope.role === "parent") constraints.push(where("centerId", "==", scope.centerId));
     if (filters?.studentId) constraints.push(where("studentId", "==", filters.studentId));
     if (filters?.therapistId) constraints.push(where("therapistId", "==", filters.therapistId));
     if (filters?.therapyType) constraints.push(where("therapyType", "==", filters.therapyType));

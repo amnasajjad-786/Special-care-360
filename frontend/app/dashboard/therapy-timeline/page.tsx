@@ -29,6 +29,7 @@ export default function DynamicTherapyTimelinePage() {
   const [staffList, setStaffList] = useState<StaffOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  const [loadErrorMessage, setLoadErrorMessage] = useState("");
 
   // Calendar View State: Default is Week View
   const [viewMode, setViewMode] = useState<ViewMode>("week");
@@ -62,11 +63,18 @@ export default function DynamicTherapyTimelinePage() {
       scope,
       (data) => {
         setSessions(data);
+        setLoadError(false);
         setLoading(false);
       },
       (err) => {
         console.error("Therapy timeline subscription error:", err);
         setLoadError(true);
+        const code = (err as { code?: string }).code;
+        setLoadErrorMessage(code === "permission-denied"
+          ? "Access to the therapy calendar was denied. The centre administrator must check the deployed Firestore rules and your account permissions."
+          : code === "failed-precondition"
+            ? "The therapy calendar needs a Firestore index. Ask your administrator to deploy the project indexes."
+            : "The therapy calendar could not load. Check your connection and retry.");
         setLoading(false);
         toast.error("Failed to load therapy sessions.");
       }
@@ -351,7 +359,7 @@ export default function DynamicTherapyTimelinePage() {
         >
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <AlertCircle size={20} />
-            <span>Could not connect to therapy sessions database.</span>
+            <span>{loadErrorMessage}</span>
           </div>
           <button
             onClick={() => window.location.reload()}
