@@ -21,6 +21,8 @@ function timeAgo(ts: string) {
 export default function AlertsPage() {
   const { profile } = useAuth();
   const [alerts, setAlerts] = useState<PanicAlert[]>([]);
+  const [loadError, setLoadError] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [studentNames, setStudentNames] = useState<Record<string, string>>({});
   const [resolving, setResolving] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | "active" | "resolved">("all");
@@ -46,14 +48,20 @@ export default function AlertsPage() {
         orderBy("timestamp", "desc")
       );
       const unsub = onSnapshot(q, (snap) => {
+        setLoadError(false);
+        setLoading(false);
         setAlerts(snap.docs.map(d => ({ id: d.id, ...d.data() } as PanicAlert)));
       }, (err) => {
         console.error("Failed to load alerts:", err);
+        setLoadError(true);
+        setLoading(false);
         toast.error("Failed to load alerts");
       });
       return unsub;
     } catch (err) {
       console.error(err);
+      setLoadError(true);
+      setLoading(false);
     }
   }, [profile]);
 
@@ -113,11 +121,11 @@ export default function AlertsPage() {
       </div>
 
       {/* Alert cards */}
-      {filtered.length === 0 ? (
+      {loadError ? <div role="alert" className="glass-card" style={{ padding: 24, color: "var(--danger)" }}>Emergency monitoring is unavailable. Alert status is unknown. Contact staff directly and restore the connection.</div> : loading ? <p>Connecting to emergency monitoring…</p> : filtered.length === 0 ? (
         <div className="glass-card" style={{ padding: "60px", textAlign: "center" }}>
           <div style={{ display: "flex", justifyContent: "center", color: "var(--success)", marginBottom: "16px" }}><CheckCircle size={52} /></div>
           <h2 style={{ margin: 0, color: "var(--primary-dark)" }}>No {filter !== "all" ? filter : ""} alerts</h2>
-          <p style={{ color: "var(--text-secondary)", marginTop: "8px" }}>Everything is calm right now.</p>
+          <p style={{ color: "var(--text-secondary)", marginTop: "8px" }}>No matching recorded alerts.</p>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>

@@ -5,6 +5,8 @@ import { useAuth } from "@/lib/auth-context";
 import { panicDb, studentsDb, scopeOf } from "@/lib/firestore-api";
 import toast from "react-hot-toast";
 import { AlertOctagon, AlertTriangle } from "lucide-react";
+import { doc, onSnapshot } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 
 const EMERGENCY_TYPES = ["Seizure", "Severe Meltdown", "Self-Injury", "Aggressive Behavior", "Medical Emergency", "Other"];
@@ -28,6 +30,17 @@ export default function PanicPage() {
   const [location, setLocation] = useState("");
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  const [alertId, setAlertId] = useState("");
+  const [deliveryStatus, setDeliveryStatus] = useState("pending");
+  const [recordConfirmed, setRecordConfirmed] = useState(false);
+
+  useEffect(() => {
+    if (!alertId) return;
+    return onSnapshot(doc(db, "panicAlerts", alertId), snapshot => {
+      setRecordConfirmed(snapshot.exists() && !snapshot.metadata.hasPendingWrites);
+      setDeliveryStatus(snapshot.data()?.deliveryStatus ?? "pending");
+    }, () => setDeliveryStatus("unknown"));
+  }, [alertId]);
   const [searchQuery, setSearchQuery] = useState("");
 
   const filteredStudents = students.filter(s =>
@@ -52,7 +65,7 @@ export default function PanicPage() {
     if (!emergencyType || !location) { toast.error("Please complete all fields"); return; }
     setSending(true);
     try {
-      await panicDb.sendAlert({
+      const result = await panicDb.sendAlert({
         studentId,
         centerId: profile?.centerId ?? "center-001",
         reportedBy: { uid: profile?.uid || "unknown", name: profile?.name || "Staff" },
@@ -60,15 +73,18 @@ export default function PanicPage() {
         description,
         location,
       }, getIdToken);
+      setAlertId(result.id);
+      setDeliveryStatus(result.deliveryStatus);
+      setRecordConfirmed(result.recorded);
       setSent(true);
-      toast.error("Panic alert sent to all admins!", { 
+      toast.error(result.deliveryStatus === "delivered" ? "Emergency notifications delivered." : result.recorded ? "Alert recorded. Delivery pending — contact staff directly." : "Alert not confirmed — contact staff directly now.", {
         duration: 5000, 
         style: { background: "rgba(229,62,62,0.95)", color: "white", border: "none" },
         icon: <AlertTriangle size={18} style={{ color: "white" }} />
       });
     } catch (err) {
       console.error(err);
-      toast.error("Failed to send alert. Please try again.");
+      toast.error("Alert could not be confirmed. Contact staff directly now.");
     }
     setSending(false);
   };
@@ -80,9 +96,9 @@ export default function PanicPage() {
           <div style={{ display: "flex", justifyContent: "center", color: "var(--danger)", marginBottom: "20px" }}>
             <AlertOctagon size={72} />
           </div>
-          <h2 style={{ margin: 0, fontSize: "1.6rem", fontWeight: 800, color: "var(--danger)" }}>Alert Sent!</h2>
+          <h2 style={{ margin: 0, fontSize: "1.6rem", fontWeight: 800, color: "var(--danger)" }}>{deliveryStatus === "delivered" ? "Notifications Delivered" : recordConfirmed ? "Alert Recorded — Delivery Unconfirmed" : "Alert Not Confirmed"}</h2>
           <p style={{ margin: "12px 0 0", color: "var(--text-secondary)", lineHeight: 1.6, fontSize: "0.95rem" }}>
-            All admins have been notified. Stay with the student and follow the emergency protocol.
+            {deliveryStatus === "delivered" ? "In-app emergency notifications were delivered. Staff response is not yet confirmed. Stay with the student and follow the emergency protocol." : "Notification delivery is pending or unavailable. Contact staff directly now. Stay with the student and follow the emergency protocol."}
           </p>
           <div style={{ marginTop: "24px", padding: "16px", background: "rgba(229,62,62,0.06)", borderRadius: "12px", border: "1px solid rgba(229,62,62,0.2)", textAlign: "left" }}>
             <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--danger)", marginBottom: "8px", textTransform: "uppercase" }}>Alert Summary</div>
@@ -94,7 +110,7 @@ export default function PanicPage() {
             </div>
           </div>
           <div style={{ display: "flex", gap: "12px", marginTop: "24px" }}>
-            <button className="btn-ghost" onClick={() => { setSent(false); setStep(1); setEmergencyType(""); setDescription(""); setLocation(""); }} style={{ flex: 1 }}>Send Another</button>
+            <button className="btn-ghost" onClick={() => { setSent(false); setAlertId(""); setDeliveryStatus("pending"); setStep(1); setEmergencyType(""); setDescription(""); setLocation(""); }} style={{ flex: 1 }}>Send Another</button>
             <button className="btn-primary" onClick={() => router.push("/dashboard/students")} style={{ flex: 1 }}>Back to Dashboard</button>
           </div>
         </div>
@@ -109,7 +125,7 @@ export default function PanicPage() {
         <span style={{ display: "inline-flex", color: "var(--danger)" }}><AlertTriangle size={24} /></span>
         <div>
           <div style={{ fontWeight: 700, color: "var(--danger)", fontSize: "0.92rem" }}>Emergency Use Only</div>
-          <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>Sending a panic alert immediately notifies all center admins.</div>
+          <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>Records an emergency request and attempts immediate notification delivery.</div>
         </div>
       </div>
 

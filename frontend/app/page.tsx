@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import toast from "react-hot-toast";
 
-import { Users, GraduationCap, Brain, Shield, Lock } from "lucide-react";
+import { Users, GraduationCap, Brain, Shield, Lock, Eye, EyeOff } from "lucide-react";
 
 const ROLES = [
   { id: "parent",    label: "Parent Login",    icon: Users, desc: "View your child's progress" },
@@ -30,6 +30,7 @@ export default function LoginPage() {
   const [regName, setRegName] = useState("");
   const [regEmail, setRegEmail] = useState("");
   const [regPassword, setRegPassword] = useState("");
+  const [showRegPassword, setShowRegPassword] = useState(false);
   const [regRole, setRegRole] = useState("teacher");
   const [regCenterId, setRegCenterId] = useState("center-001");
 
@@ -448,8 +449,13 @@ export default function LoginPage() {
                 { id: "reg-centerid", label: "Center ID", val: regCenterId, setter: setRegCenterId, type: "text", placeholder: "center-001" },
               ].map(({ id, label, val, setter, type, placeholder }) => (
                 <div key={id}>
-                  <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "5px" }}>{label}</label>
-                  <input id={id} type={type} className="glass-input" value={val} onChange={(e) => setter(e.target.value)} placeholder={placeholder} required />
+                  <label htmlFor={id} style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "5px" }}>{label}</label>
+                  <div style={{ position: "relative" }}>
+                    <input id={id} type={id === "reg-password" && showRegPassword ? "text" : type} className="glass-input" value={val} onChange={(e) => setter(e.target.value)} placeholder={placeholder} required autoComplete={id === "reg-password" ? "new-password" : undefined} style={id === "reg-password" ? { paddingRight: 48 } : undefined} />
+                    {id === "reg-password" && <button type="button" aria-label={showRegPassword ? "Hide password" : "Show password"} aria-pressed={showRegPassword} aria-controls="reg-password" onClick={() => setShowRegPassword(value => !value)} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", border: "none", background: "transparent", color: "var(--text-secondary)", cursor: "pointer", display: "flex", padding: 4 }}>
+                      {showRegPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                    </button>}
+                  </div>
                   {id === "reg-password" && (
                     <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", marginTop: "4px", paddingLeft: "4px", lineHeight: 1.3 }}>
                       Password requirements: At least 8 characters, 1 uppercase, 1 lowercase, 1 number, and 1 special character.

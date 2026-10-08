@@ -26,19 +26,21 @@ CONFIGURATION
     JAAS_PRIVATE_KEY_PATH path to the downloaded .pk file   (preferred)
     JAAS_PRIVATE_KEY      or the PEM inline, with \\n for newlines
 
-If these are unset the endpoint returns 503 and the frontend falls back to the
-plain meet.jit.si embed, which is fine for a click-through demo.
+If these are unset the endpoint returns 503. The frontend requires a signed
+grant and explains that the centre administrator must configure video calls.
 """
 
 import os
 import time
 import logging
+import hashlib
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from jose import jwt
 
 from firebase_admin_init import get_db
 from middleware.auth_middleware import get_current_user
+from middleware.student_access import authorize_student, valid_id
 
 router = APIRouter(prefix="/api/teletherapy", tags=["teletherapy"])
 
@@ -73,23 +75,17 @@ def jaas_config() -> dict | None:
 
 
 @router.get("/token")
-async def mint_jaas_token(
+def mint_jaas_token(
     sessionId: str = Query(..., description="teletherapySessions document id"),
     current_user: dict = Depends(get_current_user),
 ):
-    config = jaas_config()
-    if not config:
-        raise HTTPException(
-            status_code=503,
-            detail="JaaS is not configured on this server. Set JAAS_APP_ID, "
-                   "JAAS_API_KEY_ID and JAAS_PRIVATE_KEY_PATH.",
-        )
-
     db = get_db()
+    valid_id(sessionId)
     snap = db.collection("teletherapySessions").document(sessionId).get()
     if not snap.exists:
         raise HTTPException(status_code=404, detail="Session not found")
     session = snap.to_dict() or {}
+    authorize_student(session.get("studentId"), current_user, db)
 
     role = current_user.get("role", "")
     uid = current_user.get("uid", "")
@@ -100,6 +96,24 @@ async def mint_jaas_token(
 
     if not (is_staff_here or is_the_guardian):
         raise HTTPException(status_code=403, detail="Not a participant in this session")
+
+    # Explicit demo mode: authorize in-app access, then use public Jitsi.
+    # Jitsi itself does not enforce our participant list.
+    if os.getenv("TELETHERAPY_PROVIDER", "jaas").strip().lower() == "jitsi":
+        room_id = hashlib.sha256(
+            f"{session.get('centerId')}:{sessionId}:{session.get('roomName', '')}".encode()
+        ).hexdigest()
+        return {
+            "provider": "jitsi",
+            "token": None,
+            "room": f"sc360-{room_id}",
+            "domain": "meet.jit.si",
+            "moderator": role in ("therapist", "admin"),
+        }
+
+    config = jaas_config()
+    if not config:
+        raise HTTPException(503, "Secure video service is not configured")
 
     # The clinician runs the session; the guardian joins it.
     moderator = role in ("therapist", "admin")
@@ -145,6 +159,7 @@ async def mint_jaas_token(
         raise HTTPException(status_code=500, detail="Could not sign the video token")
 
     return {
+        "provider": "jaas",
         "token": token,
         "appId": config["app_id"],
         "room": "{}/{}".format(config["app_id"], room),

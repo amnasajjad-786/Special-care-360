@@ -1,5 +1,7 @@
 # ─── Frontend ─────────────────────────────────────────────────────────────────
 frontend/node_modules/
+qa/node_modules/
+qa/.firebase/
 frontend/.next/
 frontend/.env.local
 frontend/.env*.local
@@ -8,6 +10,9 @@ frontend/build/
 
 # ─── Backend ──────────────────────────────────────────────────────────────────
 backend/venv/
+backend/.venv/
+backend/*.pk
+backend/*.pem
 backend/__pycache__/
 backend/**/__pycache__/
 backend/*.pyc

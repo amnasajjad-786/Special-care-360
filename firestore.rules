@@ -1,367 +1,210 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // ── Helper functions ────────────────────────────────────────────────────
-    //
-    // Every rule below scopes access to the caller's own centre. The previous
-    // version only did this for /students, so an approved user at one centre
-    // could read journals, incidents and alerts belonging to every other
-    // centre in the database.
-    //
-    // A collection with no match block is denied by default, so any new
-    // collection must be added here before the client can touch it.
-
-    function isAuthenticated() {
-      return request.auth != null;
+    function authenticated() { return request.auth != null; }
+    function user() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function approved() { return authenticated() && user().status == 'approved' && user().uid == request.auth.uid; }
+    function role(r) { return approved() && user().role == r; }
+    function admin() { return role('admin'); }
+    function staff() { return role('admin') || role('teacher') || role('therapist'); }
+    function center(data) { return approved() && data.centerId == user().centerId; }
+    function student(id) { return get(/databases/$(database)/documents/students/$(id)).data; }
+    function visible(s) {
+      return center(s) && (admin() ||
+        (
+          (role('parent') && s.parentId == request.auth.uid) ||
+          (role('teacher') && s.teacherId == request.auth.uid) ||
+          (role('therapist') && request.auth.uid in s.therapistIds)));
+    }
+    function child(id) { return id is string && visible(student(id)); }
+    function activeChild(id) { return child(id) && !('archivedAt' in student(id)); }
+    function record(data) { return (admin() && center(data)) || child(data.studentId); }
+    function linked(data) {
+      let s = student(data.studentId);
+      return child(data.studentId) && !('archivedAt' in s) && data.centerId == s.centerId && data.parentId == s.parentId;
+    }
+    function unchangedLink() {
+      return request.resource.data.studentId == resource.data.studentId
+        && request.resource.data.centerId == resource.data.centerId
+        && request.resource.data.parentId == resource.data.parentId;
+    }
+    function member(uid, r, cid) {
+      let p = get(/databases/$(database)/documents/users/$(uid)).data;
+      return uid is string && p.uid == uid && p.role == r && p.status == 'approved' && p.centerId == cid;
+    }
+    function assignments(s) {
+      return member(s.parentId, 'parent', s.centerId)
+        && (s.teacherId == '' || member(s.teacherId, 'teacher', s.centerId))
+        && s.therapistIds is list && s.therapistIds.size() <= 4
+        && (s.therapistIds.size() < 1 || member(s.therapistIds[0], 'therapist', s.centerId))
+        && (s.therapistIds.size() < 2 || member(s.therapistIds[1], 'therapist', s.centerId))
+        && (s.therapistIds.size() < 3 || member(s.therapistIds[2], 'therapist', s.centerId))
+        && (s.therapistIds.size() < 4 || member(s.therapistIds[3], 'therapist', s.centerId));
+    }
+    function activityLink(data) {
+      let a = get(/databases/$(database)/documents/homePlanActivities/$(data.activityId)).data;
+      return linked(data) && a.studentId == data.studentId && a.centerId == data.centerId && a.parentId == data.parentId;
     }
 
-    function userData() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
-    }
-
-    function getRole() {
-      return userData().role;
-    }
-
-    function getCenterId() {
-      return userData().centerId;
-    }
-
-    function isApproved() {
-      return userData().status == 'approved';
-    }
-
-    function isAdmin()     { return isAuthenticated() && isApproved() && getRole() == 'admin'; }
-    function isTeacher()   { return isAuthenticated() && isApproved() && getRole() == 'teacher'; }
-    function isTherapist() { return isAuthenticated() && isApproved() && getRole() == 'therapist'; }
-    function isParent()    { return isAuthenticated() && isApproved() && getRole() == 'parent'; }
-    function isStaff()     { return isAdmin() || isTeacher() || isTherapist(); }
-
-    // Records carry a denormalised centerId so that list queries can be
-    // authorised without a per-document lookup.
-    function inMyCenter()      { return resource.data.centerId == getCenterId(); }
-    function writingMyCenter() { return request.resource.data.centerId == getCenterId(); }
-
-    // Records visible to a guardian carry a denormalised parentId for the
-    // same reason.
-    function isMyChildRecord() { return resource.data.parentId == request.auth.uid; }
-
-    // Guardian check for student sub-documents, which have no parentId of
-    // their own. Only used on single-document reads.
-    function isParentOfStudent(studentId) {
-      return isParent()
-        && get(/databases/$(database)/documents/students/$(studentId)).data.parentId == request.auth.uid;
-    }
-
-    function isStaffOfStudentCenter(studentId) {
-      return isStaff()
-        && get(/databases/$(database)/documents/students/$(studentId)).data.centerId == getCenterId();
-    }
-
-    function doseParentMatchesStudent(studentId) {
-      let student = get(/databases/$(database)/documents/students/$(studentId)).data;
-      return ('parentId' in student && request.resource.data.parentId == student.parentId)
-        || (!('parentId' in student) && request.resource.data.parentId == null);
-    }
-
-    function recordMatchesStudent(studentId) {
-      let studentPath = /databases/$(database)/documents/students/$(studentId);
-      let student = get(studentPath).data;
-      return studentId is string
-        && exists(studentPath)
-        && request.resource.data.studentId == studentId
-        && request.resource.data.centerId == student.centerId
-        && (
-          ('parentId' in student && request.resource.data.parentId == student.parentId)
-          || (!('parentId' in student)
-              && (!('parentId' in request.resource.data) || request.resource.data.parentId == null))
-        );
-    }
-
-    function approvedParentInCenter(parentId, centerId) {
-      let parentPath = /databases/$(database)/documents/users/$(parentId);
-      return parentId is string
-        && exists(parentPath)
-        && get(parentPath).data.role == 'parent'
-        && get(parentPath).data.status == 'approved'
-        && get(parentPath).data.centerId == centerId;
-    }
-
-    function teletherapyHasApprovedStudentGuardian() {
-      let studentId = request.resource.data.studentId;
-      let studentPath = /databases/$(database)/documents/students/$(studentId);
-      let parentId = request.resource.data.parentId;
-      let parentPath = /databases/$(database)/documents/users/$(parentId);
-      return studentId is string
-        && parentId is string
-        && exists(studentPath)
-        && exists(parentPath)
-        && get(studentPath).data.centerId == request.resource.data.centerId
-        && get(studentPath).data.parentId == parentId
-        && get(parentPath).data.role == 'parent'
-        && get(parentPath).data.status == 'approved';
-    }
-
-
-    // ── Users ───────────────────────────────────────────────────────────────
-    match /users/{userId} {
-      allow read: if isAuthenticated()
-                  && (request.auth.uid == userId || (isAdmin() && inMyCenter()));
-
-      // A new account may only ever create its own profile, and only in the
-      // pending state. Without this, a registrant could write
-      // status:'approved' and skip the admin approval queue entirely.
-      allow create: if isAuthenticated()
-                    && request.auth.uid == userId
-                    && request.resource.data.status == 'pending'
-                    && request.resource.data.role in ['admin', 'teacher', 'therapist', 'parent'];
-
-      // Self-service edits must not touch the fields that grant authority.
-      // Previously any user could PATCH their own role to 'admin' and status
-      // to 'approved' straight from the browser console.
-      allow update: if isAuthenticated() && (
-                      (isAdmin() && request.resource.data.centerId == getCenterId())
-                      || (
-                        request.auth.uid == userId
-                        && request.resource.data.role     == resource.data.role
-                        && request.resource.data.status   == resource.data.status
-                        && request.resource.data.centerId == resource.data.centerId
-                      )
-                    );
-
-      allow delete: if isAdmin() && inMyCenter();
-    }
-
-
-    // ── Centers ─────────────────────────────────────────────────────────────
-    match /centers/{centerId} {
-      allow read: if isAuthenticated();
-      // Centres are provisioned out-of-band by backend/seed_firestore.py using
-      // the Admin SDK, which is not subject to these rules.
-      allow create: if isAdmin()
-                    && centerId == getCenterId()
-                    && request.resource.data.centerId == centerId;
-      allow update: if isAdmin()
-                    && centerId == getCenterId()
-                    && request.resource.data.centerId == centerId;
+    match /users/{uid} {
+      allow read: if authenticated() && (request.auth.uid == uid || (admin() && center(resource.data)));
+      allow create: if authenticated() && request.auth.uid == uid
+        && request.resource.data.uid == uid && request.resource.data.status == 'pending'
+        && request.resource.data.role in ['admin','teacher','therapist','parent']
+        && exists(/databases/$(database)/documents/centers/$(request.resource.data.centerId));
+      allow update: if request.resource.data.uid == uid && (
+        (admin() && center(resource.data) && center(request.resource.data)) ||
+        (authenticated() && request.auth.uid == uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name','photoUrl'])));
+      // Disabled profiles must survive: deleting them permits self-registration again.
       allow delete: if false;
     }
-
-
-    // ── Students ────────────────────────────────────────────────────────────
-    match /students/{studentId} {
-      allow read: if (isStaff() && inMyCenter())
-                  || (isParent() && isMyChildRecord());
-      allow create: if isAdmin()
-                    && writingMyCenter()
-                    && approvedParentInCenter(request.resource.data.parentId, getCenterId());
-      allow update: if (isAdmin() || isTherapist())
-                    && inMyCenter()
-                    && writingMyCenter()
-                    && approvedParentInCenter(request.resource.data.parentId, getCenterId());
-      allow delete: if isAdmin() && inMyCenter();
-
-      // Medical profile — previously `isStaff() || isParent()`, with no check
-      // that the parent was this child's parent or the staff member was at
-      // this centre. Any approved parent could read any child's allergies,
-      // seizure protocol and medication list.
-      match /medicalProfile/{doc} {
-        allow read:  if isStaffOfStudentCenter(studentId) || isParentOfStudent(studentId);
-        allow write: if (isAdmin() || isTherapist()) && isStaffOfStudentCenter(studentId);
+    match /centers/{id} {
+      allow read: if authenticated();
+      allow create, update: if admin() && id == user().centerId && center(request.resource.data);
+      allow delete: if false;
+    }
+    match /students/{id} {
+      allow read: if visible(resource.data);
+      // getAfter makes enrollment atomic: the main document cannot exist alone.
+      allow create: if admin() && center(request.resource.data) && assignments(request.resource.data)
+        && getAfter(/databases/$(database)/documents/students/$(id)/medicalProfile/main).data.allergies is list
+        && getAfter(/databases/$(database)/documents/students/$(id)/carePlan/main).data.goals == [];
+      allow update: if admin() && center(resource.data) && center(request.resource.data)
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['parentId','teacherId','therapistIds']) || assignments(request.resource.data));
+      // Removal is an atomic archive. No client may cascade destructive deletes.
+      allow delete: if false;
+      match /medicalProfile/{docId} {
+        allow read: if child(id);
+        allow create: if (role('therapist') && activeChild(id)) ||
+          (admin() && getAfter(/databases/$(database)/documents/students/$(id)).data.centerId == user().centerId);
+        allow update: if (admin() || role('therapist')) && activeChild(id);
+        allow delete: if false;
       }
-
-      match /carePlan/{doc} {
-        // All staff + parents can read the care plan (monitoring / viewing).
-        allow read:  if isStaffOfStudentCenter(studentId) || isParentOfStudent(studentId);
-        // ONLY the therapist may write clinical goals — admin/teacher/parent are read-only.
-        allow write: if isTherapist() && isStaffOfStudentCenter(studentId);
+      match /carePlan/{docId} {
+        allow read: if child(id);
+        allow create: if (role('therapist') && activeChild(id)) ||
+          (admin() && !exists(/databases/$(database)/documents/students/$(id))
+           && getAfter(/databases/$(database)/documents/students/$(id)).data.centerId == user().centerId
+           && request.resource.data.keys().hasOnly(['goals']) && request.resource.data.goals == []);
+        allow update: if role('therapist') && activeChild(id)
+          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['goals','achievedGoals'])
+            || (request.resource.data.version is int && request.resource.data.version == resource.data.get('version', 0) + 1));
+        allow delete: if false;
       }
-
-      match /iepRecords/{doc} {
-        allow read:  if isStaffOfStudentCenter(studentId) || isParentOfStudent(studentId);
-        allow write: if (isAdmin() || isTherapist()) && isStaffOfStudentCenter(studentId);
+      match /iepRecords/{docId} {
+        allow read: if child(id);
+        allow create, update: if role('therapist') && activeChild(id);
+        allow delete: if false;
       }
-
       match /medicationAdministrations/{doseId} {
-        allow read: if isStaffOfStudentCenter(studentId)
-                    || isParentOfStudent(studentId);
-        allow create: if (isTeacher() || isAdmin())
-                      && isStaffOfStudentCenter(studentId)
-                      && writingMyCenter()
-                      && request.resource.data.studentId == studentId
-                      && doseParentMatchesStudent(studentId)
-                      && request.resource.data.administeredBy == request.auth.uid
-                      && request.resource.data.status in ['administered', 'not_administered']
-                      && (request.resource.data.status != 'not_administered'
-                          || request.resource.data.notes.size() > 0);
-        allow update: if (isTeacher() || isAdmin())
-                      && isStaffOfStudentCenter(studentId)
-                      && inMyCenter()
-                      && writingMyCenter()
-                      && resource.data.studentId == studentId
-                      && resource.data.medicationId == request.resource.data.medicationId
-                      && resource.data.date == request.resource.data.date
-                      && resource.data.scheduledTime == request.resource.data.scheduledTime
-                      && doseParentMatchesStudent(studentId)
-                      && request.resource.data.administeredBy == request.auth.uid
-                      && request.resource.data.status in ['administered', 'not_administered']
-                      && (request.resource.data.status != 'not_administered'
-                          || request.resource.data.notes.size() > 0);
-        allow delete: if isAdmin() && isStaffOfStudentCenter(studentId);
+        allow read: if child(id);
+        allow create, update: if (admin() || role('teacher')) && child(id)
+          && linked(request.resource.data) && request.resource.data.studentId == id
+          && request.resource.data.administeredBy == request.auth.uid
+          && request.resource.data.status in ['administered','not_administered']
+          && (request.resource.data.status == 'administered' || request.resource.data.notes.size() > 0)
+          && (resource == null || (unchangedLink()
+            && request.resource.data.medicationId == resource.data.medicationId
+            && request.resource.data.date == resource.data.date
+            && request.resource.data.scheduledTime == resource.data.scheduledTime));
+        allow delete: if false;
       }
     }
-
-
-    // ── Daily Care Journals ─────────────────────────────────────────────────
-    match /dailyCareJournals/{journalId} {
-      allow read: if (isStaff() && inMyCenter())
-                  || (isParent() && isMyChildRecord());
-      allow create: if (isTeacher() || isAdmin())
-                    && writingMyCenter()
-                    && recordMatchesStudent(request.resource.data.studentId);
-      allow update: if (isTeacher() || isAdmin())
-                    && inMyCenter()
-                    && writingMyCenter()
-                    && resource.data.studentId == request.resource.data.studentId
-                    && recordMatchesStudent(request.resource.data.studentId);
-      allow delete: if isAdmin() && inMyCenter();
+    match /dailyCareJournals/{id} {
+      allow read: if record(resource.data);
+      allow create, update: if (admin() || role('teacher')) && linked(request.resource.data)
+        && request.resource.data.submittedBy == request.auth.uid && (resource == null || unchangedLink());
+      allow delete: if admin() && center(resource.data);
     }
-
-    // ── ABC Behavioral Incidents ────────────────────────────────────────────
-    match /abcIncidents/{incidentId} {
-      // Guardians can now see their own child's incidents: the sidebar has
-      // always offered parents an ABC Tracker link that the old staff-only
-      // rule denied.
-      allow read: if (isStaff() && inMyCenter())
-                  || (isParent() && isMyChildRecord());
-      allow create: if isStaff()
-                    && writingMyCenter()
-                    && recordMatchesStudent(request.resource.data.studentId);
-      allow update: if isAdmin()
-                    && inMyCenter()
-                    && writingMyCenter()
-                    && resource.data.studentId == request.resource.data.studentId
-                    && recordMatchesStudent(request.resource.data.studentId);
-      allow delete: if isAdmin() && inMyCenter();
+    match /abcIncidents/{id} {
+      allow read: if record(resource.data);
+      allow create: if staff() && linked(request.resource.data) && request.resource.data.loggedBy == request.auth.uid;
+      allow update: if admin() && linked(request.resource.data) && unchangedLink();
+      allow delete: if admin() && center(resource.data);
     }
-
-
-    // ── Panic Alerts ────────────────────────────────────────────────────────
-    match /panicAlerts/{alertId} {
-      allow read:   if (isAdmin() && inMyCenter())
-                    || (isParent() && isMyChildRecord());
-      allow create: if isStaff() && writingMyCenter();
-      allow update: if isAdmin() && inMyCenter();
-      allow delete: if isAdmin() && inMyCenter();
-    }
-
-
-    // ── Notifications ───────────────────────────────────────────────────────
-    match /notifications/{notifId} {
-      allow read:   if isAuthenticated() && resource.data.recipientId == request.auth.uid;
-      allow create: if isAuthenticated() && isApproved();
-      allow update: if isAuthenticated() && resource.data.recipientId == request.auth.uid;
-      allow delete: if isAuthenticated() && resource.data.recipientId == request.auth.uid;
-    }
-
-
-    // ── Staff directory ─────────────────────────────────────────────────────
-    // These four collections had no match block at all, so Firestore denied
-    // every read and write by default — the Fees & Billing module and staff
-    // management were non-functional against deployed rules.
-    match /staff/{staffId} {
-      allow read:   if isStaff() && inMyCenter();
-      allow create: if isAdmin() && writingMyCenter();
-      allow update: if isAdmin() && inMyCenter() && writingMyCenter();
-      allow delete: if isAdmin() && inMyCenter();
-    }
-
-
-    // ── Fees & Billing ──────────────────────────────────────────────────────
-    match /invoices/{invoiceId} {
-      allow read:   if (isAdmin() && inMyCenter())
-                    || (isParent() && isMyChildRecord());
-      allow create: if isAdmin() && writingMyCenter();
-      allow update: if isAdmin() && inMyCenter() && writingMyCenter();
-      allow delete: if isAdmin() && inMyCenter();
-    }
-
-    match /payments/{paymentId} {
-      allow read:   if (isAdmin() && inMyCenter())
-                    || (isParent() && isMyChildRecord());
-      allow create: if isAdmin() && writingMyCenter();
-      allow update: if isAdmin() && inMyCenter() && writingMyCenter();
-      allow delete: if isAdmin() && inMyCenter();
-    }
-
-
-    // ── Teletherapy ─────────────────────────────────────────────────────────
-    match /teletherapySessions/{sessionId} {
-      allow read:   if (isStaff() && inMyCenter())
-                    || (isParent() && isMyChildRecord());
-      allow create: if (isTherapist() || isAdmin())
-                    && writingMyCenter()
-                    && teletherapyHasApprovedStudentGuardian();
-      // The guardian may update only attendance/join bookkeeping, never the
-      // clinical note or the schedule.
-      allow update: if ((isTherapist() || isAdmin()) && inMyCenter() && writingMyCenter())
-                    || (
-                      isParent() && isMyChildRecord()
-                      && request.resource.data.diff(resource.data).affectedKeys()
-                           .hasOnly(['parentJoinedAt', 'updatedAt'])
-                    );
-      allow delete: if (isTherapist() || isAdmin()) && inMyCenter();
-    }
-
-
-    // ── Home Plan Bridge ────────────────────────────────────────────────────
-    match /homePlanActivities/{activityId} {
-      allow read:   if (isStaff() && inMyCenter())
-                    || (isParent() && isMyChildRecord());
-      allow create: if (isTherapist() || isAdmin()) && writingMyCenter();
-      allow update: if (isTherapist() || isAdmin()) && inMyCenter() && writingMyCenter();
-      allow delete: if (isTherapist() || isAdmin()) && inMyCenter();
-    }
-
-    // One document per activity per day, written by the guardian at home.
-    match /homePlanLogs/{logId} {
-      allow read:   if (isStaff() && inMyCenter())
-                    || (isParent() && isMyChildRecord());
-      // `resource` does not exist on create, so the guardian check reads from
-      // request.resource instead of the isMyChildRecord() helper.
-      allow create: if isParent()
-                    && request.resource.data.parentId == request.auth.uid;
-      allow update: if isParent() && isMyChildRecord()
-                    && request.resource.data.parentId == request.auth.uid;
-      allow delete: if isAdmin() && inMyCenter();
-    }
-
-    // Threaded discussion between a guardian and the assigned therapist.
-    match /homePlanMessages/{messageId} {
-      allow read:   if (isStaff() && inMyCenter())
-                    || (isParent() && isMyChildRecord());
-      // A message always records its real author — senderId is taken from the
-      // token, not from client-supplied data.
-      allow create: if (
-                      (isStaff() && writingMyCenter())
-                      || (isParent() && request.resource.data.parentId == request.auth.uid)
-                    )
-                    && request.resource.data.senderId == request.auth.uid;
-      allow update: if false;
-      allow delete: if isAdmin() && inMyCenter();
-    }
-
-
-    // ── Regression Alerts ────────────────────────────────────────────────────
-    // Created automatically by updateCarePlan when a skill regression is detected.
-    // Therapist and admin can read + resolve. Parents cannot see clinical alerts.
-    match /regressionAlerts/{alertId} {
-      allow read:   if (isTherapist() || isAdmin()) && inMyCenter();
-      allow create: if (isTherapist() || isAdmin()) && writingMyCenter();
-      // Only update allowed: mark as resolved (resolved: true). No deletion.
-      allow update: if (isTherapist() || isAdmin()) && inMyCenter();
+    match /panicAlerts/{id} {
+      allow read: if record(resource.data);
+      allow create: if staff() && linked(request.resource.data)
+        && request.resource.data.id == id
+        && request.resource.data.reportedBy.uid == request.auth.uid
+        && request.resource.data.status == 'active' && request.resource.data.deliveryStatus == 'pending'
+        && request.resource.data.keys().hasOnly(['id','studentId','centerId','parentId','reportedBy','emergencyType','description','location','timestamp','status','resolvedAt','resolvedBy','deliveryStatus']);
+      allow update: if admin() && center(resource.data) && unchangedLink()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','resolvedAt','resolvedBy'])
+        && request.resource.data.status == 'resolved' && request.resource.data.resolvedBy == request.auth.uid;
       allow delete: if false;
+    }
+    match /notifications/{id} {
+      allow read: if approved() && resource.data.recipientId == request.auth.uid;
+      allow create: if staff() && linked(request.resource.data)
+        && request.resource.data.senderId == request.auth.uid
+        && request.resource.data.type in ['daily_journal','behavior_incident','medical_update','care_plan_update','iep_finalized','teletherapy_session','home_plan_activity']
+        && (request.resource.data.recipientId == student(request.resource.data.studentId).parentId
+          || request.resource.data.recipientId == student(request.resource.data.studentId).teacherId
+          || request.resource.data.recipientId in student(request.resource.data.studentId).therapistIds);
+      allow update: if approved() && resource.data.recipientId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow delete: if approved() && resource.data.recipientId == request.auth.uid;
+    }
+    match /staff/{id} {
+      allow read: if staff() && center(resource.data);
+      allow create: if admin() && center(request.resource.data);
+      allow update: if admin() && center(resource.data) && center(request.resource.data);
+      allow delete: if false;
+    }
+    match /invoices/{id} {
+      allow read: if (admin() && center(resource.data)) || (role('parent') && child(resource.data.studentId));
+      allow create: if admin() && linked(request.resource.data);
+      allow update: if admin() && linked(request.resource.data) && unchangedLink();
+      allow delete: if false;
+    }
+    match /payments/{id} {
+      allow read: if (admin() && center(resource.data)) || (role('parent') && child(resource.data.studentId));
+      allow create: if admin() && linked(request.resource.data);
+      allow update: if false;
+      allow delete: if false;
+    }
+    match /teletherapySessions/{id} {
+      allow read: if record(resource.data);
+      allow create: if (admin() || role('therapist')) && linked(request.resource.data)
+        && member(request.resource.data.therapistId, 'therapist', request.resource.data.centerId)
+        && request.resource.data.therapistId in student(request.resource.data.studentId).therapistIds;
+      allow update: if unchangedLink() && child(resource.data.studentId) && (
+        ((admin() || role('therapist')) && request.resource.data.therapistId == resource.data.therapistId)
+        || (role('parent') && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['parentJoinedAt','updatedAt'])));
+      allow delete: if false;
+    }
+    match /homePlanActivities/{id} {
+      allow read: if record(resource.data);
+      allow create: if (admin() || role('therapist')) && linked(request.resource.data) && request.resource.data.assignedBy == request.auth.uid;
+      allow update: if (admin() || role('therapist')) && linked(request.resource.data) && unchangedLink();
+      allow delete: if (admin() || role('therapist')) && child(resource.data.studentId);
+    }
+    match /homePlanLogs/{id} {
+      allow read: if record(resource.data);
+      allow create, update: if role('parent') && activityLink(request.resource.data) && (resource == null || unchangedLink());
+      allow delete: if false;
+    }
+    match /homePlanMessages/{id} {
+      allow read: if record(resource.data);
+      allow create: if activityLink(request.resource.data) && request.resource.data.senderId == request.auth.uid && request.resource.data.senderRole == user().role;
+      allow update, delete: if false;
+    }
+    // Alerts and observations are committed together by the authorized API.
+    match /regressionAlerts/{id} {
+      allow read: if staff() && center(resource.data) && record(resource.data);
+      allow update: if (admin() || role('therapist')) && record(resource.data)
+        && center(resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['resolved'])
+        && request.resource.data.resolved == true;
+      allow create, delete: if false;
+    }
+    match /milestoneObservations/{id} {
+      allow read: if staff() && center(resource.data) && record(resource.data);
+      allow create, update, delete: if false;
+    }
+    match /regressionState/{id} {
+      allow read, write: if false;
     }
   }
 }

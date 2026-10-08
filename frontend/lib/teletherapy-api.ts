@@ -28,12 +28,15 @@ import {
   orderBy,
   onSnapshot,
   serverTimestamp,
+  writeBatch,
   QueryConstraint,
   Unsubscribe,
 } from "firebase/firestore";
 import { db } from "./firebase";
+import { auth } from "./firebase";
 import { v4 as uuidv4 } from "uuid";
 import { AccessScope, studentsDb } from "./firestore-api";
+import { googleMeetLink } from "./meet-link";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -54,6 +57,7 @@ export interface TeletherapySession {
   status: SessionStatus;
   /** Video room identifier, stable for the lifetime of the session. */
   roomName: string;
+  googleMeetUrl?: string;
   sessionNote?: string;
   parentJoinedAt?: string | null;
   therapistJoinedAt?: string | null;
@@ -113,11 +117,16 @@ async function notify(
 ): Promise<void> {
   if (!recipientId) return;
   try {
+    const student = typeof payload.studentId === "string" ? await studentsDb.get(payload.studentId) : null;
+    if (!student) return;
     await addDoc(collection(db, "notifications"), {
       recipientId,
       read: false,
       createdAt: serverTimestamp(),
       ...payload,
+      senderId: auth.currentUser?.uid,
+      centerId: student.centerId,
+      parentId: student.parentId,
     });
   } catch (err) {
     console.warn("[notifications] delivery failed for", recipientId, err);
@@ -141,7 +150,12 @@ export const teletherapyDb = {
     durationMinutes: number;
     therapistId: string;
     therapistName: string;
+    googleMeetUrl?: string;
   }): Promise<string> => {
+    const meetUrl = googleMeetLink(input.googleMeetUrl);
+    if (input.googleMeetUrl?.trim() && !meetUrl) {
+      throw new Error("Enter a Google Meet link such as https://meet.google.com/abc-defg-hij.");
+    }
     const student = await studentsDb.get(input.studentId);
     if (!student) throw new Error("Student not found.");
     if (!student.parentId) {
@@ -173,37 +187,60 @@ export const teletherapyDb = {
       // Room names are derived from the session id, never from the child's
       // name — a guessable room would let an outsider walk into a session.
       roomName: `sc360-${sessionId}`,
+      googleMeetUrl: meetUrl,
       sessionNote: "",
       parentJoinedAt: null,
       therapistJoinedAt: null,
     };
 
-    await setDoc(doc(db, "teletherapySessions", sessionId), {
+    const senderId = auth.currentUser?.uid;
+    if (!senderId) throw new Error("Sign in again before scheduling a session.");
+    const batch = writeBatch(db);
+    batch.set(doc(db, "teletherapySessions", sessionId), {
       ...session,
       createdAt: serverTimestamp(),
     });
 
-    const when = new Date(input.scheduledAt).toLocaleString();
-    await notify(student.parentId, {
+    const when = new Date(input.scheduledAt).toLocaleString("en-PK", {
+      timeZone: "Asia/Karachi", dateStyle: "medium", timeStyle: "short",
+    });
+    batch.set(doc(db, "notifications", `teletherapy_${sessionId}`), {
+      recipientId: student.parentId,
+      senderId,
+      centerId: student.centerId,
+      parentId: student.parentId,
+      read: false,
+      createdAt: serverTimestamp(),
       type: "teletherapy_session",
       title: "Teletherapy Session Scheduled",
-      message: `A session for ${student.name} is scheduled for ${when}.`,
+      message: `${session.title} for ${student.name} with ${input.therapistName} is scheduled for ${when} (Pakistan time), lasting ${input.durationMinutes} minutes.`,
       studentId: input.studentId,
       sessionId,
     });
+    // Both records succeed together; notification failures cannot be hidden.
+    await batch.commit();
 
     return sessionId;
   },
 
+  setMeetBackup: async (sessionId: string, value: string): Promise<void> => {
+    const meetUrl = googleMeetLink(value);
+    if (value.trim() && !meetUrl) {
+      throw new Error("Enter a Google Meet link such as https://meet.google.com/abc-defg-hij.");
+    }
+    await updateDoc(doc(db, "teletherapySessions", sessionId), {
+      googleMeetUrl: meetUrl, updatedAt: serverTimestamp(),
+    });
+  },
+
   list: async (scope: AccessScope): Promise<TeletherapySession[]> => {
-    const snap = await getDocs(
-      query(
-        collection(db, "teletherapySessions"),
-        scopeFilter(scope),
-        orderBy("scheduledAt", "asc")
-      )
-    );
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as TeletherapySession);
+    const students = await studentsDb.list(scope);
+    const lists = await Promise.all(students.map(async student => {
+      const snap = await getDocs(query(collection(db, "teletherapySessions"),
+        scopeFilter(scope), where("studentId", "==", student.id)));
+      return snap.docs.map(d => ({ id: d.id, ...d.data() }) as TeletherapySession);
+    }));
+    return lists.flat().sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt));
   },
 
   /** Live view — the guardian's list should update the moment a session is booked. */
@@ -212,15 +249,21 @@ export const teletherapyDb = {
     onData: (sessions: TeletherapySession[]) => void,
     onError: (err: unknown) => void
   ): Unsubscribe => {
-    return onSnapshot(
-      query(
-        collection(db, "teletherapySessions"),
-        scopeFilter(scope),
-        orderBy("scheduledAt", "asc")
-      ),
-      (snap) => onData(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as TeletherapySession)),
-      onError
-    );
+    let cancelled = false;
+    const stops: Unsubscribe[] = [];
+    const lists = new Map<string, TeletherapySession[]>();
+    void studentsDb.list(scope).then(students => {
+      if (cancelled) return;
+      if (!students.length) onData([]);
+      for (const student of students) {
+        stops.push(onSnapshot(query(collection(db, "teletherapySessions"), scopeFilter(scope),
+          where("studentId", "==", student.id)), snap => {
+            lists.set(student.id, snap.docs.map(d => ({ id: d.id, ...d.data() }) as TeletherapySession));
+            onData([...lists.values()].flat().sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt)));
+          }, onError));
+      }
+    }).catch(onError);
+    return () => { cancelled = true; stops.forEach(stop => stop()); };
   },
 
   get: async (sessionId: string): Promise<TeletherapySession | null> => {
@@ -379,6 +422,8 @@ export const homePlanDb = {
 
   subscribeMessages: (
     activityId: string,
+    studentId: string,
+    scope: AccessScope,
     onData: (messages: HomePlanMessage[]) => void,
     onError: (err: unknown) => void
   ): Unsubscribe => {
@@ -386,6 +431,8 @@ export const homePlanDb = {
       query(
         collection(db, "homePlanMessages"),
         where("activityId", "==", activityId),
+        where("studentId", "==", studentId),
+        scopeFilter(scope),
         orderBy("createdAt", "asc")
       ),
       (snap) => onData(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as HomePlanMessage)),

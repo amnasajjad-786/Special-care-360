@@ -16,7 +16,7 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
 } from "firebase/auth";
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, setDoc, serverTimestamp, onSnapshot } from "firebase/firestore";
 import { auth, db } from "./firebase";
 import { UserProfile } from "@/types";
 
@@ -50,17 +50,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ── Auth state listener ────────────────────────────────────────────────────
   useEffect(() => {
+    let stopProfile: (() => void) | undefined;
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      stopProfile?.();
+      stopProfile = undefined;
       setUser(firebaseUser);
       if (firebaseUser) {
-        const snap = await getDoc(doc(db, "users", firebaseUser.uid));
-        setProfile(snap.exists() ? (snap.data() as UserProfile) : null);
+        stopProfile = onSnapshot(doc(db, "users", firebaseUser.uid), snap => {
+          const profile = snap.exists() ? { ...snap.data(), uid: firebaseUser.uid } as UserProfile : null;
+          setProfile(profile);
+          setLoading(false);
+          if (profile?.status === "disabled") void signOut(auth);
+        }, () => { setProfile(null); setLoading(false); });
       } else {
         setProfile(null);
       }
       setLoading(false);
     });
-    return unsubscribe;
+    return () => { stopProfile?.(); unsubscribe(); };
   }, []);
 
   // ── Login ──────────────────────────────────────────────────────────────────

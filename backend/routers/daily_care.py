@@ -2,22 +2,25 @@ from fastapi import APIRouter, HTTPException, Depends
 from models.schemas import DailyCareSubmit
 from firebase_admin_init import get_db
 from middleware.auth_middleware import get_current_user, require_role
+from middleware.student_access import authorize_student
 from datetime import datetime, timezone
 
 router = APIRouter(prefix="/api/daily-care", tags=["daily-care"])
 
 
 @router.post("")
-async def submit_journal(
+def submit_journal(
     body: DailyCareSubmit,
     current_user: dict = Depends(get_current_user)
 ):
     require_role(current_user, ["teacher", "admin"])
     db     = get_db()
+    student = authorize_student(body.studentId, current_user, db)
     doc_id = f"{body.date}_{body.studentId}"
     data   = body.model_dump()
     data["submittedAt"] = datetime.now(timezone.utc).isoformat()
     data["submittedBy"] = current_user.get("uid", "")
+    data.update({"centerId": student["centerId"], "parentId": student.get("parentId")})
 
     db.collection("dailyCareJournals").document(doc_id).set(data)
 
@@ -42,13 +45,14 @@ async def submit_journal(
     return {"message": "Journal submitted successfully", "docId": doc_id}
 
 
-@router.get("/{student_id}/{date}")
-async def get_journal(
+@router.get("/{student_id}/journal/{date}")
+def get_journal(
     student_id: str,
     date: str,
     current_user: dict = Depends(get_current_user)
 ):
     db     = get_db()
+    authorize_student(student_id, current_user, db)
     doc_id = f"{date}_{student_id}"
     doc    = db.collection("dailyCareJournals").document(doc_id).get()
     if not doc.exists:
@@ -57,11 +61,12 @@ async def get_journal(
 
 
 @router.get("/{student_id}/history")
-async def get_history(
+def get_history(
     student_id: str,
     current_user: dict = Depends(get_current_user)
 ):
     db   = get_db()
+    authorize_student(student_id, current_user, db)
     docs = (
         db.collection("dailyCareJournals")
         .where("studentId", "==", student_id)
@@ -70,3 +75,7 @@ async def get_history(
         .stream()
     )
     return [doc.to_dict() for doc in docs]
+
+
+# Keep the old dated URL after the literal history route for compatibility.
+router.add_api_route("/{student_id}/{date}", get_journal, methods=["GET"])

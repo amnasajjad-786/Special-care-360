@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
+import { scopeOf } from "@/lib/firestore-api";
 import { homePlanDb, type HomePlanActivity, type HomePlanMessage } from "@/lib/teletherapy-api";
 import toast from "react-hot-toast";
 import { Send, X, MessageSquare } from "lucide-react";
@@ -26,8 +27,11 @@ export default function ActivityThread({
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (!profile) return;
     const unsub = homePlanDb.subscribeMessages(
       activity.id,
+      activity.studentId,
+      scopeOf(profile),
       (list) => { setMessages(list); setLoadError(false); },
       (err) => {
         console.error("Thread listener failed:", err);
@@ -36,7 +40,7 @@ export default function ActivityThread({
       }
     );
     return unsub;
-  }, [activity.id]);
+  }, [activity.id, activity.studentId, profile]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });

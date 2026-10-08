@@ -29,10 +29,15 @@ import {
   limit,
   serverTimestamp,
   runTransaction,
+  writeBatch,
   QueryConstraint,
+  DocumentReference,
+  DocumentSnapshot,
+  Transaction,
 } from "firebase/firestore";
 import { auth, db } from "./firebase";
 import { v4 as uuidv4 } from "uuid";
+import { confirmWithin } from "./workflow-state";
 
 export const DEFAULT_CENTER_ID = "center-001";
 
@@ -85,6 +90,40 @@ function scopeFilter(scope: AccessScope): QueryConstraint {
     : where("centerId", "==", scope.centerId);
 }
 
+async function listBillingRecords(name: "invoices" | "payments", scope: AccessScope) {
+  if (scope.role !== "parent") {
+    const snap = await getDocs(query(collection(db, name), scopeFilter(scope)));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  }
+  // Include archived children so their billing history remains accessible.
+  const children = await getDocs(query(collection(db, "students"),
+    where("parentId", "==", scope.uid), where("centerId", "==", scope.centerId)));
+  const records = await Promise.all(children.docs.map(child => getDocs(query(
+    collection(db, name), where("studentId", "==", child.id), where("parentId", "==", scope.uid)))));
+  return records.flatMap(snap => snap.docs.map(d => ({ id: d.id, ...d.data() })));
+}
+
+async function careTransaction<T>(reference: DocumentReference, work: (transaction: Transaction, snapshot: DocumentSnapshot) => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    let observedVersion = -1;
+    try {
+      return await runTransaction(db, async transaction => {
+        const snapshot = await transaction.get(reference);
+        observedVersion = Number(snapshot.data()?.version ?? 0);
+        return work(transaction, snapshot);
+      });
+    } catch (error) {
+      // A rule may reject the stale version before Firestore returns ABORTED.
+      // Retry only a proven concurrent change, never a stable permission denial.
+      if (attempt < 3 && (error as {code?: string}).code === "permission-denied" && observedVersion >= 0) {
+        const latest = await getDoc(reference);
+        if (Number(latest.data()?.version ?? 0) !== observedVersion) continue;
+      }
+      throw error;
+    }
+  }
+}
+
 /** Notification fan-out must never take a care record down with it. */
 async function notify(
   recipientId: string | undefined,
@@ -92,12 +131,16 @@ async function notify(
 ): Promise<void> {
   if (!recipientId) return;
   try {
+    const student = typeof payload.studentId === "string" ? await studentsDb.get(payload.studentId) : null;
+    if (!student) return;
     await addDoc(collection(db, "notifications"), {
       recipientId,
       senderId: auth.currentUser?.uid ?? null,
       read: false,
       createdAt: serverTimestamp(),
       ...payload,
+      centerId: student.centerId,
+      parentId: student.parentId,
     });
   } catch (err) {
     console.warn("[notifications] delivery failed for", recipientId, err);
@@ -122,7 +165,11 @@ export const studentsDb = {
    * (the previous behaviour) is denied outright by Firestore.
    */
   list: async (scope: AccessScope): Promise<StudentDoc[]> => {
-    const snap = await getDocs(query(collection(db, "students"), scopeFilter(scope)));
+    const constraints = [scopeFilter(scope)];
+    if (scope.role === "parent") constraints.push(where("centerId", "==", scope.centerId));
+    if (scope.role === "teacher") constraints.push(where("teacherId", "==", scope.uid));
+    if (scope.role === "therapist") constraints.push(where("therapistIds", "array-contains", scope.uid));
+    const snap = await getDocs(query(collection(db, "students"), ...constraints));
 
     // Resolve staff UIDs to names for display. Only admins may read the full
     // user directory, so this is best-effort and never blocks the list.
@@ -155,17 +202,7 @@ export const studentsDb = {
       } as StudentDoc;
     });
 
-    // Rules allow centre-wide staff reads. Teachers and Admins have access to all students in their center.
-    if (scope.role === "teacher") {
-      return listed;
-    }
-    if (scope.role === "therapist") {
-      return listed.filter((s) =>
-        (s.therapistIds ?? []).includes(scope.uid) ||
-        (scope.name && (s.therapistIds ?? []).includes(scope.name))
-      );
-    }
-    return listed;
+    return listed.filter((student) => !student.archivedAt);
   },
 
   get: async (studentId: string): Promise<StudentDoc | null> => {
@@ -177,11 +214,12 @@ export const studentsDb = {
   create: async (data: Omit<StudentDoc, "id">): Promise<string> => {
     assertEnrolmentAge(data.dob as string);
     const studentId = uuidv4();
-    await setDoc(doc(db, "students", studentId), {
+    const batch = writeBatch(db);
+    batch.set(doc(db, "students", studentId), {
       ...data,
       createdAt: serverTimestamp(),
     });
-    await setDoc(doc(db, "students", studentId, "medicalProfile", "main"), {
+    batch.set(doc(db, "students", studentId, "medicalProfile", "main"), {
       allergies: [],
       seizureHistory: { hasHistory: false },
       medications: [],
@@ -189,7 +227,8 @@ export const studentsDb = {
       bloodType: "",
       specialPhysicalNeeds: "",
     });
-    await setDoc(doc(db, "students", studentId, "carePlan", "main"), { goals: [] });
+    batch.set(doc(db, "students", studentId, "carePlan", "main"), { goals: [] });
+    await batch.commit();
     return studentId;
   },
 
@@ -202,33 +241,14 @@ export const studentsDb = {
   },
 
   delete: async (studentId: string, centerId?: string): Promise<void> => {
-    const cid = centerId || DEFAULT_CENTER_ID;
-    const related = [
-      "dailyCareJournals",
-      "abcIncidents",
-      "panicAlerts",
-      "invoices",
-      "payments",
-      "teletherapySessions",
-      "homePlanActivities",
-      "homePlanLogs",
-      "homePlanMessages",
-    ];
-    await Promise.all(
-      related.map(async (col) => {
-        const snap = await getDocs(
-          query(collection(db, col), where("centerId", "==", cid))
-        );
-        await Promise.all(
-          snap.docs
-            .filter((d) => d.data().studentId === studentId)
-            .map((d) => deleteDoc(d.ref))
-        );
-      })
-    );
-    await deleteDoc(doc(db, "students", studentId, "medicalProfile", "main"));
-    await deleteDoc(doc(db, "students", studentId, "carePlan", "main"));
-    await deleteDoc(doc(db, "students", studentId));
+    // Archive in one transaction. Clinical and financial history stays intact.
+    await runTransaction(db, async (transaction) => {
+      const reference = doc(db, "students", studentId);
+      const snapshot = await transaction.get(reference);
+      if (!snapshot.exists()) throw new Error("Student not found.");
+      if (centerId && snapshot.data().centerId !== centerId) throw new Error("Centre mismatch.");
+      transaction.update(reference, { archivedAt: serverTimestamp(), archivedBy: auth.currentUser?.uid });
+    });
   },
 
   getMedical: async (studentId: string) => {
@@ -259,10 +279,17 @@ export const studentsDb = {
     return snap.exists() ? snap.data() : { goals: [] };
   },
 
-  updateCarePlan: async (studentId: string, data: Record<string, unknown>): Promise<void> => {
-    await setDoc(doc(db, "students", studentId, "carePlan", "main"), data, { merge: true });
+  updateCarePlan: async (studentId: string, data: Record<string, unknown>): Promise<number> => {
+    const { expectedVersion, ...updates } = data;
+    const reference = doc(db, "students", studentId, "carePlan", "main");
+    const version = await careTransaction(reference, async (transaction, snapshot) => {
+      const current = Number(snapshot.data()?.version ?? 0);
+      if ("goals" in updates && Number(expectedVersion ?? 0) !== current) throw new Error("Care plan changed. Reload before saving.");
+      transaction.set(reference, { ...updates, version: current + 1, updatedAt: serverTimestamp() }, { merge: true });
+      return current + 1;
+    });
     const student = await studentsDb.get(studentId);
-    if (!student) return;
+    if (!student) return version;
     const payload = {
       type: "care_plan_update",
       title: "Care Plan Updated",
@@ -271,8 +298,10 @@ export const studentsDb = {
     };
     await notify(student.parentId, payload);
     for (const uid of staffRecipients(student)) await notify(uid, payload);
+    return version;
   },
 };
+
 
 export function studentAge(dob?: string | null): number | null {
   if (!dob) return null;
@@ -369,7 +398,7 @@ export const abcDb = {
       parentId: student.parentId ?? null,
       loggedBy,
       createdAt: serverTimestamp(),
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(String(data.timestamp)).toISOString(),
     });
 
     const behaviour = (data.behavior as AbcTagged)?.text || "Behaviour incident";
@@ -524,31 +553,30 @@ export const panicDb = {
   sendAlert: async (
     data: Record<string, unknown>,
     getIdToken?: () => Promise<string | null>
-  ): Promise<string> => {
+  ): Promise<{ id: string; deliveryStatus: string; recorded: boolean }> => {
     const alertId = uuidv4();
+    const write = (async () => {
     const student = await studentsDb.get(data.studentId as string);
+    if (!student) throw new Error("Student not found.");
 
     await setDoc(doc(db, "panicAlerts", alertId), {
-      id: alertId,
       ...data,
+      id: alertId,
+      centerId: student.centerId,
       parentId: student?.parentId ?? null,
       timestamp: new Date().toISOString(),
       status: "active",
       resolvedAt: null,
       resolvedBy: null,
+      deliveryStatus: "pending",
     });
-
-    await notify(student?.parentId, {
-      type: "panic_alert",
-      title: "Emergency Alert",
-      alertId,
-      message: `An emergency alert has been raised for ${student?.name ?? "your child"}: ${data.emergencyType} in ${data.location}`,
-      studentId: data.studentId,
-    });
+    })();
+    const confirmed = await confirmWithin(write);
+    if (!confirmed) return { id: alertId, deliveryStatus: "unconfirmed", recorded: false };
 
     // Server-side fan-out to staff + email. Non-fatal: the alert is already
     // recorded and visible to admins by this point.
-    try {
+    void (async () => { try {
       const { api } = await import("./api");
       const token = getIdToken ? await getIdToken() : null;
       await api.post(
@@ -562,12 +590,12 @@ export const panicDb = {
           description: data.description,
           location: data.location,
         },
-        token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
+        { timeout: 2000, ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}) }
       );
     } catch (err) {
       console.warn("[panic] backend fan-out unavailable:", err);
-    }
-    return alertId;
+    } })();
+    return { id: alertId, deliveryStatus: "pending", recorded: true };
   },
 
   listAlerts: async (scope: AccessScope, status = "all") => {
@@ -649,7 +677,7 @@ export const adminDb = {
     const snap = await getDocs(
       query(collection(db, "staff"), where("centerId", "==", centerId))
     );
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((staff) => (staff as Record<string, unknown>).status !== "Disabled");
   },
 
   addStaff: async (data: Record<string, unknown>): Promise<string> => {
@@ -660,16 +688,31 @@ export const adminDb = {
     return ref.id;
   },
 
-  deleteStaff: async (staffId: string): Promise<void> => {
-    await deleteDoc(doc(db, "staff", staffId));
+  deleteStaff: async (staffId: string): Promise<boolean> => {
+    const reference = doc(db, "staff", staffId);
+    const snapshot = await getDoc(reference);
+    if (!snapshot.exists()) throw new Error("Staff member not found.");
+    const staff = snapshot.data();
+    const users = await adminDb.listAllUsers(staff.centerId);
+    const linked = users.filter((user) => user.id === staff.uid ||
+      (staff.email && String((user as Record<string, unknown>).email).toLowerCase() === String(staff.email).toLowerCase()));
+    if (linked.length > 1) throw new Error("Ambiguous staff account; resolve the account link first.");
+    if (linked.length) {
+      const { api } = await import("./api");
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) throw new Error("Sign in again.");
+      await api.post(`/api/auth/offboard/${encodeURIComponent(linked[0].id)}`, {},
+        { headers: { Authorization: `Bearer ${token}` } });
+    }
+    await updateDoc(reference, { status: "Disabled", disabledAt: serverTimestamp() });
+    return linked.length === 1;
   },
 
   // --- Fee Management ---
   // Invoices and payments are keyed by studentId, not student name. Matching
   // on name meant two students sharing a name saw each other's billing.
   listInvoices: async (scope: AccessScope) => {
-    const snap = await getDocs(query(collection(db, "invoices"), scopeFilter(scope)));
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    return listBillingRecords("invoices", scope);
   },
 
   getFeeConfig: async (centerId: string) => {
@@ -739,8 +782,7 @@ export const adminDb = {
   },
 
   listPayments: async (scope: AccessScope) => {
-    const snap = await getDocs(query(collection(db, "payments"), scopeFilter(scope)));
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    return listBillingRecords("payments", scope);
   },
 
   addPayment: async (data: Record<string, unknown>): Promise<string> => {
@@ -753,6 +795,12 @@ export const adminDb = {
 };
 
 // ─── IEP Builder ──────────────────────────────────────────────────────────────
+
+export interface SavedGoalState {
+  goals: Record<string, unknown>[];
+  achievedGoals: Record<string, unknown>[];
+  version: number;
+}
 
 export const iepDb = {
   saveDraft: async (studentId: string, iepData: Record<string, unknown>, authorUid?: string, authorName?: string): Promise<string> => {
@@ -810,9 +858,12 @@ export const iepDb = {
       milestones: g.milestones || [],
     }));
 
-    // Write everything into carePlan/main (therapist has write permission here)
-    await setDoc(
-      doc(db, "students", studentId, "carePlan", "main"),
+    const reference = doc(db, "students", studentId, "carePlan", "main");
+    await careTransaction(reference, async (transaction, snapshot) => {
+    const version = Number(snapshot.data()?.version ?? 0);
+    if (Number(iepData.expectedVersion ?? 0) !== version) throw new Error("Care plan changed. Reload before finalizing.");
+    transaction.set(
+      reference,
       {
         goals: carePlanGoals,
         activeIepId: iepId,
@@ -822,21 +873,21 @@ export const iepDb = {
         finalizedAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         draftIep: null, // clear draft after finalize
+        version: version + 1,
       },
       { merge: true }
     );
+    });
 
     // Notify Parent (non-fatal)
     try {
       const student = await studentsDb.get(studentId);
       if (student?.parentId) {
-        await addDoc(collection(db, "notifications"), {
-          recipientId: student.parentId,
+        await notify(student.parentId, {
           type: "iep_finalized",
-          title: "New IEP Finalized 🎯",
+          title: "New IEP Finalized ðŸŽ¯",
           message: `A new Individualized Education Program (IEP) has been finalized for ${student.name}.`,
-          read: false,
-          createdAt: serverTimestamp(),
+          studentId,
         });
       }
     } catch {
@@ -872,13 +923,14 @@ export const iepDb = {
    * - Moves it from goals[] to achievedGoals[] in carePlan/main.
    * - Persisted goals[] reflects only still-active goals.
    */
-  markGoalAchieved: async (studentId: string, goalId: string): Promise<void> => {
-    const careSnap = await getDoc(doc(db, "students", studentId, "carePlan", "main"));
+  markGoalAchieved: async (studentId: string, goalId: string): Promise<SavedGoalState> => {
+    const reference = doc(db, "students", studentId, "carePlan", "main");
+    return careTransaction(reference, async (transaction, careSnap) => {
     const careData = careSnap.exists() ? careSnap.data() : {};
 
     const activeGoals: Record<string, unknown>[] = Array.isArray(careData.goals) ? careData.goals : [];
     const goalIndex = activeGoals.findIndex((g) => (g as { id?: string }).id === goalId);
-    if (goalIndex === -1) return;
+    if (goalIndex === -1) throw new Error("Goal is not in the saved active plan. Finalize or reload the plan first.");
 
     const achievedGoal = {
       ...activeGoals[goalIndex],
@@ -888,15 +940,18 @@ export const iepDb = {
     const remainingGoals = activeGoals.filter((_, i) => i !== goalIndex);
     const previousAchieved: Record<string, unknown>[] = Array.isArray(careData.achievedGoals) ? careData.achievedGoals : [];
 
-    await setDoc(
-      doc(db, "students", studentId, "carePlan", "main"),
+    transaction.set(
+      reference,
       {
         goals: remainingGoals,
         achievedGoals: [...previousAchieved, achievedGoal],
+        version: Number(careData.version ?? 0) + 1,
         updatedAt: serverTimestamp(),
       },
       { merge: true }
     );
+    return { goals: remainingGoals, achievedGoals: [...previousAchieved, achievedGoal], version: Number(careData.version ?? 0) + 1 };
+    });
   },
 
   /**
@@ -914,21 +969,28 @@ export const iepDb = {
   /**
    * Accept the pending AI goal: move it from pendingAiGoal into active goals[].
    */
-  acceptPendingAiGoal: async (studentId: string, goal: Record<string, unknown>): Promise<void> => {
-    const careSnap = await getDoc(doc(db, "students", studentId, "carePlan", "main"));
+  acceptPendingAiGoal: async (studentId: string, goal: Record<string, unknown>): Promise<SavedGoalState> => {
+    const reference = doc(db, "students", studentId, "carePlan", "main");
+    return careTransaction(reference, async (transaction, careSnap) => {
     const careData = careSnap.exists() ? careSnap.data() : {};
     const activeGoals: Record<string, unknown>[] = Array.isArray(careData.goals) ? careData.goals : [];
+    const achievedGoals: Record<string, unknown>[] = Array.isArray(careData.achievedGoals) ? careData.achievedGoals : [];
+    if (activeGoals.some(existing => existing.id === goal.id)) return { goals: activeGoals, achievedGoals, version: Number(careData.version ?? 0) };
+    if (!goal.id || careData.pendingAiGoal?.id !== goal.id) throw new Error("Suggestion changed. Reload before accepting.");
 
-    await setDoc(
-      doc(db, "students", studentId, "carePlan", "main"),
+    transaction.set(
+      reference,
       {
         goals: [...activeGoals, goal],
         pendingAiGoal: null,
         iepStatus: "In Progress",
+        version: Number(careData.version ?? 0) + 1,
         updatedAt: serverTimestamp(),
       },
       { merge: true }
     );
+    return { goals: [...activeGoals, goal], achievedGoals, version: Number(careData.version ?? 0) + 1 };
+    });
   },
 
   /**
@@ -940,5 +1002,148 @@ export const iepDb = {
       { pendingAiGoal: null, updatedAt: serverTimestamp() },
       { merge: true }
     );
+  },
+};
+
+export interface RegressionAlertDoc {
+  id: string;
+  studentId: string;
+  studentName: string;
+  centerId: string;
+  goalId: string;
+  goalTitle: string;
+  previousProgress: number;
+  currentProgress: number;
+  decline: number;
+  alertLevel: "Monitoring" | "Regression Warning";
+  resolved: boolean;
+  createdAt: string;
+  // Fields added for milestone-log triggered alerts
+  milestoneId?: string;
+  milestoneDescription?: string;
+  observationNotes?: string;
+  triggeredBy?: "milestone_log" | "care_plan_update";
+  previousMasteryDate?: string;
+  observedByName?: string;
+  currentObservationStatus?: string;
+  reason?: string;
+}
+
+function firestoreDate(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && "toDate" in value) return (value as { toDate(): Date }).toDate().toISOString();
+  return "";
+}
+
+export const regressionDb = {
+  /** Fetch all unresolved regression alerts for a centre (therapist/admin dashboard) */
+  listUnresolved: async (centerId: string): Promise<RegressionAlertDoc[]> => {
+    // Alerts now carry centerId directly — query it directly without student join.
+    const snap = await getDocs(
+      query(
+        collection(db, "regressionAlerts"),
+        where("centerId", "==", centerId),
+        where("resolved", "==", false),
+      )
+    );
+    return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<RegressionAlertDoc, "id">), createdAt: firestoreDate(d.data().createdAt) })).sort((a, b) => firestoreDate(b.createdAt).localeCompare(firestoreDate(a.createdAt)));
+  },
+
+  /** Fetch alerts for a specific student (student detail view) */
+  listForStudent: async (studentId: string, centerId: string): Promise<RegressionAlertDoc[]> => {
+    // Include centerId so the Firestore inMyCenter() rule can be satisfied.
+    const snap = await getDocs(
+      query(
+        collection(db, "regressionAlerts"),
+        where("studentId", "==", studentId),
+        where("centerId", "==", centerId),
+      )
+    );
+    return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<RegressionAlertDoc, "id">), createdAt: firestoreDate(d.data().createdAt) })).sort((a, b) => firestoreDate(b.createdAt).localeCompare(firestoreDate(a.createdAt)));
+  },
+
+  /** Mark an alert as resolved */
+  resolve: async (alertId: string): Promise<void> => {
+    await updateDoc(doc(db, "regressionAlerts", alertId), { resolved: true });
+  },
+
+  /** Fetch ALL regression alerts (resolved + unresolved) for a centre */
+  listAll: async (centerId: string): Promise<RegressionAlertDoc[]> => {
+    const snap = await getDocs(
+      query(
+        collection(db, "regressionAlerts"),
+        where("centerId", "==", centerId),
+      )
+    );
+    return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<RegressionAlertDoc, "id">), createdAt: firestoreDate(d.data().createdAt) })).sort((a, b) => firestoreDate(b.createdAt).localeCompare(firestoreDate(a.createdAt)));
+  },
+};
+
+// ─── Milestone Observations (Teacher logging) ─────────────────────────────────
+//
+// Flow:
+//   Teacher observes student → logs milestone status
+//   → System checks achievedGoals[] for prior mastery of that goal
+//   → No prior mastery  → just save, no alert
+//   → Prior mastery + first "Failed/Declined" → Monitoring
+//   → Prior mastery + repeated "Failed/Declined" → Regression Warning
+
+export type MilestoneObservationStatus = "Achieved" | "In Progress" | "Failed/Declined";
+
+export interface MilestoneObservationDoc {
+  id: string;
+  studentId: string;
+  studentName: string;
+  centerId: string;
+  goalId: string;
+  goalTitle: string;
+  milestoneId?: string;
+  milestoneDescription?: string;
+  observedStatus: MilestoneObservationStatus;
+  notes: string;
+  observedBy: string;       // teacher's uid
+  observedByName: string;   // teacher's display name
+  observedAt: string;       // ISO date
+}
+
+const pendingObservations = new Map<string, string>();
+export const milestoneObservationsDb = {
+  /**
+   * Save a teacher observation and run regression detection.
+   * Uses achievedGoals[] in carePlan/main as the mastery baseline.
+   */
+  log: async (
+    observation: Omit<MilestoneObservationDoc, "id">,
+    _studentDoc: StudentDoc
+  ): Promise<{
+    alertCreated: boolean;
+    alertLevel: "Monitoring" | "Regression Warning" | null;
+    previousStatus: string;
+    currentStatus: string;
+    change: "Mastered/Maintaining" | "Declining" | "In Progress";
+    reason?: string;
+  }> => {
+    void _studentDoc;
+    if (!observation.centerId || !auth.currentUser) throw new Error("Profile not loaded. Please sign in and wait for your profile.");
+    const { api } = await import("./api");
+    const token = await auth.currentUser.getIdToken();
+    const key = JSON.stringify([auth.currentUser.uid, observation.studentId, observation.goalId, observation.observedStatus, observation.notes]);
+    const requestId = pendingObservations.get(key) ?? uuidv4();
+    pendingObservations.set(key, requestId);
+    const response = await api.post("/api/regression/observations", {
+      ...observation, requestId,
+    }, { headers: { Authorization: `Bearer ${token}` } });
+    pendingObservations.delete(key);
+    return response.data;
+  },
+
+  /** Fetch all observations for a student (append-only history) */
+  listForStudent: async (studentId: string, centerId?: string): Promise<MilestoneObservationDoc[]> => {
+    if (!centerId) throw new Error("Profile not loaded. Please wait before loading history.");
+    const q = query(collection(db, "milestoneObservations"),
+      where("studentId", "==", studentId), where("centerId", "==", centerId),
+      );
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<MilestoneObservationDoc, "id">) })).sort((a,b) => b.observedAt.localeCompare(a.observedAt)).slice(0,50);
   },
 };

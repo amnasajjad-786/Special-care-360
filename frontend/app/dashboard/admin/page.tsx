@@ -1,9 +1,10 @@
 "use client";
+import { downloadCsv } from "@/lib/workflow-state";
 
 import { useState, useMemo, useEffect } from "react";
 import { useAuth } from "@/lib/auth-context";
 import toast from "react-hot-toast";
-import { collection, query, where, onSnapshot, doc, deleteDoc, orderBy, limit } from "firebase/firestore";
+import { collection, query, where, onSnapshot, doc, updateDoc, orderBy, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { studentsDb, adminDb, dailyCareDb, abcDb, scopeOf, studentAge, type PanicAlertDoc } from "@/lib/firestore-api";
 import {
@@ -34,6 +35,8 @@ import {
 
 // --- Mock initial data matching HTML mockup ---
 interface AdminStudent {
+  teacherId?: string;
+  therapistIds?: string[];
   id: string;
   name: string;
   age: number | null;
@@ -58,6 +61,7 @@ interface AdminInvoice {
 
 interface AdminPayment {
   id: string;
+  invoiceId?: string;
   studentId: string;
   studentName: string;
   amount: number;
@@ -161,6 +165,7 @@ export default function AdminDashboard() {
   const [pendingUsers, setPendingUsers] = useState<PendingUser[]>([]);
   const [parentAccounts, setParentAccounts] = useState<UserAccount[]>([]);
   const [therapistAccounts, setTherapistAccounts] = useState<UserAccount[]>([]);
+  const [teacherAccounts, setTeacherAccounts] = useState<UserAccount[]>([]);
   const [selectedPendingUser, setSelectedPendingUser] = useState<PendingUser | null>(null);
 
   // --- Search & Filters ---
@@ -185,6 +190,7 @@ export default function AdminDashboard() {
     parentId: "",
     contactNo: "",
     therapist: "",
+    teacher: "",
     notes: ""
   });
 
@@ -245,6 +251,8 @@ export default function AdminDashboard() {
           age: studentAge(s.dob),
           diagnosis: s.diagnosis || "Unknown",
           therapist: s.therapistNames?.length ? s.therapistNames.join(", ") : "None",
+          teacherId: s.teacherId,
+          therapistIds: s.therapistIds,
           parentId: s.parentId ?? null,
           // Derived from the invoice list once it loads — this was hardcoded
           // to "paid" for every student regardless of their actual balance.
@@ -295,6 +303,7 @@ export default function AdminDashboard() {
 
         setPayments(payData.map((d: Record<string, unknown>) => ({
           id: d.id as string,
+          invoiceId: d.invoiceId as string,
           studentId: (d.studentId as string) ?? "",
           studentName: (d.studentName as string) ?? "",
           amount: (d.amount as number) ?? 0,
@@ -344,6 +353,7 @@ export default function AdminDashboard() {
           .filter((user) => user.status === "approved");
         setParentAccounts(approved.filter((user) => user.role === "parent"));
         setTherapistAccounts(approved.filter((user) => user.role === "therapist"));
+        setTeacherAccounts(approved.filter((user) => user.role === "teacher"));
       } catch (err) {
         console.error("Failed to load approved parent and therapist accounts", err);
         toast.error("Could not load approved parent and therapist accounts.");
@@ -504,7 +514,7 @@ export default function AdminDashboard() {
         gender: studentForm.gender,
         diagnosis: studentForm.diagnosis,
         centerId: profile?.centerId || "center-001",
-        teacherId: "", 
+        teacherId: studentForm.teacher,
         therapistIds: therapist ? [therapist.id] : [],
         enrollmentDate: new Date().toISOString(),
         iepStatus: "Active",
@@ -521,6 +531,8 @@ export default function AdminDashboard() {
         age: ageNum,
         diagnosis: studentForm.diagnosis,
         therapist: therapist?.name ?? "",
+        teacherId: studentForm.teacher,
+        therapistIds: therapist ? [therapist.id] : [],
         feeStatus: "unknown",
         status: "Active"
       };
@@ -536,6 +548,7 @@ export default function AdminDashboard() {
         parentId: "",
         contactNo: "",
         therapist: "",
+        teacher: "",
         notes: ""
       });
       toast.success("Student added successfully");
@@ -546,7 +559,7 @@ export default function AdminDashboard() {
   };
 
   const handleDeleteStudent = async (id: string | number, name: string) => {
-    if (confirm(`Are you sure you want to remove ${name}?`)) {
+    if (confirm(`Archive ${name}? The student will leave active lists; clinical and billing history will be preserved.`)) {
       try {
         await studentsDb.delete(id.toString(), profile?.centerId);
         setStudents(students.filter(s => s.id !== id));
@@ -573,6 +586,9 @@ export default function AdminDashboard() {
           ...current.filter(account => account.id !== uid),
           { id: uid, name: approvedUser.name ?? name, email: approvedUser.email ?? "", role: "therapist", status: "approved" },
         ]);
+      } else if (approvedUser?.role === "teacher") {
+        setTeacherAccounts(current => [...current.filter(account => account.id !== uid),
+          { id: uid, name: approvedUser.name ?? name, email: approvedUser.email ?? "", role: "teacher", status: "approved" }]);
       }
       toast.success(`${name} has been approved successfully!`);
     } catch (err) {
@@ -584,7 +600,7 @@ export default function AdminDashboard() {
   const handleRejectUser = async (uid: string, name: string) => {
     if (confirm(`Are you sure you want to reject the registration request for ${name}?`)) {
       try {
-        await deleteDoc(doc(db, "users", uid));
+        await updateDoc(doc(db, "users", uid), { status: "disabled" });
         setPendingUsers(pendingUsers.filter(u => u.id !== uid));
         setSelectedPendingUser(null);
         toast.success(`Registration request for ${name} rejected.`);
@@ -641,11 +657,12 @@ export default function AdminDashboard() {
   };
 
   const handleDeleteStaff = async (id: string | number, name: string) => {
-    if (confirm(`Are you sure you want to delete staff member ${name}?`)) {
+    if (confirm(`Offboard ${name}? Any linked user account will lose access and the directory entry will be disabled.`)) {
       try {
-        await adminDb.deleteStaff(id.toString());
+        const accountDisabled = await adminDb.deleteStaff(id.toString());
         setStaff(staff.filter(st => st.id !== id));
-        toast.success("Staff member removed");
+        if (accountDisabled) toast.success("Staff account disabled and sessions revoked");
+        else toast("Directory entry disabled. No authenticated account was found; check the account link before treating offboarding as complete.");
       } catch (err) {
         console.error(err);
         toast.error("Failed to remove staff member");
@@ -726,6 +743,7 @@ export default function AdminDashboard() {
 
       const newPayment: AdminPayment = {
         id: payment.id,
+        invoiceId,
         studentId: payment.studentId,
         studentName: payment.studentName,
         amount: payment.amount,
@@ -757,13 +775,27 @@ export default function AdminDashboard() {
   };
 
   const generateReport = (type: string) => {
-    const reportToast = toast.loading(`Generating ${type}...`);
-    setTimeout(() => {
-      toast.dismiss(reportToast);
-      toast.success(`${type} generated & downloaded successfully!`, {
-        icon: <FileSpreadsheet size={18} style={{ color: "var(--accent-teal)" }} />
-      });
-    }, 1500);
+    try {
+      if (type.startsWith("Receipt for Invoice ")) {
+        const invoice = invoices.find(item => item.id === type.slice("Receipt for Invoice ".length));
+        if (!invoice) throw new Error("Invoice unavailable");
+        const recordedPayments = payments.filter(payment => payment.invoiceId === invoice.id);
+        downloadCsv(`invoice-${invoice.id}.csv`, [
+          ["Document", invoice.status === "paid" ? "Payment receipt" : "Unpaid invoice"],
+          ["Invoice", "Student", "Amount (PKR)", "Month", "Issued", "Status"],
+          [invoice.id, invoice.studentName, invoice.amount, invoice.month, invoice.issued, invoice.status],
+          [], ["Recorded payments"], ["Payment ID", "Amount", "Method", "Date"],
+          ...recordedPayments.map(payment => [payment.id, payment.amount, payment.method, payment.date]),
+        ]);
+      } else {
+        downloadCsv(`${type}.csv`, [["Student ID", "Name", "Age", "Diagnosis", "Therapist", "Fee status", "Status"],
+          ...students.map(student => [student.id, student.name, student.age, student.diagnosis, student.therapist, student.feeStatus, student.status])]);
+      }
+      toast.success("Download prepared.");
+    } catch (error) {
+      console.error(error);
+      toast.error("Could not generate the export.");
+    }
   };
 
   // --- Filtered Lists ---
@@ -1230,7 +1262,24 @@ export default function AdminDashboard() {
                         <td>
                           <span className={`chip ${chipColor}`}>{s.diagnosis}</span>
                         </td>
-                        <td>{s.therapist}</td>
+                        <td>
+                          <div style={{ fontSize: "0.76rem", fontWeight: 600, marginBottom: 6 }}>
+                            Assigned: {therapistAccounts.filter(account => (s.therapistIds ?? []).includes(account.id)).map(account => account.name).join(", ") || "None"}
+                          </div>
+                          <select multiple size={2} aria-label={`Assigned therapists for ${s.name}`} className="glass-input" value={s.therapistIds ?? []} onChange={async event => {
+                            const therapistIds = Array.from(event.target.selectedOptions, option => option.value);
+                            if (therapistIds.length > 4) { toast.error("Select at most four therapists."); return; }
+                            try {
+                              await studentsDb.update(String(s.id), { therapistIds });
+                              const therapist = therapistAccounts.filter(account => therapistIds.includes(account.id)).map(account => account.name).join(", ") || "None";
+                              setStudents(current => current.map(student => student.id === s.id ? { ...student, therapistIds, therapist } : student));
+                              toast.success("Therapist assignments saved.");
+                            } catch { toast.error("Could not save therapist assignments."); }
+                          }}>
+                            {therapistAccounts.map(therapist => <option key={therapist.id} value={therapist.id}>{therapist.name}</option>)}
+                          </select>
+                          <div style={{ fontSize: "0.68rem", color: "var(--text-secondary)", marginTop: 4 }}>Select to assign; Ctrl+click to select multiple.</div>
+                        </td>
                         <td>{feeStatusLabels[feeStatusOf(s)]}</td>
                         <td>
                           <span className={`chip ${s.status === "Active" ? "chip-success" : "chip-gray"}`}>
@@ -1238,6 +1287,17 @@ export default function AdminDashboard() {
                           </span>
                         </td>
                         <td style={{ textAlign: "right" }}>
+                          <select aria-label={`Assigned teacher for ${s.name}`} className="glass-input" value={s.teacherId ?? ""} style={{ maxWidth: 150, marginRight: 8 }} onChange={async event => {
+                            const teacherId = event.target.value;
+                            try {
+                              await studentsDb.update(String(s.id), { teacherId });
+                              setStudents(current => current.map(student => student.id === s.id ? { ...student, teacherId } : student));
+                              toast.success("Teacher assignment saved.");
+                            } catch { toast.error("Could not save teacher assignment."); }
+                          }}>
+                            <option value="">No teacher assigned</option>
+                            {teacherAccounts.map(teacher => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}
+                          </select>
                           <button
                             className="btn-ghost"
                             onClick={() => handleDeleteStudent(s.id, s.name)}
@@ -2004,6 +2064,11 @@ export default function AdminDashboard() {
                   />
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "4px", gridColumn: "span 2" }}>
+                  <label style={{ fontSize: "0.75rem", fontWeight: 600 }}>Assign Teacher</label>
+                  <select className="glass-input" value={studentForm.teacher} onChange={e => setStudentForm({ ...studentForm, teacher: e.target.value })}>
+                    <option value="">No teacher assigned</option>
+                    {teacherAccounts.map(teacher => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}
+                  </select>
                   <label style={{ fontSize: "0.75rem", fontWeight: 600 }}>Assign Therapist</label>
                   <select
                     className="glass-input"

@@ -27,6 +27,7 @@ class StudentCreate(BaseModel):
     dob: str
     diagnosis: str
     centerId: str = DEFAULT_CENTER_ID
+    parentId: str
     teacherId: Optional[str] = None
     therapistIds: list[str] = []
     enrollmentDate: str

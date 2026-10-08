@@ -3,6 +3,8 @@ from pydantic import BaseModel
 import os
 import json
 import uuid
+import httpx
+from middleware.student_access import authorize_student, authorize_student_data, valid_id
 import google.generativeai as genai
 from firebase_admin_init import get_db
 from middleware.auth_middleware import get_current_user, require_role
@@ -10,8 +12,17 @@ from middleware.auth_middleware import get_current_user, require_role
 router = APIRouter(prefix="/ai-insights", tags=["AI Insights"])
 
 
+async def request_cohere(url, headers, payload):
+    # Awaited networking leaves the event loop available for safety requests.
+    async with httpx.AsyncClient(timeout=httpx.Timeout(20, connect=5)) as client:
+        response = await client.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+        return response.json()
+
+
 def authorize_iep_student(current_user: dict, student_data: dict) -> None:
     require_role(current_user, ["admin", "therapist"])
+    authorize_student_data(current_user, student_data)
     if current_user.get("status") != "approved":
         raise HTTPException(status_code=403, detail="An approved account is required")
     if student_data.get("centerId") != current_user.get("centerId"):
@@ -33,6 +44,7 @@ async def generate_abc_insights(
     # This endpoint returns clinical behavioural analysis of a named child, so it
     # is restricted to staff within the child's own centre.
     require_role(current_user, ["admin", "teacher", "therapist"])
+    authorize_student(student_id, current_user, get_db())
 
     gemini_key = os.getenv("GEMINI_API_KEY")
     if not gemini_key:
@@ -96,7 +108,8 @@ Here are their recent logged incidents:
             {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
             {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
         ]
-        response = model.generate_content(prompt, safety_settings=safety_settings)
+        response = await model.generate_content_async(prompt, safety_settings=safety_settings,
+            request_options={"timeout": 20})
         return AIResponse(report=response.text)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI generation failed: {str(e)}")
@@ -131,6 +144,7 @@ async def generate_iep_goals(
     current_user: dict = Depends(get_current_user),
 ):
     require_role(current_user, ["admin", "therapist"])
+    valid_id(student_id)
     db = get_db()
 
     # 1. Fetch Student Core Profile
@@ -140,17 +154,8 @@ async def generate_iep_goals(
     student_data = student_ref.to_dict()
     authorize_iep_student(current_user, student_data)
 
-    gemini_key = os.getenv("GEMINI_API_KEY")
-    if not gemini_key:
-        raise HTTPException(
-            status_code=500,
-            detail="GEMINI_API_KEY is missing in backend environment variables. Please add it to your .env file."
-        )
-
-    genai.configure(api_key=gemini_key)
-
     student_name = student_data.get("name", "Student")
-    diagnosis = student_data.get("diagnosis", "Unspecified special education needs")
+    diagnosis = student_data.get("diagnosis") or ""
     dob = student_data.get("dob", "")
 
     # 2. Fetch Medical Profile
@@ -175,7 +180,7 @@ async def generate_iep_goals(
         recent_incidents = []
 
     # Check for sufficient data
-    has_meaningful_data = bool(diagnosis or existing_goals or recent_incidents or special_needs != "None specified")
+    has_meaningful_data = bool(diagnosis.strip() or existing_goals or recent_incidents or (special_needs or "").strip() not in ("", "None specified"))
 
     if not has_meaningful_data:
         return IEPGenerationResponse(
@@ -248,8 +253,6 @@ Return ONLY a valid JSON object matching this exact schema:
 """
 
     try:
-        import urllib.request
-        import urllib.error
         
         cohere_key = os.getenv("COHERE_API_KEY")
         if not cohere_key:
@@ -267,12 +270,8 @@ Return ONLY a valid JSON object matching this exact schema:
             "temperature": 0.3,
             "response_format": {"type": "json_object"}
         }
-        req = urllib.request.Request(url, data=json.dumps(data).encode('utf-8'), headers=headers, method='POST')
-        
-        with urllib.request.urlopen(req) as response:
-            res_body = response.read().decode('utf-8')
-            res_json = json.loads(res_body)
-            ai_text = res_json.get("text", "{}")
+        res_json = await request_cohere(url, headers, data)
+        ai_text = res_json.get("text", "{}")
         
         # Clean potential markdown wrapping from Cohere response
         if ai_text.startswith("```json"):
@@ -423,7 +422,6 @@ Return ONLY a valid JSON object:
 """
 
     try:
-        import urllib.request as _req
         url = "https://api.cohere.com/v1/chat"
         headers = {
             "Authorization": f"Bearer {cohere_key}",
@@ -436,10 +434,8 @@ Return ONLY a valid JSON object:
             "temperature": 0.3,
             "response_format": {"type": "json_object"}
         }
-        request = _req.Request(url, data=json.dumps(data).encode("utf-8"), headers=headers, method="POST")
-        with _req.urlopen(request) as resp:
-            res_json = json.loads(resp.read().decode("utf-8"))
-            ai_text = res_json.get("text", "{}")
+        res_json = await request_cohere(url, headers, data)
+        ai_text = res_json.get("text", "{}")
 
         if ai_text.startswith("```"):
             ai_text = ai_text.strip("`").replace("json\n", "", 1)

@@ -1,4 +1,5 @@
 "use client";
+import { localDateTime } from "@/lib/workflow-state";
 import { useState, useEffect } from "react";
 import { abcDb, studentsDb, scopeOf } from "@/lib/firestore-api";
 import { useAuth } from "@/lib/auth-context";
@@ -34,7 +35,7 @@ export default function LogIncidentModal({ onClose, onSaved }: Props) {
   const { profile } = useAuth();
   const [students, setStudents] = useState<{ id: string; name: string }[]>([]);
   const [studentId, setStudentId] = useState("");
-  const [dateTime, setDateTime] = useState(new Date().toISOString().slice(0, 16));
+  const [dateTime, setDateTime] = useState(() => localDateTime());
   const [antText, setAntText] = useState("");
   const [antTags, setAntTags] = useState<string[]>([]);
   const [behText, setBehText] = useState("");

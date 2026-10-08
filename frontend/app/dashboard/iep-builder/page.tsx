@@ -1,4 +1,5 @@
 "use client";
+import { restoreIep } from "@/lib/workflow-state";
 
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth-context";
@@ -41,6 +42,7 @@ export default function IEPBuilderPage() {
   const [isGeneratingNextGoal, setIsGeneratingNextGoal] = useState(false);
   const [showAchievedHistory, setShowAchievedHistory] = useState(false);
   const [iepSummary, setIepSummary] = useState<string>("");
+  const [careVersion, setCareVersion] = useState(0);
   const [disclaimer, setDisclaimer] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
@@ -119,6 +121,7 @@ export default function IEPBuilderPage() {
         console.warn("listIncidents failed:", e);
       }
 
+      if (!active) return;
       setMedicalProfile(medData as MedicalProfile);
       setAbcIncidents(abcData || []);
 
@@ -129,18 +132,25 @@ export default function IEPBuilderPage() {
       // - All other roles (admin, teacher, parent): always show whatever goals exist.
       const currentCare = careData as CarePlan;
       const rawCare = careData as unknown as Record<string, unknown>;
+      const draft = rawCare.draftIep as Record<string, unknown> | undefined;
+      setCareVersion(Number(profile?.role === "therapist" && draft ? draft.expectedVersion ?? rawCare.version ?? 0 : rawCare.version ?? 0));
       const hasRealIep =
         currentCare.iepStatus === "Active" ||
         rawCare.draftIep != null ||
         (Array.isArray(currentCare.achievedGoals) && (currentCare.achievedGoals?.length ?? 0) > 0);
 
-      if (
+      const restored = restoreIep(rawCare, profile?.role === "therapist");
+      if (restored.draft) {
+        setGoals(restored.goals as IEPGoal[]);
+        setIepSummary(restored.summary);
+        setDisclaimer("This is your saved draft. It has not been finalized.");
+      } else if (
         currentCare &&
         Array.isArray(currentCare.goals) &&
         currentCare.goals.length > 0 &&
         (profile?.role !== "therapist" || hasRealIep)
       ) {
-        setGoals(currentCare.goals);
+        setGoals(restored.goals as IEPGoal[]);
         if (currentCare.iepSummary) setIepSummary(currentCare.iepSummary);
         if (currentCare.iepStatus === "Active") {
           setDisclaimer("This is the active finalized IEP plan for this student.");
@@ -160,7 +170,9 @@ export default function IEPBuilderPage() {
       setLoadingStudentData(false);
     }
 
+    let active = true;
     fetchStudentContext();
+    return () => { active = false; };
   }, [selectedStudentId, students, profile]);
 
   // Trigger AI Generation
@@ -319,17 +331,14 @@ export default function IEPBuilderPage() {
   const handleMarkAchieved = async (goalId: string) => {
     if (!selectedStudentId) return;
     try {
-      await iepDb.markGoalAchieved(selectedStudentId, goalId);
-      const achieved = goals.find((g) => g.id === goalId);
-      if (achieved) {
-        const achievedGoal: IEPGoal = { ...achieved, status: "Achieved", achievedAt: new Date().toISOString() };
-        setAchievedGoals((prev) => [...prev, achievedGoal]);
-        setGoals((prev) => prev.filter((g) => g.id !== goalId));
-      }
+      const saved = await iepDb.markGoalAchieved(selectedStudentId, goalId);
+      setCareVersion(saved.version);
+      setAchievedGoals(saved.achievedGoals as unknown as IEPGoal[]);
+      setGoals(saved.goals as unknown as IEPGoal[]);
       toast.success("Goal marked as Achieved! You can now generate the next progressive goal.");
     } catch (err) {
       console.error(err);
-      toast.error("Failed to mark goal as achieved.");
+      toast.error(err instanceof Error ? err.message : "Failed to mark goal as achieved.");
     }
   };
 
@@ -374,8 +383,10 @@ export default function IEPBuilderPage() {
   const handleAcceptPendingGoal = async () => {
     if (!selectedStudentId || !pendingAiGoal) return;
     try {
-      await iepDb.acceptPendingAiGoal(selectedStudentId, pendingAiGoal as unknown as Record<string, unknown>);
-      setGoals((prev) => [...prev, pendingAiGoal]);
+      const saved = await iepDb.acceptPendingAiGoal(selectedStudentId, pendingAiGoal as unknown as Record<string, unknown>);
+      setCareVersion(saved.version);
+      setGoals(saved.goals as unknown as IEPGoal[]);
+      setAchievedGoals(saved.achievedGoals as unknown as IEPGoal[]);
       setPendingAiGoal(null);
       toast.success("Goal added to active IEP plan!");
     } catch (err) {
@@ -406,6 +417,7 @@ export default function IEPBuilderPage() {
         {
           goals,
           summary: iepSummary,
+          expectedVersion: careVersion,
           centerId: profile?.centerId || "demo-center-001",
           generatedByAi: Boolean(iepSummary),
         },
@@ -436,6 +448,7 @@ export default function IEPBuilderPage() {
         {
           goals,
           summary: iepSummary,
+          expectedVersion: careVersion,
           centerId: profile?.centerId || "demo-center-001",
           generatedByAi: Boolean(iepSummary),
         },
@@ -443,9 +456,10 @@ export default function IEPBuilderPage() {
         profile?.name
       );
       toast.success("IEP Finalized & synchronized with student's active Care Plan! 🎯");
+      setCareVersion(version => version + 1);
     } catch (err) {
       console.error(err);
-      toast.error("Failed to finalize IEP.");
+      toast.error(err instanceof Error ? err.message : "Failed to finalize IEP.");
     } finally {
       setIsSaving(false);
     }

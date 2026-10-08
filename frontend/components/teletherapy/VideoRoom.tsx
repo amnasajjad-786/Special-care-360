@@ -10,29 +10,20 @@ import { Video, VideoOff, ExternalLink } from "lucide-react";
  * approach needs a third-party script on every page load and gives us nothing
  * we use here. The room name comes from the session id, so it is unguessable.
  *
- * TWO MODES
- * ---------
- * JaaS (8x8), when the backend has credentials. It asks GET
+ * JaaS (8x8) asks GET
  * /api/teletherapy/token for a signed JWT naming this user as moderator or
  * participant, and joins `8x8.vc/<tenant>/<room>?jwt=...`. This is the mode to
  * use for real sessions: the therapist is the moderator, so the call starts.
  *
- * Plain meet.jit.si otherwise. The public instance will NOT start a conference
- * until a moderator joins, and becoming one requires a Jitsi account, so both
- * participants can load the room and still never be connected -- they sit on
- * "The conference has not yet started because no moderators have yet arrived".
- * Workable for a click-through demo if the therapist presses Log-in inside the
- * frame once per room; not workable for anything real.
- *
- * The fallback is deliberate: an unconfigured deployment degrades to a room
- * that loads rather than to an error.
+ * Public Jitsi is available only when explicitly selected in the backend.
+ * Authorization failures never fall back to a public room.
  */
 
-const JITSI_DOMAIN = process.env.NEXT_PUBLIC_JITSI_DOMAIN || "meet.jit.si";
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 interface JaasGrant {
-  token: string;
+  provider?: "jaas" | "jitsi";
+  token: string | null;
   room: string;
   domain: string;
   moderator: boolean;
@@ -48,11 +39,13 @@ interface Props {
 }
 
 export default function VideoRoom({
-  roomName, displayName, sessionId, getIdToken, onLeave,
+  displayName, sessionId, getIdToken, onLeave,
 }: Props) {
   const [joined, setJoined] = useState(false);
   const [grant, setGrant] = useState<JaasGrant | null>(null);
   const [checking, setChecking] = useState(true);
+  const [connectionError, setConnectionError] = useState("");
+  const [retryCount, setRetryCount] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Leaving the page should not leave a live camera behind.
@@ -60,19 +53,34 @@ export default function VideoRoom({
     return () => setJoined(false);
   }, []);
 
-  // Ask the backend for a JaaS grant. A 503 simply means JaaS is not set up,
-  // which is not an error worth showing anyone.
+  // Require backend authorization before rendering a room or join link.
   useEffect(() => {
     let cancelled = false;
+    setChecking(true);
+    setConnectionError("");
+    setGrant(null);
+    setJoined(false);
     (async () => {
       try {
         const authToken = await getIdToken();
-        if (!authToken) return;
+        if (cancelled) return;
+        if (!authToken) { setConnectionError("Sign in again to join this session."); return; }
         const res = await fetch(
           `${API_BASE}/api/teletherapy/token?sessionId=${encodeURIComponent(sessionId)}`,
           { headers: { Authorization: `Bearer ${authToken}` } }
         );
+        if (cancelled) return;
         if (!res.ok) {
+          const error = await res.json().catch(() => null);
+          if (cancelled) return;
+          setConnectionError(
+            res.status === 401 ? "Your sign-in has expired. Sign in again to join this session."
+              : res.status === 403 ? "You are not authorized to join this session."
+              : res.status === 404 ? "This session no longer exists. Return to sessions and select another session."
+              : res.status === 503 && error?.detail === "Secure video service is not configured"
+                ? "Video calls have not been set up for this centre yet. Please contact your centre administrator."
+                : "The video service is temporarily unavailable. Please retry."
+          );
           if (res.status !== 503) {
             console.warn("[teletherapy] video token unavailable:", res.status);
           }
@@ -81,13 +89,18 @@ export default function VideoRoom({
         const data = (await res.json()) as JaasGrant;
         if (!cancelled) setGrant(data);
       } catch (err) {
+        if (cancelled) return;
+        setConnectionError("Secure video is unavailable. Check your connection and retry.");
         console.warn("[teletherapy] could not reach the token endpoint:", err);
       } finally {
         if (!cancelled) setChecking(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [sessionId, getIdToken]);
+  }, [sessionId, getIdToken, retryCount]);
+
+  if (connectionError) return <div role="alert" className="glass-card" style={{ padding: 24 }}><p>{connectionError}</p><div style={{ display: "flex", gap: 12, marginTop: 16 }}><button className="btn-primary" onClick={() => setRetryCount(count => count + 1)}>Retry connection</button><button className="btn-ghost" onClick={onLeave}>Return to sessions</button></div></div>;
+  if (checking || !grant) return <div className="glass-card" style={{ padding: 24 }}>Preparing video…</div>;
 
   // Jitsi parses each hash parameter as JSON, so a string value has to arrive
   // quoted -- `userInfo.displayName=Amna` is invalid JSON and is dropped, which
@@ -104,13 +117,12 @@ export default function VideoRoom({
   ];
   // With JaaS the display name comes from the signed token, so sending it in
   // the hash as well would let a participant rename themselves.
-  if (!grant) {
-    hashParams.unshift(`userInfo.displayName=${encodeURIComponent(JSON.stringify(displayName))}`);
+  const publicJitsi = grant.provider === "jitsi";
+  if (publicJitsi) {
+    hashParams.push(`userInfo.displayName=${encodeURIComponent(JSON.stringify(displayName))}`);
   }
-
-  const roomUrl = grant
-    ? `https://${grant.domain}/${grant.room}?jwt=${encodeURIComponent(grant.token)}#${hashParams.join("&")}`
-    : `https://${JITSI_DOMAIN}/${encodeURIComponent(roomName)}#${hashParams.join("&")}`;
+  const tokenQuery = grant.token ? `?jwt=${encodeURIComponent(grant.token)}` : "";
+  const roomUrl = `https://${grant.domain}/${grant.room}${tokenQuery}#${hashParams.join("&")}`;
 
   if (!joined) {
     return (
@@ -122,26 +134,27 @@ export default function VideoRoom({
           <Video size={44} />
         </div>
         <div>
-          <h3 style={{ margin: 0, color: "var(--primary-dark)", fontWeight: 700 }}>Ready to join</h3>
+          <h3 style={{ margin: 0, color: "var(--primary-dark)", fontWeight: 700 }}>Ready to join as {displayName}</h3>
           <p style={{ margin: "6px 0 0", color: "var(--text-secondary)", fontSize: "0.86rem", lineHeight: 1.5, maxWidth: "420px" }}>
-            Your camera and microphone stay off until you join. The room is private
-            to this session.
+            {publicJitsi
+              ? "Jitsi demo room: anyone with the meeting link can join. The therapist must sign in to Jitsi to start the call; parents wait until the host arrives."
+              : "Your camera and microphone stay off until you join. The room is private to this session."}
           </p>
         </div>
         <button
           className="btn-primary"
-          onClick={() => setJoined(true)}
+          onClick={() => {
+            if (publicJitsi && grant.moderator) {
+              window.open(roomUrl, "_blank", "noopener,noreferrer");
+            } else {
+              setJoined(true);
+            }
+          }}
           disabled={checking}
           style={{ padding: "12px 28px", display: "inline-flex", alignItems: "center", gap: "8px" }}
         >
-          <Video size={16} /> {checking ? "Preparing room…" : "Join session"}
+          <Video size={16} /> {publicJitsi && grant.moderator ? "Start session in Jitsi" : "Join session"}
         </button>
-        {!checking && !grant && (
-          <p style={{ margin: 0, fontSize: "0.74rem", color: "var(--text-secondary)", maxWidth: "420px", lineHeight: 1.5 }}>
-            Running on the public Jitsi server. The therapist may need to sign in
-            inside the call before it will start.
-          </p>
-        )}
         <a
           href={roomUrl}
           target="_blank"

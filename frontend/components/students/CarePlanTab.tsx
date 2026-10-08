@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { CarePlan, IEPGoal } from "@/types";
 import toast from "react-hot-toast";
 import { Target, Save, BrainCircuit } from "lucide-react";
@@ -17,10 +17,8 @@ interface Props { studentId: string; carePlan: CarePlan; canEdit: boolean; onCha
 
 export default function CarePlanTab({ studentId, carePlan: initial, canEdit, onChange }: Props) {
   const [goals, setGoals] = useState<IEPGoal[]>(initial?.goals || []);
+  const [version, setVersion] = useState(initial?.version ?? 0);
 
-  useEffect(() => {
-    if (onChange) onChange({ ...initial, goals });
-  }, [goals, onChange]); // eslint-disable-line react-hooks/exhaustive-deps
   const [saving, setSaving] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [newGoal, setNewGoal] = useState({ title: "", status: "In Progress" as IEPGoal["status"], progressPercent: 0 });
@@ -28,9 +26,11 @@ export default function CarePlanTab({ studentId, carePlan: initial, canEdit, onC
   const save = async () => {
     setSaving(true);
     try {
-      await studentsDb.updateCarePlan(studentId, { goals } as unknown as Record<string, unknown>);
+      const savedVersion = await studentsDb.updateCarePlan(studentId, { goals, expectedVersion: version });
+      setVersion(savedVersion);
+      onChange?.({ ...initial, goals, version: savedVersion });
       toast.success("Care plan saved");
-    } catch { toast.error("Save failed"); }
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Save failed"); }
     finally { setSaving(false); }
   };
 
@@ -53,9 +53,11 @@ export default function CarePlanTab({ studentId, carePlan: initial, canEdit, onC
     <div className="animate-fade-in" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px" }}>
         <div>
-          <h3 style={{ margin: 0, fontWeight: 700, color: "var(--primary-dark)", fontSize: "1.05rem" }}>IEP Goals</h3>
+          <h3 style={{ margin: 0, fontWeight: 700, color: "var(--primary-dark)", fontSize: "1.05rem" }}>
+            Active Care Plan Goals (IEP)
+          </h3>
           <p style={{ margin: "4px 0 0", fontSize: "0.82rem", color: "var(--text-secondary)" }}>
-            {goals.filter(g => g.status === "Mastered").length} of {goals.length} goals mastered
+            Current Finalized &amp; Ongoing Goals ({goals.length} active)
           </p>
         </div>
         {canEdit && <button className="btn-primary" onClick={() => setShowAdd(true)} style={{ padding: "8px 18px", fontSize: "0.85rem" }}>+ Add Goal</button>}
@@ -110,6 +112,26 @@ export default function CarePlanTab({ studentId, carePlan: initial, canEdit, onC
                   {goal.progressPercent}%
                 </span>
               </div>
+
+              {/* Milestones list if defined */}
+              {Array.isArray(goal.milestones) && goal.milestones.length > 0 && (
+                <div style={{ marginTop: "12px", background: "rgba(0,0,0,0.02)", padding: "10px 12px", borderRadius: "8px", border: "1px solid rgba(0,0,0,0.05)" }}>
+                  <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-secondary)", marginBottom: "6px", textTransform: "uppercase" }}>
+                    Milestones ({goal.milestones.filter(m => m.completed).length}/{goal.milestones.length} completed):
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                    {goal.milestones.map((m) => (
+                      <div key={m.id} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.82rem" }}>
+                        <span style={{ fontSize: "0.9rem" }}>{m.completed ? "✅" : "⏳"}</span>
+                        <span style={{ color: m.completed ? "var(--success)" : "var(--text-primary)", textDecoration: m.completed ? "line-through" : "none" }}>
+                          {m.description}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {canEdit && (
                 <div style={{ display: "flex", gap: "10px", marginTop: "12px", alignItems: "center" }}>
                   <input type="range" min={0} max={100} value={goal.progressPercent}
@@ -128,14 +150,14 @@ export default function CarePlanTab({ studentId, carePlan: initial, canEdit, onC
             {canEdit && (
               <button onClick={() => removeGoal(goal.id)}
                 style={{ background: "none", border: "none", cursor: "pointer", color: "var(--danger)", fontSize: "1.3rem", marginTop: "-4px" }}>
-                ×
+                Ã—
               </button>
             )}
           </div>
         </div>
       ))}
 
-      {canEdit && goals.length > 0 && (
+      {canEdit && (
         <div style={{ display: "flex", justifyContent: "flex-end" }}>
           <button className="btn-primary" onClick={save} disabled={saving} style={{ padding: "12px 28px" }}>
             {saving ? "Saving…" : (

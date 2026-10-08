@@ -202,6 +202,8 @@ def init_firebase():
     )
 
     if not os.path.exists(key_path):
+        if os.getenv("ALLOW_LOCAL_MOCK", "").lower() != "true":
+            raise RuntimeError("Firebase credentials missing. Production cannot use mock mode.")
         logging.warning("\n"
             "┌──────────────────────────────────────────────────────────────┐\n"
             "│ [Firebase] serviceAccountKey.json NOT found!                 │\n"
@@ -220,10 +222,7 @@ def init_firebase():
         logging.info("[Firebase] Initialized successfully with Service Account Key.")
         return _app
     except Exception as e:
-        logging.error(f"[Firebase] Initialization failed: {e}. Falling back to Placeholder Mode.")
-        _placeholder_mode = True
-        _mock_db = MockFirestoreClient()
-        return None
+        raise RuntimeError("Firebase credential initialization failed") from e
 
 def get_app():
     """Ensure Firebase app or placeholder mode is initialized and return it"""
@@ -256,25 +255,10 @@ def verify_token(token: str) -> dict:
         init_firebase()
 
     if _placeholder_mode:
-        role = "admin"
-        if "teacher" in token.lower():
-            role = "teacher"
-        elif "therapist" in token.lower():
-            role = "therapist"
-        elif "parent" in token.lower():
-            role = "parent"
-
-        return {
-            "uid": f"{role}-uid",
-            "name": f"Mock {role.capitalize()}",
-            "email": f"{role}@demo.com",
-            "role": role,
-            "centerId": "demo-center-001",
-            "status": "approved"
-        }
+        raise ValueError("Authentication is disabled in local mock mode")
 
     try:
-        return firebase_auth.verify_id_token(token)
+        return firebase_auth.verify_id_token(token, check_revoked=True)
     except Exception as e:
         logging.error(f"[Firebase] Token verification failed: {e}")
         raise

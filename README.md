@@ -49,6 +49,25 @@ cp .env.example .env
 python -m uvicorn main:app --reload  # → http://localhost:8000
 ```
 
+## Free Jitsi demo calls
+
+Set `TELETHERAPY_PROVIDER=jitsi` in `backend/.env`, then restart the backend.
+No JaaS API keys are required. The assigned therapist opens **Start session in
+Jitsi** and signs in to Jitsi to start the meeting; the parent selects **Join
+session** for the same room. Both can also open the room in a new tab.
+These are public demo rooms: anyone with the meeting link can join. Set
+`TELETHERAPY_PROVIDER=jaas` and configure the JaaS credentials for signed rooms.
+
+Scheduling saves the session and its parent notification in one Firestore
+batch. The parent's notification bell updates live and includes the session
+title, therapist, Pakistan time, duration, and a **View sessions** button.
+
+For a live-demo backup, create a Google Meet meeting and paste its link into
+the optional **Google Meet backup link** field when scheduling. For existing
+sessions, therapists/admins can select **Add Meet backup**. Both participants
+can open the same backup from the session card or video page if Jitsi fails.
+The backup opens in a new tab and requires no Google API credentials.
+
 ## Firebase Setup
 
 1. Create a Firebase project at https://console.firebase.google.com

@@ -40,6 +40,7 @@ def send_panic_email_alert(alert_data: dict) -> bool:
             db.collection("users")
             .where("centerId", "==", center_id)
             .where("role", "==", "admin")
+            .where("status", "==", "approved")
             .stream()
         )
         for admin in admin_docs:
@@ -182,9 +183,9 @@ def send_panic_email_alert(alert_data: dict) -> bool:
         # Setup server connection
         port = int(smtp_port)
         if port == 465:
-            server = smtplib.SMTP_SSL(smtp_host, port)
+            server = smtplib.SMTP_SSL(smtp_host, port, timeout=10)
         else:
-            server = smtplib.SMTP(smtp_host, port)
+            server = smtplib.SMTP(smtp_host, port, timeout=10)
             if port == 587:
                 server.starttls()
 

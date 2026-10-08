@@ -11,7 +11,7 @@ export interface UserProfile {
   email: string;
   role: Role;
   centerId: string;
-  status: "pending" | "approved";
+  status: "pending" | "approved" | "disabled";
   photoUrl?: string;
 }
 
@@ -93,6 +93,7 @@ export interface IEPRecord {
 }
 
 export interface CarePlan {
+  version?: number;
   goals: IEPGoal[];
   achievedGoals?: IEPGoal[];     // History: goals that were marked Achieved
   pendingAiGoal?: IEPGoal | null; // AI-suggested next goal awaiting therapist review

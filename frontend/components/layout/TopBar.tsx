@@ -28,6 +28,7 @@ interface NotificationItem {
   body: string;
   time: string;
   read: boolean;
+  href?: string;
 }
 
 const NOTIFICATION_TITLES: Record<string, string> = {
@@ -114,6 +115,7 @@ export default function TopBar() {
             body: data.message || "",
             time: timeStr,
             read: !!data.read,
+            href: data.type === "teletherapy_session" ? "/dashboard/teletherapy" : undefined,
             _rawDate: parsedDate,
           };
         });
@@ -129,6 +131,7 @@ export default function TopBar() {
           body: item.body,
           time: item.time,
           read: item.read,
+          href: item.href,
         }));
 
         setNotifications(limitedItems);
@@ -315,6 +318,15 @@ export default function TopBar() {
                     )}
                     <div style={{ fontWeight: 700, color: "var(--text-primary)", paddingRight: "12px", marginBottom: "2px" }}>{item.title}</div>
                     <div style={{ color: "var(--text-secondary)", fontSize: "0.75rem", lineHeight: 1.3 }}>{item.body}</div>
+                    {item.href && <button className="btn-ghost" style={{ marginTop: 8, padding: "6px 10px" }} onClick={async () => {
+                      setNotificationsOpen(false);
+                      router.push(item.href!);
+                      try {
+                        await updateDoc(doc(db, "notifications", item.id), { read: true });
+                      } catch (err) {
+                        console.warn("Could not mark session notification as read:", err);
+                      }
+                    }}>View sessions</button>}
                     <div style={{ color: "rgba(0,0,0,0.35)", fontSize: "0.68rem", marginTop: "4px", fontWeight: 600 }}>{item.time}</div>
                   </div>
                 ))

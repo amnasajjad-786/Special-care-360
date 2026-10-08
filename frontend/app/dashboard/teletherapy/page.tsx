@@ -9,6 +9,7 @@ import {
   type SessionStatus,
 } from "@/lib/teletherapy-api";
 import VideoRoom from "@/components/teletherapy/VideoRoom";
+import { googleMeetLink } from "@/lib/meet-link";
 import toast from "react-hot-toast";
 import {
   Video,
@@ -68,6 +69,7 @@ export default function TeletherapyPage() {
     date: "",
     time: "",
     durationMinutes: "45",
+    googleMeetUrl: "",
   });
 
   useEffect(() => {
@@ -120,17 +122,21 @@ export default function TeletherapyPage() {
 
     setSaving(true);
     try {
+      const student = students.find(student => student.id === form.studentId);
+      const therapistId = profile?.role === "therapist" ? profile.uid : student?.therapistIds[0];
+      if (!therapistId) throw new Error("Assign an approved therapist to this student before scheduling.");
       await teletherapyDb.schedule({
         studentId: form.studentId,
         title: form.title,
         scheduledAt: scheduledAt.toISOString(),
         durationMinutes: parseInt(form.durationMinutes, 10),
-        therapistId: profile?.uid ?? "",
-        therapistName: profile?.name ?? "Therapist",
+        googleMeetUrl: form.googleMeetUrl,
+        therapistId,
+        therapistName: profile?.role === "therapist" ? profile.name : student?.therapistNames?.[0] || "Assigned therapist",
       });
       toast.success("Session scheduled. The family has been notified.");
       setShowSchedule(false);
-      setForm({ studentId: "", title: "", date: "", time: "", durationMinutes: "45" });
+      setForm({ studentId: "", title: "", date: "", time: "", durationMinutes: "45", googleMeetUrl: "" });
     } catch (err) {
       console.error(err);
       toast.error(err instanceof Error ? err.message : "Could not schedule the session.");
@@ -176,7 +182,20 @@ export default function TeletherapyPage() {
     }
   };
 
+  const handleMeetBackup = async (session: TeletherapySession) => {
+    const value = window.prompt("Paste the Google Meet backup link. Leave blank to remove it.", session.googleMeetUrl || "");
+    if (value === null) return;
+    try {
+      await teletherapyDb.setMeetBackup(session.id, value);
+      toast.success(value.trim() ? "Google Meet backup saved for both participants." : "Google Meet backup removed.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save the backup link.");
+    }
+  };
+
   if (activeSession) {
+    const currentSession = sessions.find(s => s.id === activeSession.id) || activeSession;
+    const meetUrl = googleMeetLink(currentSession.googleMeetUrl);
     return (
       <div style={{ maxWidth: "980px", margin: "0 auto" }}>
         <div style={{ marginBottom: "16px" }}>
@@ -186,6 +205,12 @@ export default function TeletherapyPage() {
           <p style={{ margin: "4px 0 0", color: "var(--text-secondary)", fontSize: "0.88rem" }}>
             {activeSession.studentName} &middot; with {activeSession.therapistName}
           </p>
+        </div>
+        <div className="glass-card" style={{ padding: 16, marginBottom: 16 }}>
+          <p style={{ margin: "0 0 10px", color: "var(--text-secondary)" }}>Having trouble with Jitsi? Both participants can use the same Google Meet backup.</p>
+          {meetUrl && <a className="btn-ghost" href={meetUrl} target="_blank" rel="noopener noreferrer">Open Google Meet backup</a>}
+          {canSchedule && <button className="btn-ghost" style={{ marginLeft: meetUrl ? 12 : 0 }} onClick={() => handleMeetBackup(currentSession)}>{meetUrl ? "Change backup link" : "Add Google Meet backup"}</button>}
+          {!meetUrl && !canSchedule && <p style={{ margin: 0 }}>Ask your therapist to add a backup meeting link.</p>}
         </div>
         <VideoRoom
           roomName={activeSession.roomName}
@@ -250,6 +275,7 @@ export default function TeletherapyPage() {
             profileRole={profile?.role ?? ""}
             onJoin={handleJoin}
             onCancel={handleCancel}
+            onMeetBackup={handleMeetBackup}
             onWriteNote={(s) => { setNoteFor(s); setNoteText(s.sessionNote ?? ""); }}
           />
           <SessionGroup
@@ -260,6 +286,7 @@ export default function TeletherapyPage() {
             profileRole={profile?.role ?? ""}
             onJoin={handleJoin}
             onCancel={handleCancel}
+            onMeetBackup={handleMeetBackup}
             onWriteNote={(s) => { setNoteFor(s); setNoteText(s.sessionNote ?? ""); }}
           />
         </>
@@ -308,6 +335,12 @@ export default function TeletherapyPage() {
                   onChange={(e) => setForm({ ...form, title: e.target.value })}
                   style={{ marginTop: "4px" }}
                 />
+              </label>
+              <label style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-secondary)" }}>
+                Google Meet backup link (optional)
+                <input type="url" className="glass-input" placeholder="https://meet.google.com/abc-defg-hij" value={form.googleMeetUrl}
+                  onChange={(e) => setForm({ ...form, googleMeetUrl: e.target.value })} style={{ marginTop: 4 }} />
+                <span style={{ display: "block", marginTop: 6, fontWeight: 400 }}>Create a meeting at <a href="https://meet.google.com/" target="_blank" rel="noopener noreferrer">Google Meet</a>, then paste its link here.</span>
               </label>
               <div className="teletherapy-date-fields">
                 <label style={{ flex: 1, fontSize: "0.78rem", fontWeight: 600, color: "var(--text-secondary)" }}>
@@ -363,7 +396,7 @@ export default function TeletherapyPage() {
 }
 
 function SessionGroup({
-  heading, sessions, emptyText, now, profileRole, onJoin, onCancel, onWriteNote,
+  heading, sessions, emptyText, now, profileRole, onJoin, onCancel, onWriteNote, onMeetBackup,
 }: {
   heading: string;
   sessions: TeletherapySession[];
@@ -373,6 +406,7 @@ function SessionGroup({
   onJoin: (s: TeletherapySession) => void;
   onCancel: (s: TeletherapySession) => void;
   onWriteNote: (s: TeletherapySession) => void;
+  onMeetBackup: (s: TeletherapySession) => void;
 }) {
   const isClinician = profileRole === "therapist" || profileRole === "admin";
 
@@ -418,11 +452,13 @@ function SessionGroup({
                       <Video size={14} /> Join
                     </button>
                   )}
+                  {canJoin && googleMeetLink(s.googleMeetUrl) && <a className="btn-ghost" href={googleMeetLink(s.googleMeetUrl)} target="_blank" rel="noopener noreferrer" style={{ padding: "9px 14px" }}>Meet backup</a>}
                   {!canJoin && s.status === "scheduled" && !win.past && (
                     <span style={{ fontSize: "0.76rem", color: "var(--text-secondary)" }}>Opens 10 min before</span>
                   )}
                   {isClinician && s.status === "scheduled" && (
                     <>
+                      <button className="btn-ghost" onClick={() => onMeetBackup(s)} style={{ padding: "9px 14px" }}>{s.googleMeetUrl ? "Edit Meet backup" : "Add Meet backup"}</button>
                       <button className="btn-ghost" onClick={() => onWriteNote(s)} style={{ padding: "9px 14px", display: "inline-flex", alignItems: "center", gap: "6px" }}>
                         <NotebookPen size={14} /> Summary
                       </button>

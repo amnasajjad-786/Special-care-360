@@ -1,7 +1,7 @@
 """Background missed-dose detection for scheduled medication administrations."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from firebase_admin import firestore
@@ -90,8 +90,16 @@ def check_missed_medication_doses(now=None):
     timezone = ZoneInfo("Asia/Karachi")
     now = now or datetime.now(timezone)
     now = now.astimezone(timezone)
-    day = now.date().isoformat()
     db = get_db()
+    checkpoint_ref = db.collection("systemState").document("medicationMonitor")
+    checkpoint = checkpoint_ref.get().to_dict() or {}
+    previous = checkpoint.get("checkedThrough")
+    first_day = datetime.fromisoformat(previous).astimezone(timezone).date() if previous else now.date() - timedelta(days=1)
+    # Bound each scan, but persist the cursor so arbitrarily long outages catch up.
+    last_day = min(now.date(), first_day + timedelta(days=6))
+    days = [(first_day + timedelta(days=offset)).isoformat()
+            for offset in range((last_day - first_day).days + 1)]
+    failed = False
 
     recipients_by_center = {}
     for user_snapshot in db.collection("users").stream():
@@ -103,6 +111,8 @@ def check_missed_medication_doses(now=None):
     created_or_alerted = 0
     for student_snapshot in db.collection("students").stream():
         student = student_snapshot.to_dict() or {}
+        if student.get("archivedAt"):
+            continue
         center_id = student.get("centerId")
         recipients = set(recipients_by_center.get(center_id, set()))
         parent_id = student.get("parentId")
@@ -125,7 +135,11 @@ def check_missed_medication_doses(now=None):
                 continue
             medication_id = str(medication.get("id") or f"legacy-{index}")
             medication_name = str(medication.get("name") or "Medication")
-            for scheduled_time in scheduled_times(medication):
+            for day, scheduled_time in ((day, time) for day in days for time in scheduled_times(medication)):
+                if medication.get("startDate") and day < medication["startDate"][:10]:
+                    continue
+                if medication.get("endDate") and day > medication["endDate"][:10]:
+                    continue
                 due_at = datetime.strptime(
                     f"{day} {scheduled_time}", "%Y-%m-%d %H:%M"
                 ).replace(tzinfo=timezone)
@@ -172,9 +186,13 @@ def check_missed_medication_doses(now=None):
                     ):
                         created_or_alerted += 1
                 except Exception:
+                    failed = True
                     logger.exception(
                         "Failed to process missed dose %s for student %s",
                         dose_document_id,
                         student_snapshot.id,
                     )
+    if not failed:
+        through = now if last_day == now.date() else datetime.combine(last_day + timedelta(days=1), datetime.min.time(), timezone)
+        checkpoint_ref.set({"checkedThrough": through.isoformat()})
     return created_or_alerted

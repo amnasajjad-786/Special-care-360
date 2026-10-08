@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from models.schemas import ABCIncidentCreate
 from firebase_admin_init import get_db
 from middleware.auth_middleware import get_current_user, require_role
+from middleware.student_access import authorize_student
 from datetime import datetime, timezone
 from collections import Counter
 import uuid
@@ -10,27 +11,30 @@ router = APIRouter(prefix="/api/abc", tags=["abc-tracker"])
 
 
 @router.post("/incidents")
-async def log_incident(
+def log_incident(
     body: ABCIncidentCreate,
     current_user: dict = Depends(get_current_user)
 ):
     require_role(current_user, ["teacher", "therapist", "admin"])
     db          = get_db()
+    student = authorize_student(body.studentId, current_user, db)
     incident_id = str(uuid.uuid4())
     data        = body.model_dump()
     data["id"]        = incident_id
     data["createdAt"] = datetime.now(timezone.utc).isoformat()
+    data.update({"centerId": student["centerId"], "parentId": student.get("parentId"), "loggedBy": current_user["uid"]})
     db.collection("abcIncidents").document(incident_id).set(data)
     return {"message": "Incident logged", "id": incident_id}
 
 
 @router.get("/incidents/{student_id}")
-async def list_incidents(
+def list_incidents(
     student_id: str,
     limit: int = Query(50),
     current_user: dict = Depends(get_current_user)
 ):
     db   = get_db()
+    authorize_student(student_id, current_user, db)
     docs = (
         db.collection("abcIncidents")
         .where("studentId", "==", student_id)
@@ -47,12 +51,13 @@ async def list_incidents(
 
 
 @router.get("/patterns/{student_id}")
-async def get_patterns(
+def get_patterns(
     student_id: str,
     current_user: dict = Depends(get_current_user)
 ):
     """Count-based pattern analysis from Firestore incidents."""
     db   = get_db()
+    authorize_student(student_id, current_user, db)
     docs = (
         db.collection("abcIncidents")
         .where("studentId", "==", student_id)
@@ -117,12 +122,13 @@ async def get_patterns(
 
 
 @router.get("/heatmap/{student_id}")
-async def get_heatmap(
+def get_heatmap(
     student_id: str,
     current_user: dict = Depends(get_current_user)
 ):
     """Returns heatmap data: list of {day, severity, count}."""
     db   = get_db()
+    authorize_student(student_id, current_user, db)
     docs = (
         db.collection("abcIncidents")
         .where("studentId", "==", student_id)

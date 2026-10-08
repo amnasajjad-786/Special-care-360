@@ -8,7 +8,9 @@ import StudentListSidebar from "@/components/students/StudentListSidebar";
 import OverviewTab from "@/components/students/OverviewTab";
 import MedicalTab from "@/components/students/MedicalTab";
 import CarePlanTab from "@/components/students/CarePlanTab";
+import TeacherCarePlanTab from "@/components/students/TeacherCarePlanTab";
 import EmergencyTab from "@/components/students/EmergencyTab";
+import RegressionAlertsBanner from "@/components/students/RegressionAlertsBanner";
 import toast from "react-hot-toast";
 import { User, Heart, Target, AlertTriangle } from "lucide-react";
 
@@ -23,6 +25,8 @@ export default function StudentsPage() {
   const [search,        setSearch]        = useState("");
   const [activeTab,     setActiveTab]     = useState("Overview");
   const [listLoading,   setListLoading]   = useState(true);
+  const [listError, setListError] = useState("");
+  const [reloadCount, setReloadCount] = useState(0);
   const [detailLoading, setDetailLoading] = useState(false);
   const [medical,       setMedical]       = useState<MedicalProfile | null>(null);
   const [carePlan,      setCarePlan]      = useState<CarePlan | null>(null);
@@ -48,6 +52,7 @@ export default function StudentsPage() {
   useEffect(() => {
     const loadStudents = async () => {
       setListLoading(true);
+      setListError("");
       try {
         const allowed = await studentsDb.list(scopeOf(profile));
         setStudents(allowed as unknown as Student[]);
@@ -63,6 +68,12 @@ export default function StudentsPage() {
           setSelectedId(null);
         }
       } catch (err) {
+        const code = (err as { code?: string }).code;
+        setListError(code === "failed-precondition"
+          ? "The student query needs a Firestore index. Ask your administrator to deploy the project's Firestore indexes."
+          : code === "permission-denied"
+            ? "Student access was denied. Check the account's centre, saved therapist assignments, and deployed Firestore rules."
+            : "Students could not be loaded. Check your connection and retry.");
         console.error("Failed to load students:", err);
         toast.error("Failed to load students.");
         setStudents([]);
@@ -73,7 +84,7 @@ export default function StudentsPage() {
     if (profile) {
       loadStudents();
     }
-  }, [profile]);
+  }, [profile, reloadCount]);
 
   /* ── Persist selected student ──────────────────────────────────────────── */
   useEffect(() => {
@@ -83,6 +94,7 @@ export default function StudentsPage() {
   /* ── Load student detail (medical + care plan) ─────────────────────────── */
   useEffect(() => {
     if (!selectedId) return;
+    let active = true;
     setMedical(null);
     setCarePlan(null);
     setDetailLoading(true);
@@ -93,18 +105,21 @@ export default function StudentsPage() {
           studentsDb.getMedical(selectedId),
           studentsDb.getCarePlan(selectedId),
         ]);
+        if (!active) return;
         setMedical(medData as unknown as MedicalProfile);
         setCarePlan(cpData as unknown as CarePlan);
       } catch (err) {
+        if (!active) return;
         console.error("Failed to load student details:", err);
         toast.error("Failed to load student details");
         setMedical(null);
         setCarePlan(null);
       } finally {
-        setDetailLoading(false);
+        if (active) setDetailLoading(false);
       }
     };
     loadDetail();
+    return () => { active = false; };
   }, [selectedId]);
   /* ── Select student ─────────────────────────── */
   const handleSelect = (id: string) => {
@@ -114,6 +129,7 @@ export default function StudentsPage() {
   /* ── Render ──────────────────────────────────────────────────────────── */
   return (
     <>
+      {listError && <div role="alert" className="glass-card" style={{ padding: 16, marginBottom: 16 }}><p>{listError}</p><button className="btn-ghost" onClick={() => setReloadCount(value => value + 1)}>Retry loading students</button></div>}
       <div style={{ display: "flex", gap: "24px", minHeight: "calc(100vh - 120px)" }}>
 
         {/* LEFT — Student list */}
@@ -140,6 +156,14 @@ export default function StudentsPage() {
             </div>
           ) : (
             <>
+              {/* Early Regression Alerts (Therapist & Admin) */}
+              {canEdit && profile?.centerId && (
+                <RegressionAlertsBanner
+                  centerId={profile.centerId}
+                  studentId={selectedStudent.id}
+                />
+              )}
+
               {/* Tab bar */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
                 <div className="tab-bar">
@@ -178,7 +202,16 @@ export default function StudentsPage() {
                   )}
                   {activeTab === "Care Plan" && (
                     carePlan
-                      ? <CarePlanTab studentId={selectedStudent.id} carePlan={carePlan} canEdit={canEditCarePlan} onChange={setCarePlan} />
+                      ? (
+                          profile?.role === "teacher"
+                            ? <TeacherCarePlanTab
+                                studentId={selectedStudent.id}
+                                studentName={selectedStudent.name}
+                                centerId={profile?.centerId || ""}
+                                carePlan={carePlan}
+                              />
+                            : <CarePlanTab studentId={selectedStudent.id} carePlan={carePlan} canEdit={canEditCarePlan} onChange={setCarePlan} />
+                        )
                       : <div className="glass-card" style={{ padding: "40px", textAlign: "center" }}>
                           <div className="skeleton" style={{ height: "200px", borderRadius: "12px" }} />
                         </div>
