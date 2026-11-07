@@ -25,7 +25,7 @@ export default function MedicalTab({ studentId, profile: initial, canEdit, onCha
   const [saving, setSaving] = useState(false);
   const [newAllergy, setNewAllergy] = useState("");
   const [showAddMed, setShowAddMed] = useState(false);
-  const [newMed, setNewMed] = useState<Medication>({ id: "", name: "", dosage: "", frequency: "", time: "", times: [], administeredBy: "" });
+  const [newMed, setNewMed] = useState<Medication>({ id: "", name: "", dosage: "", frequency: "", time: "", times: [""], administeredBy: "" });
 
   const save = async () => {
     setSaving(true);
@@ -53,13 +53,14 @@ export default function MedicalTab({ studentId, profile: initial, canEdit, onCha
     setData(d => ({ ...d, allergies: d.allergies.filter((_, i) => i !== idx) }));
 
   const addMedication = () => {
-    const times = [...new Set(newMed.time.split(",").map((value) => value.trim()).filter(Boolean))].sort();
+    const rawTimes = newMed.times?.length ? newMed.times : newMed.time ? [newMed.time] : [];
+    const times = [...new Set(rawTimes.map(t => t.trim()).filter(Boolean))].sort();
     if (!newMed.name.trim() || !newMed.dosage.trim() || times.length === 0) {
       toast.error("Enter the medication, dosage, and at least one scheduled time.");
       return;
     }
-    if (times.some((time) => !/^([01]\d|2[0-3]):[0-5]\d$/.test(time))) {
-      toast.error("Use 24-hour times such as 08:00, 14:30.");
+    if (times.some((t) => !/^([01]\d|2[0-3]):[0-5]\d$/.test(t))) {
+      toast.error("Please select valid times using the time picker.");
       return;
     }
     setData(d => ({
@@ -71,7 +72,7 @@ export default function MedicalTab({ studentId, profile: initial, canEdit, onCha
         time: times[0],
       }],
     }));
-    setNewMed({ id: "", name: "", dosage: "", frequency: "", time: "", times: [], administeredBy: "" });
+    setNewMed({ id: "", name: "", dosage: "", frequency: "", time: "", times: [""], administeredBy: "" });
     setShowAddMed(false);
   };
 
@@ -184,16 +185,75 @@ export default function MedicalTab({ studentId, profile: initial, canEdit, onCha
                 </div>
               ))}
               <div style={{ gridColumn: "1 / -1" }}>
-                <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "4px" }}>
-                  Scheduled dose times (24-hour, comma-separated)
-                </label>
-                <input
-                  className="glass-input"
-                  inputMode="text"
-                  placeholder="08:00, 20:00"
-                  value={newMed.time}
-                  onChange={(e) => setNewMed((medication) => ({ ...medication, time: e.target.value }))}
-                />
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
+                  <label style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-secondary)" }}>
+                    Scheduled Dose Times
+                  </label>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                    <span>Times per day:</span>
+                    {[1, 2, 3].map(n => (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={() => {
+                          const current = newMed.times?.length ? [...newMed.times] : newMed.time ? [newMed.time] : [""];
+                          const adjusted = Array.from({ length: n }, (_, i) => current[i] ?? "");
+                          setNewMed(m => ({ ...m, times: adjusted, time: adjusted[0] ?? "" }));
+                        }}
+                        style={{
+                          width: 26, height: 26, borderRadius: "50%",
+                          border: (newMed.times?.length ?? (newMed.time ? 1 : 0)) === n
+                            ? "2px solid var(--accent-teal, #0d9488)"
+                            : "1px solid rgba(61,79,107,0.25)",
+                          background: (newMed.times?.length ?? (newMed.time ? 1 : 0)) === n
+                            ? "rgba(13,148,136,0.12)"
+                            : "transparent",
+                          color: "var(--primary-dark)",
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          fontSize: "0.78rem",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                        }}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {(newMed.times?.length ? newMed.times : newMed.time ? [newMed.time] : [""]).map((t, idx) => (
+                    <div key={idx} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <span style={{
+                        fontSize: "0.75rem", fontWeight: 600, color: "var(--text-secondary)",
+                        minWidth: 60,
+                      }}>
+                        {["Morning", "Afternoon", "Evening"][idx] ?? `Dose ${idx + 1}`}
+                      </span>
+                      <input
+                        type="time"
+                        className="glass-input"
+                        style={{ maxWidth: 140 }}
+                        value={t}
+                        onChange={e => {
+                          const updated = [...(newMed.times?.length ? newMed.times : newMed.time ? [newMed.time] : [""])];
+                          updated[idx] = e.target.value;
+                          setNewMed(m => ({ ...m, times: updated, time: updated[0] ?? "" }));
+                        }}
+                      />
+                      <span style={{ fontSize: "0.72rem", color: "var(--text-secondary)" }}>
+                        {t ? (() => {
+                          const [h, min] = t.split(":").map(Number);
+                          const ampm = h >= 12 ? "PM" : "AM";
+                          const hour = h % 12 || 12;
+                          return `${hour}:${String(min).padStart(2, "0")} ${ampm}`;
+                        })() : ""}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <p style={{ fontSize: "0.72rem", color: "var(--text-secondary)", marginTop: "6px" }}>
+                  Select 1, 2, or 3 times per day using the number buttons above.
+                </p>
               </div>
             </div>
             <div style={{ display: "flex", gap: "8px", marginTop: "12px" }}>
