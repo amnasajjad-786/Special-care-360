@@ -24,31 +24,23 @@ async def request_cohere(url, headers, payload):
     except httpx.TimeoutException:
         raise RuntimeError("The AI service timed out. Please retry or add a manual goal.") from None
     except httpx.HTTPStatusError as err:
-        status = err.response.status_code
-        if status in (401, 403):
-            message = "The AI service rejected its API credentials. Ask your administrator to check the Cohere key."
-        elif status == 429:
-            message = "The AI service usage limit was reached. Wait and retry, or check your Cohere quota."
-        else:
-            message = f"The AI service returned an error (status {status}). Please retry or add a manual goal."
-        raise RuntimeError(message) from None
+        raise
     except httpx.RequestError:
         raise RuntimeError("The backend could not reach the AI service. Check its internet connection and retry.") from None
 
 
 def authorize_iep_student(current_user: dict, student_data: dict) -> None:
     require_role(current_user, ["admin", "therapist"])
+    authorize_student_data(current_user, student_data)
     if current_user.get("status") != "approved":
         raise HTTPException(status_code=403, detail="An approved account is required")
-    if student_data.get("centerId") and current_user.get("centerId") and student_data.get("centerId") != current_user.get("centerId"):
+    if student_data.get("centerId") != current_user.get("centerId"):
         raise HTTPException(status_code=403, detail="Student belongs to a different centre")
-
     if current_user.get("role") == "therapist":
         assigned_therapists = student_data.get("therapistIds", [])
-        if isinstance(assigned_therapists, list) and assigned_therapists and current_user.get("uid") not in assigned_therapists:
-            # If not explicitly assigned, allow if in same center
-            if student_data.get("centerId") and student_data.get("centerId") != current_user.get("centerId"):
-                raise HTTPException(status_code=403, detail="Student is not assigned to this therapist")
+        if not isinstance(assigned_therapists, list) or current_user.get("uid") not in assigned_therapists:
+            raise HTTPException(status_code=403, detail="Student is not assigned to this therapist")
+
 
 
 
