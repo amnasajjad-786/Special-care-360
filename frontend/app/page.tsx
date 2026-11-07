@@ -25,6 +25,7 @@ export default function LoginPage() {
   // Login form state
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   // Register form state
   const [regName, setRegName] = useState("");
@@ -80,6 +81,7 @@ export default function LoginPage() {
     setSelectedRole(roleId);
     setEmail("");
     setPassword("");
+    setShowPassword(false);
   };
 
   // Check if an email exists in Firebase Auth when modern invalid-credential is returned
@@ -389,18 +391,43 @@ export default function LoginPage() {
                   </div>
 
                   <div>
-                    <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "5px" }}>
+                    <label htmlFor="login-password" style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "5px" }}>
                       Password
                     </label>
-                    <input
-                      id="login-password"
-                      type="password"
-                      className="glass-input"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      required
-                    />
+                    <div style={{ position: "relative" }}>
+                      <input
+                        id="login-password"
+                        type={showPassword ? "text" : "password"}
+                        className="glass-input"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="••••••••"
+                        required
+                        autoComplete="current-password"
+                        style={{ paddingRight: 48 }}
+                      />
+                      <button
+                        type="button"
+                        aria-label={showPassword ? "Hide password" : "Show password"}
+                        aria-pressed={showPassword}
+                        aria-controls="login-password"
+                        onClick={() => setShowPassword((prev) => !prev)}
+                        style={{
+                          position: "absolute",
+                          right: 12,
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                          border: "none",
+                          background: "transparent",
+                          color: "var(--text-secondary)",
+                          cursor: "pointer",
+                          display: "flex",
+                          padding: 4,
+                        }}
+                      >
+                        {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                      </button>
+                    </div>
                   </div>
 
                   <button
