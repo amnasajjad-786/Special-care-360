@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
+
 from pydantic import BaseModel
 import os
 import json
@@ -166,23 +167,35 @@ class IEPGenerationResponse(BaseModel):
 @router.post("/iep/{student_id}", response_model=IEPGenerationResponse)
 async def generate_iep_goals(
     student_id: str,
-    payload: Optional[IEPContextPayload] = None,
+    request: Request,
     current_user: dict = Depends(get_current_user),
 ):
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+
+    print(f"=== generate_iep_goals called for {student_id} ===")
+    print(f"Payload received: {bool(payload)}, keys: {list(payload.keys()) if payload else []}")
     require_role(current_user, ["admin", "therapist"])
     valid_id(student_id)
     db = get_db()
 
     # 1. Fetch Student Core Profile (Firestore or frontend payload fallback)
+    student_data = None
     student_ref = db.collection("students").document(student_id).get()
     if student_ref.exists:
         student_data = student_ref.to_dict()
-    elif payload and payload.student:
-        student_data = payload.student
-    else:
+    elif payload and isinstance(payload.get("student"), dict):
+        student_data = payload.get("student")
+    
+    if not student_data:
+        print(f"Student {student_id} not found in DB or payload")
         raise HTTPException(status_code=404, detail="Student not found")
 
     authorize_iep_student(current_user, student_data)
+
+
 
 
     student_name = student_data.get("name", "Student")

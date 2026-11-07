@@ -202,6 +202,8 @@ export default function IEPBuilderPage() {
         }
       }
 
+      const currentStudentObj = selectedStudent || students.find((s) => s.id === selectedStudentId);
+
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/ai-insights/iep/${selectedStudentId}`, {
         method: "POST",
         headers: {
@@ -209,12 +211,13 @@ export default function IEPBuilderPage() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          student: selectedStudent,
+          student: currentStudentObj || { id: selectedStudentId, name: "Student" },
           medical: medicalProfile,
           incidents: abcIncidents,
           regressionAlerts: studentAlerts,
         }),
       });
+
 
       if (!response.ok) {
         const errJson = await response.json().catch(() => ({}));
