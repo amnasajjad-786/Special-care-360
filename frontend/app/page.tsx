@@ -82,6 +82,38 @@ export default function LoginPage() {
     setPassword("");
   };
 
+  // Check if an email exists in Firebase Auth when modern invalid-credential is returned
+  const checkEmailExists = async (targetEmail: string): Promise<boolean> => {
+    try {
+      const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+      if (!apiKey) return false;
+      const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: targetEmail.trim(),
+          password: `Tmp_${Date.now()}_!#${Math.random()}`,
+          returnSecureToken: true,
+        }),
+      });
+      const data = await res.json();
+      if (data?.error?.message?.includes("EMAIL_EXISTS")) {
+        return true;
+      }
+      if (data?.idToken) {
+        await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:delete?key=${apiKey}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ idToken: data.idToken }),
+        }).catch(() => {});
+        return false;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
@@ -99,8 +131,22 @@ export default function LoginPage() {
       router.push(`/dashboard/${resolvedProfile.role}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Login failed";
-      toast.error(msg.includes("user-not-found") ? "No account found with this email" :
-                  msg.includes("wrong-password") ? "Incorrect password" : msg);
+      if (msg.includes("wrong-password")) {
+        toast.error("Wrong password");
+      } else if (msg.includes("user-not-found") || msg.includes("invalid-email")) {
+        toast.error("Wrong email");
+      } else if (msg.includes("invalid-credential")) {
+        const exists = await checkEmailExists(email);
+        if (exists) {
+          toast.error("Wrong password");
+        } else {
+          toast.error("Wrong email");
+        }
+      } else if (msg.includes("too-many-requests")) {
+        toast.error("Too many attempts. Please try again later.");
+      } else {
+        toast.error(msg);
+      }
     } finally {
       setLoading(false);
     }
