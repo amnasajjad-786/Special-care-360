@@ -204,14 +204,14 @@ async def generate_iep_goals(
 
     # 2. Fetch Medical Profile
     med_doc = db.collection("students").document(student_id).collection("medicalProfile").document("main").get()
-    med_data = med_doc.to_dict() if med_doc.exists else (payload.medical if payload and payload.medical else {})
+    med_data = med_doc.to_dict() if med_doc.exists else (payload.get("medical") if payload and isinstance(payload.get("medical"), dict) else {})
     allergies = med_data.get("allergies", [])
     special_needs = med_data.get("specialPhysicalNeeds", "None specified")
     seizure_history = med_data.get("seizureHistory", {}).get("hasHistory", False)
 
     # 3. Fetch Care Plan & Existing Goals
     care_doc = db.collection("students").document(student_id).collection("carePlan").document("main").get()
-    care_data = care_doc.to_dict() if care_doc.exists else (payload.carePlan if payload and payload.carePlan else {})
+    care_data = care_doc.to_dict() if care_doc.exists else (payload.get("carePlan") if payload and isinstance(payload.get("carePlan"), dict) else {})
     existing_goals = care_data.get("goals", [])
 
     # 4. Fetch Recent ABC Incidents
@@ -223,8 +223,8 @@ async def generate_iep_goals(
     except Exception:
         recent_incidents = []
 
-    if not recent_incidents and payload and payload.incidents:
-        recent_incidents = payload.incidents[:10]
+    if not recent_incidents and payload and isinstance(payload.get("incidents"), list):
+        recent_incidents = payload.get("incidents")[:10]
 
     # 5. Fetch Active / Recent Regression Alerts for this Student
     try:
@@ -236,9 +236,11 @@ async def generate_iep_goals(
     except Exception:
         alerts_to_include = []
 
-    if not alerts_to_include and payload and payload.regressionAlerts:
-        unresolved_alerts = [a for a in payload.regressionAlerts if not a.get("resolved", False)]
-        alerts_to_include = unresolved_alerts if unresolved_alerts else payload.regressionAlerts[:3]
+    if not alerts_to_include and payload and isinstance(payload.get("regressionAlerts"), list):
+        client_alerts = payload.get("regressionAlerts")
+        unresolved_alerts = [a for a in client_alerts if not a.get("resolved", False)]
+        alerts_to_include = unresolved_alerts if unresolved_alerts else client_alerts[:3]
+
 
 
     # Check for sufficient data
