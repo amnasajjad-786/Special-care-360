@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth-context";
 import { studentsDb, iepDb, abcDb, StudentDoc, scopeOf } from "@/lib/firestore-api";
 import { IEPGoal, MedicalProfile, CarePlan, ABCIncident } from "@/types";
 import toast from "react-hot-toast";
+import RegressionAlertsBanner from "@/components/students/RegressionAlertsBanner";
 import {
   BrainCircuit,
   Sparkles,
@@ -552,6 +553,14 @@ export default function IEPBuilderPage() {
           </select>
         </div>
       </div>
+
+      {/* Regression Alert Banner for Selected Student (if any alert exists) */}
+      {selectedStudentId && profile?.centerId && (
+        <RegressionAlertsBanner
+          centerId={profile.centerId}
+          studentId={selectedStudentId}
+        />
+      )}
 
       {/* Main Grid: Student Context Summary vs. IEP Editor */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "24px" }}>

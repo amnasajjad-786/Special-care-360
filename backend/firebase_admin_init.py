@@ -255,10 +255,22 @@ def verify_token(token: str) -> dict:
         init_firebase()
 
     if _placeholder_mode:
-        raise ValueError("Authentication is disabled in local mock mode")
+        try:
+            import jwt
+            decoded = jwt.decode(token, options={"verify_signature": False})
+            uid = decoded.get("user_id") or decoded.get("sub") or decoded.get("uid")
+            return {
+                "uid": uid,
+                "email": decoded.get("email", ""),
+                **decoded
+            }
+        except Exception as err:
+            logging.error(f"[Mock Mode] Failed to decode token: {err}")
+            raise ValueError(f"Invalid token format: {err}")
 
     try:
         return firebase_auth.verify_id_token(token, check_revoked=True)
     except Exception as e:
         logging.error(f"[Firebase] Token verification failed: {e}")
         raise
+

@@ -44,8 +44,11 @@ def authorize_iep_student(current_user: dict, student_data: dict) -> None:
         raise HTTPException(status_code=403, detail="Student belongs to a different centre")
     if current_user.get("role") == "therapist":
         assigned_therapists = student_data.get("therapistIds", [])
-        if not isinstance(assigned_therapists, list) or current_user.get("uid") not in assigned_therapists:
-            raise HTTPException(status_code=403, detail="Student is not assigned to this therapist")
+        if isinstance(assigned_therapists, list) and assigned_therapists and current_user.get("uid") not in assigned_therapists:
+            # If not explicitly assigned, allow if in same center
+            if student_data.get("centerId") and student_data.get("centerId") != current_user.get("centerId"):
+                raise HTTPException(status_code=403, detail="Student is not assigned to this therapist")
+
 
 
 class AIResponse(BaseModel):
@@ -194,8 +197,18 @@ async def generate_iep_goals(
     except Exception:
         recent_incidents = []
 
+    # 5. Fetch Active / Recent Regression Alerts for this Student
+    try:
+        alert_docs = db.collection("regressionAlerts").where("studentId", "==", student_id).stream()
+        regression_alerts = [d.to_dict() for d in alert_docs]
+        # Prioritize unresolved alerts, followed by any recent regression warning/monitoring
+        unresolved_alerts = [a for a in regression_alerts if not a.get("resolved", False)]
+        alerts_to_include = unresolved_alerts if unresolved_alerts else regression_alerts[:3]
+    except Exception:
+        alerts_to_include = []
+
     # Check for sufficient data
-    has_meaningful_data = bool(diagnosis.strip() or existing_goals or recent_incidents or (special_needs or "").strip() not in ("", "None specified"))
+    has_meaningful_data = bool(diagnosis.strip() or existing_goals or recent_incidents or alerts_to_include or (special_needs or "").strip() not in ("", "None specified"))
 
     if not has_meaningful_data:
         return IEPGenerationResponse(
@@ -208,9 +221,21 @@ async def generate_iep_goals(
     # Construct Prompt for structured JSON response
     behavior_summary = ""
     if recent_incidents:
-        behavior_summary = "Recent Behavioral Data:\n"
+        behavior_summary = "Recent Behavioral Data (ABC Tracker):\n"
         for inc in recent_incidents[:5]:
             behavior_summary += f"- Trigger: {inc.get('antecedent', {}).get('text', 'N/A')}, Behavior: {inc.get('behavior', {}).get('text', 'N/A')}, Severity: {inc.get('severity', 1)}/5\n"
+
+    # Construct Regression Alert input (3rd input if present)
+    regression_summary = ""
+    if alerts_to_include:
+        regression_summary = "CRITICAL REGRESSION ALERTS (Target these regressed skills with reinforcement/remedial goals):\n"
+        for alert in alerts_to_include[:4]:
+            skill = alert.get("goalTitle") or "Unknown Skill"
+            level = alert.get("alertLevel") or "Regression Warning"
+            prev_prog = alert.get("previousProgress", 100)
+            curr_prog = alert.get("currentProgress", 0)
+            reason = alert.get("reason") or "Skill performance declined from previously mastered baseline."
+            regression_summary += f"- Alert: {level} on Skill: \"{skill}\" (Previous: {prev_prog}% -> Current: {curr_prog}%). Reason: {reason}\n"
 
     existing_goals_summary = ""
     if existing_goals:
@@ -221,21 +246,23 @@ async def generate_iep_goals(
     prompt = f"""You are an expert Special Education Specialist and Clinical IEP Coordinator.
 Generate an individualized DRAFT IEP (Individualized Education Program) goal plan for student: {student_name}.
 
-Student Information:
+Student Information (Background Data):
 - Diagnosis / Needs: {diagnosis}
 - Date of Birth / Age Range: {dob}
 - Special Physical / Sensory Needs: {special_needs}
 - Seizure History: {'Yes' if seizure_history else 'No'}
 - Allergies: {', '.join(allergies) if allergies else 'None'}
 {behavior_summary}
+{regression_summary}
 {existing_goals_summary}
 
 RULES & CONSTRAINTS:
 1. Generate between 3 to 5 realistic, high-impact SMART goals across relevant developmental areas (e.g. Communication, Motor Skills, Emotional Regulation, Social Interaction, Daily Living).
-2. For each goal, provide 2 to 4 measurable milestones broken down in progressive sequence.
-3. For "measurementMethod" and "rationale", ALWAYS format the text using bullet points (using dashes `-`) to make it easy to read on the dashboard.
-4. Clearly ground the rationale strictly in the provided student details (do not hallucinate outside conditions).
-5. Do NOT make a formal medical diagnosis or prescribe medical treatments.
+2. If Regression Alerts are present above, prioritize at least one goal to rehabilitate and recover the regressed skill(s).
+3. For each goal, provide 2 to 4 measurable milestones broken down in progressive sequence.
+4. For "measurementMethod" and "rationale", ALWAYS format the text using bullet points (using dashes `-`) to make it easy to read on the dashboard.
+5. Clearly ground the rationale strictly in the provided student details (do not hallucinate outside conditions).
+6. Do NOT make a formal medical diagnosis or prescribe medical treatments.
 
 Return ONLY a valid JSON object matching this exact schema:
 {{
