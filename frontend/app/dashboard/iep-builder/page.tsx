@@ -3,9 +3,10 @@ import { restoreIep } from "@/lib/workflow-state";
 
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth-context";
-import { studentsDb, iepDb, abcDb, StudentDoc, scopeOf } from "@/lib/firestore-api";
+import { studentsDb, iepDb, abcDb, regressionDb, StudentDoc, scopeOf } from "@/lib/firestore-api";
 import { IEPGoal, MedicalProfile, CarePlan, ABCIncident } from "@/types";
 import toast from "react-hot-toast";
+
 import RegressionAlertsBanner from "@/components/students/RegressionAlertsBanner";
 import {
   BrainCircuit,
@@ -191,12 +192,28 @@ export default function IEPBuilderPage() {
       const token = await user?.getIdToken();
       if (!token) throw new Error("Your session has expired. Please sign in again.");
 
+      // Fetch active regression alerts for this student if available
+      let studentAlerts: unknown[] = [];
+      if (profile?.centerId) {
+        try {
+          studentAlerts = await regressionDb.listForStudent(selectedStudentId, profile.centerId);
+        } catch (e) {
+          console.warn("Could not fetch regression alerts for IEP generation:", e);
+        }
+      }
+
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/ai-insights/iep/${selectedStudentId}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
+        body: JSON.stringify({
+          student: selectedStudent,
+          medical: medicalProfile,
+          incidents: abcIncidents,
+          regressionAlerts: studentAlerts,
+        }),
       });
 
       if (!response.ok) {

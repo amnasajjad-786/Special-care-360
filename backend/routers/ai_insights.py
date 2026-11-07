@@ -150,6 +150,13 @@ class GeneratedIEPGoal(BaseModel):
     status: str = "In Progress"
     progressPercent: int = 0
 
+class IEPContextPayload(BaseModel):
+    student: Optional[dict] = None
+    medical: Optional[dict] = None
+    carePlan: Optional[dict] = None
+    incidents: Optional[list] = None
+    regressionAlerts: Optional[list] = None
+
 class IEPGenerationResponse(BaseModel):
     disclaimer: str
     goals: list[GeneratedIEPGoal]
@@ -159,18 +166,24 @@ class IEPGenerationResponse(BaseModel):
 @router.post("/iep/{student_id}", response_model=IEPGenerationResponse)
 async def generate_iep_goals(
     student_id: str,
+    payload: Optional[IEPContextPayload] = None,
     current_user: dict = Depends(get_current_user),
 ):
     require_role(current_user, ["admin", "therapist"])
     valid_id(student_id)
     db = get_db()
 
-    # 1. Fetch Student Core Profile
+    # 1. Fetch Student Core Profile (Firestore or frontend payload fallback)
     student_ref = db.collection("students").document(student_id).get()
-    if not student_ref.exists:
+    if student_ref.exists:
+        student_data = student_ref.to_dict()
+    elif payload and payload.student:
+        student_data = payload.student
+    else:
         raise HTTPException(status_code=404, detail="Student not found")
-    student_data = student_ref.to_dict()
+
     authorize_iep_student(current_user, student_data)
+
 
     student_name = student_data.get("name", "Student")
     diagnosis = student_data.get("diagnosis") or ""
@@ -178,14 +191,14 @@ async def generate_iep_goals(
 
     # 2. Fetch Medical Profile
     med_doc = db.collection("students").document(student_id).collection("medicalProfile").document("main").get()
-    med_data = med_doc.to_dict() if med_doc.exists else {}
+    med_data = med_doc.to_dict() if med_doc.exists else (payload.medical if payload and payload.medical else {})
     allergies = med_data.get("allergies", [])
     special_needs = med_data.get("specialPhysicalNeeds", "None specified")
     seizure_history = med_data.get("seizureHistory", {}).get("hasHistory", False)
 
     # 3. Fetch Care Plan & Existing Goals
     care_doc = db.collection("students").document(student_id).collection("carePlan").document("main").get()
-    care_data = care_doc.to_dict() if care_doc.exists else {}
+    care_data = care_doc.to_dict() if care_doc.exists else (payload.carePlan if payload and payload.carePlan else {})
     existing_goals = care_data.get("goals", [])
 
     # 4. Fetch Recent ABC Incidents
@@ -197,6 +210,9 @@ async def generate_iep_goals(
     except Exception:
         recent_incidents = []
 
+    if not recent_incidents and payload and payload.incidents:
+        recent_incidents = payload.incidents[:10]
+
     # 5. Fetch Active / Recent Regression Alerts for this Student
     try:
         alert_docs = db.collection("regressionAlerts").where("studentId", "==", student_id).stream()
@@ -206,6 +222,11 @@ async def generate_iep_goals(
         alerts_to_include = unresolved_alerts if unresolved_alerts else regression_alerts[:3]
     except Exception:
         alerts_to_include = []
+
+    if not alerts_to_include and payload and payload.regressionAlerts:
+        unresolved_alerts = [a for a in payload.regressionAlerts if not a.get("resolved", False)]
+        alerts_to_include = unresolved_alerts if unresolved_alerts else payload.regressionAlerts[:3]
+
 
     # Check for sufficient data
     has_meaningful_data = bool(diagnosis.strip() or existing_goals or recent_incidents or alerts_to_include or (special_needs or "").strip() not in ("", "None specified"))
