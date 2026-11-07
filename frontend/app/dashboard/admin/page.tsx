@@ -30,7 +30,10 @@ import {
   ArrowLeft,
   Calendar,
   FileText,
-  ChevronRight
+  ChevronRight,
+  Eye,
+  EyeOff,
+  UserCheck
 } from "lucide-react";
 
 // --- Mock initial data matching HTML mockup ---
@@ -181,6 +184,12 @@ export default function AdminDashboard() {
   const [isConfigureFeeOpen, setIsConfigureFeeOpen] = useState(false);
 
   // --- Forms State ---
+  const [parentMode, setParentMode] = useState<"existing" | "new">("existing");
+  const [newParentName, setNewParentName] = useState("");
+  const [newParentEmail, setNewParentEmail] = useState("");
+  const [newParentPassword, setNewParentPassword] = useState("");
+  const [showNewParentPassword, setShowNewParentPassword] = useState(false);
+
   const [studentForm, setStudentForm] = useState({
     firstName: "",
     lastName: "",
@@ -499,15 +508,65 @@ export default function AdminDashboard() {
       toast.error("Enter a valid date of birth for a student aged 0 to 12 years.");
       return;
     }
-    if (!parentAccounts.some((parent) => parent.id === studentForm.parentId)) {
-      toast.error("Select an approved parent account before enrolling this student.");
-      return;
+    let selectedParentId = studentForm.parentId;
+    let selectedGuardianName = "";
+
+    if (parentMode === "new") {
+      const pName = newParentName.trim();
+      const pEmail = newParentEmail.trim().toLowerCase();
+      const pPassword = newParentPassword;
+
+      if (!pName || !pEmail || !pPassword) {
+        toast.error("Please fill in parent name, email, and password.");
+        return;
+      }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(pEmail)) {
+        toast.error("Please enter a valid email for the parent.");
+        return;
+      }
+      if (pPassword.length < 8) {
+        toast.error("Parent password must be at least 8 characters long.");
+        return;
+      }
+
+      try {
+        toast.loading("Creating parent account...", { id: "create-parent" });
+        const createdParent = await adminDb.createParentAccount({
+          name: pName,
+          email: pEmail,
+          password: pPassword,
+          centerId: profile?.centerId || "center-001",
+        });
+        toast.success(`Parent account created for ${createdParent.name}`, { id: "create-parent" });
+
+        setParentAccounts((current) => [
+          ...current.filter((p) => p.id !== createdParent.id),
+          { id: createdParent.id, name: createdParent.name, email: createdParent.email, role: "parent", status: "approved" },
+        ]);
+
+        selectedParentId = createdParent.id;
+        selectedGuardianName = createdParent.name;
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Failed to create parent account";
+        if (msg.includes("email-already-in-use")) {
+          toast.error("This parent email already exists. Switch to 'Existing Parent' to select them.", { id: "create-parent" });
+        } else {
+          toast.error(msg, { id: "create-parent" });
+        }
+        return;
+      }
+    } else {
+      if (!parentAccounts.some((parent) => parent.id === studentForm.parentId)) {
+        toast.error("Select an approved parent account, or switch to '+ New Parent' to create one.");
+        return;
+      }
+      const existingParent = parentAccounts.find((account) => account.id === studentForm.parentId);
+      selectedParentId = existingParent!.id;
+      selectedGuardianName = existingParent!.name;
     }
 
     try {
-      const parent = parentAccounts.find((account) => account.id === studentForm.parentId);
       const therapist = therapistAccounts.find((account) => account.id === studentForm.therapist);
-      if (!parent) throw new Error("The selected parent account is no longer available.");
       const newId = await studentsDb.create({
         name: fullName,
         dob: dobDate.toISOString(),
@@ -519,8 +578,8 @@ export default function AdminDashboard() {
         enrollmentDate: new Date().toISOString(),
         iepStatus: "Active",
         photoUrl: "",
-        parentId: parent.id,
-        guardianName: parent.name,
+        parentId: selectedParentId,
+        guardianName: selectedGuardianName,
         contactNo: studentForm.contactNo,
         notes: studentForm.notes
       });
@@ -538,7 +597,12 @@ export default function AdminDashboard() {
       };
 
       setStudents([newStudent, ...students]);
-    setIsAddStudentOpen(false);
+      setIsAddStudentOpen(false);
+      setParentMode("existing");
+      setNewParentName("");
+      setNewParentEmail("");
+      setNewParentPassword("");
+      setShowNewParentPassword(false);
       setStudentForm({
         firstName: "",
         lastName: "",
@@ -2083,28 +2147,140 @@ export default function AdminDashboard() {
                     ))}
                   </select>
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: "4px", gridColumn: "span 2" }}>
-                  <label style={{ fontSize: "0.75rem", fontWeight: 600 }}>Parent Account</label>
-                  <select
-                    className="glass-input"
-                    required
-                    value={studentForm.parentId}
-                    disabled={parentAccounts.length === 0}
-                    onChange={e => setStudentForm({ ...studentForm, parentId: e.target.value })}
-                  >
-                    <option value="">
-                      {parentAccounts.length ? "Select an approved parent account" : "No approved parent accounts"}
-                    </option>
-                    {parentAccounts.map(parent => (
-                      <option key={parent.id} value={parent.id}>
-                        {parent.name}{parent.email ? ` – ${parent.email}` : ""}
-                      </option>
-                    ))}
-                  </select>
-                  {parentAccounts.length === 0 && (
-                    <span style={{ color: "var(--text-secondary)", fontSize: "0.75rem" }}>
-                      Register and approve the parent account before enrolling the student.
-                    </span>
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px", gridColumn: "span 2" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <label style={{ fontSize: "0.75rem", fontWeight: 600 }}>Parent Account</label>
+                    <div style={{ display: "flex", gap: "6px" }}>
+                      <button
+                        type="button"
+                        onClick={() => setParentMode("existing")}
+                        style={{
+                          padding: "3px 8px",
+                          fontSize: "0.72rem",
+                          fontWeight: 600,
+                          borderRadius: "6px",
+                          cursor: "pointer",
+                          border: parentMode === "existing" ? "1px solid var(--accent-teal, #0d9488)" : "1px solid rgba(61, 79, 107, 0.2)",
+                          background: parentMode === "existing" ? "rgba(13, 148, 136, 0.12)" : "transparent",
+                          color: parentMode === "existing" ? "var(--primary-dark)" : "var(--text-secondary)",
+                          transition: "all 0.2s",
+                        }}
+                      >
+                        Existing Parent
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setParentMode("new")}
+                        style={{
+                          padding: "3px 8px",
+                          fontSize: "0.72rem",
+                          fontWeight: 600,
+                          borderRadius: "6px",
+                          cursor: "pointer",
+                          border: parentMode === "new" ? "1px solid var(--accent-teal, #0d9488)" : "1px solid rgba(61, 79, 107, 0.2)",
+                          background: parentMode === "new" ? "rgba(13, 148, 136, 0.12)" : "transparent",
+                          color: parentMode === "new" ? "var(--primary-dark)" : "var(--text-secondary)",
+                          transition: "all 0.2s",
+                        }}
+                      >
+                        + New Parent
+                      </button>
+                    </div>
+                  </div>
+
+                  {parentMode === "existing" ? (
+                    <div>
+                      <select
+                        className="glass-input"
+                        value={studentForm.parentId}
+                        disabled={parentAccounts.length === 0}
+                        onChange={e => setStudentForm({ ...studentForm, parentId: e.target.value })}
+                        required={parentMode === "existing"}
+                      >
+                        <option value="">
+                          {parentAccounts.length ? "Select an approved parent account" : "No existing parent accounts (Click '+ New Parent')"}
+                        </option>
+                        {parentAccounts.map(parent => (
+                          <option key={parent.id} value={parent.id}>
+                            {parent.name}{parent.email ? ` – ${parent.email}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                      <span style={{ color: "var(--text-secondary)", fontSize: "0.72rem", marginTop: "3px", display: "block" }}>
+                        Agar same parent ka doosra child hai toh yahan se unka account select karein.
+                      </span>
+                    </div>
+                  ) : (
+                    <div style={{
+                      padding: "10px",
+                      borderRadius: "8px",
+                      background: "rgba(13, 148, 136, 0.05)",
+                      border: "1px dashed rgba(13, 148, 136, 0.3)",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "8px",
+                    }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                          <label style={{ fontSize: "0.7rem", fontWeight: 600 }}>Parent Full Name</label>
+                          <input
+                            type="text"
+                            className="glass-input"
+                            placeholder="e.g. Mr. Tariq Ahmed"
+                            value={newParentName}
+                            onChange={e => setNewParentName(e.target.value)}
+                            required={parentMode === "new"}
+                          />
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                          <label style={{ fontSize: "0.7rem", fontWeight: 600 }}>Parent Email</label>
+                          <input
+                            type="email"
+                            className="glass-input"
+                            placeholder="parent@example.com"
+                            value={newParentEmail}
+                            onChange={e => setNewParentEmail(e.target.value)}
+                            required={parentMode === "new"}
+                          />
+                        </div>
+                      </div>
+
+                      <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                        <label style={{ fontSize: "0.7rem", fontWeight: 600 }}>Password (for Parent Login)</label>
+                        <div style={{ position: "relative" }}>
+                          <input
+                            type={showNewParentPassword ? "text" : "password"}
+                            className="glass-input"
+                            placeholder="Min 8 characters (e.g. Parent123!)"
+                            value={newParentPassword}
+                            onChange={e => setNewParentPassword(e.target.value)}
+                            required={parentMode === "new"}
+                            style={{ paddingRight: 36 }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowNewParentPassword(!showNewParentPassword)}
+                            style={{
+                              position: "absolute",
+                              right: 8,
+                              top: "50%",
+                              transform: "translateY(-50%)",
+                              border: "none",
+                              background: "transparent",
+                              cursor: "pointer",
+                              color: "var(--text-secondary)",
+                              display: "flex",
+                              padding: 2,
+                            }}
+                          >
+                            {showNewParentPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </button>
+                        </div>
+                        <span style={{ color: "var(--text-secondary)", fontSize: "0.7rem", marginTop: "2px" }}>
+                          Yeh email aur password parent ko unke login ke liye diya ja sakta hai.
+                        </span>
+                      </div>
+                    </div>
                   )}
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "4px", gridColumn: "span 2" }}>

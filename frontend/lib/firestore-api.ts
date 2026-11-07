@@ -34,8 +34,12 @@ import {
   DocumentReference,
   DocumentSnapshot,
   Transaction,
+  getFirestore,
 } from "firebase/firestore";
+import { initializeApp, deleteApp } from "firebase/app";
+import { getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { auth, db } from "./firebase";
+import { firebaseConfig } from "./firebase-config";
 import { v4 as uuidv4 } from "uuid";
 import { confirmWithin } from "./workflow-state";
 
@@ -653,6 +657,66 @@ export const adminDb = {
 
   approveUser: async (uid: string): Promise<void> => {
     await updateDoc(doc(db, "users", uid), { status: "approved" });
+  },
+
+  createParentAccount: async ({
+    name,
+    email,
+    password,
+    centerId,
+  }: {
+    name: string;
+    email: string;
+    password: string;
+    centerId: string;
+  }): Promise<{ id: string; name: string; email: string }> => {
+    // Ensure the center document exists in Firestore so that registration rules succeed
+    const centerRef = doc(db, "centers", centerId);
+    try {
+      const centerSnap = await getDoc(centerRef);
+      if (!centerSnap.exists()) {
+        await setDoc(centerRef, { centerId, name: "Special Care 360", createdAt: serverTimestamp() }, { merge: true });
+      }
+    } catch (e) {
+      console.warn("Could not check/create center doc:", e);
+    }
+
+    // Use a secondary Firebase app so the admin's active session is never disturbed
+    const secondaryAppName = `parent-creator-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+    const secondaryApp = initializeApp(firebaseConfig, secondaryAppName);
+    try {
+      const secondaryAuth = getAuth(secondaryApp);
+      const secondaryDb = getFirestore(secondaryApp);
+
+      const cred = await createUserWithEmailAndPassword(secondaryAuth, email.trim(), password);
+      const newUid = cred.user.uid;
+
+      // Create the pending profile as the new user (passes firestore.rules self-registration check)
+      await setDoc(doc(secondaryDb, "users", newUid), {
+        uid: newUid,
+        name: name.trim(),
+        email: email.trim(),
+        role: "parent",
+        centerId,
+        status: "pending",
+        createdAt: serverTimestamp(),
+      });
+
+      await signOut(secondaryAuth);
+
+      // Approve the account immediately via the admin's session
+      await updateDoc(doc(db, "users", newUid), {
+        status: "approved",
+      });
+
+      return {
+        id: newUid,
+        name: name.trim(),
+        email: email.trim(),
+      };
+    } finally {
+      await deleteApp(secondaryApp).catch(() => {});
+    }
   },
 
   listAllUsers: async (centerId: string) => {
