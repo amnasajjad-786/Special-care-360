@@ -257,63 +257,81 @@ async def generate_iep_goals(
             summary=f"Insufficient student background data exists for {student_name}. Please add diagnosis, physical needs, or behavioral observations to enable AI IEP generation, or enter goals manually."
         )
 
-    # Construct Prompt for structured JSON response
-    behavior_summary = ""
-    if recent_incidents:
-        behavior_summary = "Recent Behavioral Data (ABC Tracker):\n"
-        for inc in recent_incidents[:5]:
-            behavior_summary += f"- Trigger: {inc.get('antecedent', {}).get('text', 'N/A')}, Behavior: {inc.get('behavior', {}).get('text', 'N/A')}, Severity: {inc.get('severity', 1)}/5\n"
+    # ── Input 1: Clinical Profile & Medical Background ────────────
+    clinical_summary = f"""PILLAR 1 — CLINICAL & MEDICAL PROFILE:
+- Full Name: {student_name}
+- Diagnosis & Core Needs: {diagnosis or 'Developmental Support'}
+- Date of Birth / Age Context: {dob or 'Not recorded'}
+- Physical / Sensory Needs: {special_needs}
+- Seizure History / Protocol: {'Active Seizure Protocol' if seizure_history else 'No history recorded'}
+- Allergies / Medical Alerts: {', '.join(allergies) if allergies else 'None reported'}"""
 
-    # Construct Regression Alert input (3rd input if present)
-    regression_summary = ""
+    # ── Input 2: Behavioral Signals (ABC Tracker) ──────────────────
+    behavior_summary = "PILLAR 2 — BEHAVIORAL SIGNALS (ABC TRACKER):\n"
+    if recent_incidents:
+        for inc in recent_incidents[:5]:
+            ant_text = inc.get('antecedent', {}).get('text') if isinstance(inc.get('antecedent'), dict) else str(inc.get('antecedent') or 'N/A')
+            beh_text = inc.get('behavior', {}).get('text') if isinstance(inc.get('behavior'), dict) else str(inc.get('behavior') or 'N/A')
+            con_text = inc.get('consequence', {}).get('text') if isinstance(inc.get('consequence'), dict) else str(inc.get('consequence') or 'N/A')
+            loc = inc.get('location') or 'Classroom/Therapy'
+            behavior_summary += f"- Trigger (Antecedent): {ant_text} | Behavior: {beh_text} (Severity: {inc.get('severity', 1)}/5, Location: {loc}) | Consequence: {con_text}\n"
+    else:
+        behavior_summary += "- No acute behavioral incidents logged. Focus on developmental regulation.\n"
+
+    # ── Input 3: Active Regression Alerts & Care History ──────────
+    history_summary = "PILLAR 3 — SKILL REGRESSION ALERTS & CARE HISTORY:\n"
+    has_alerts = False
     if alerts_to_include:
-        regression_summary = "CRITICAL REGRESSION ALERTS (Target these regressed skills with reinforcement/remedial goals):\n"
+        has_alerts = True
+        history_summary += "Critical Regression Alerts (Skills requiring remediation):\n"
         for alert in alerts_to_include[:4]:
-            skill = alert.get("goalTitle") or "Unknown Skill"
+            skill = alert.get("goalTitle") or "Core Skill"
             level = alert.get("alertLevel") or "Regression Warning"
             prev_prog = alert.get("previousProgress", 100)
             curr_prog = alert.get("currentProgress", 0)
-            reason = alert.get("reason") or "Skill performance declined from previously mastered baseline."
-            regression_summary += f"- Alert: {level} on Skill: \"{skill}\" (Previous: {prev_prog}% -> Current: {curr_prog}%). Reason: {reason}\n"
-
-    existing_goals_summary = ""
+            reason = alert.get("reason") or "Performance dropped from previously mastered baseline."
+            history_summary += f"- ALERT [{level}]: \"{skill}\" dropped from {prev_prog}% to {curr_prog}%. Reason: {reason}\n"
     if existing_goals:
-        existing_goals_summary = "Current/Past Goals:\n"
-        for g in existing_goals:
-            existing_goals_summary += f"- {g.get('title')} (Status: {g.get('status')}, Progress: {g.get('progressPercent', 0)}%)\n"
+        history_summary += "Existing/Previous Goals in Care Plan:\n"
+        for g in existing_goals[:4]:
+            history_summary += f"- \"{g.get('title')}\" ({g.get('goalArea', 'General')}) — Status: {g.get('status', 'In Progress')}, Progress: {g.get('progressPercent', 0)}%\n"
+    if not alerts_to_include and not existing_goals:
+        history_summary += "- No previous regression alerts or active IEP history recorded.\n"
 
-    prompt = f"""You are an expert Special Education Specialist and Clinical IEP Coordinator.
-Generate an individualized DRAFT IEP (Individualized Education Program) goal plan for student: {student_name}.
+    prompt = f"""You are an expert Clinical Special Education Specialist and Multi-Disciplinary IEP Coordinator.
+Your mission is to synthesize an individualized, balanced DRAFT IEP plan for: {student_name}.
 
-Student Information (Background Data):
-- Diagnosis / Needs: {diagnosis}
-- Date of Birth / Age Range: {dob}
-- Special Physical / Sensory Needs: {special_needs}
-- Seizure History: {'Yes' if seizure_history else 'No'}
-- Allergies: {', '.join(allergies) if allergies else 'None'}
+CRITICAL INSTRUCTION — BALANCED TRI-PILLAR SYNTHESIS:
+You must NOT focus solely on behavioral data. You must balance the goals across ALL THREE core inputs provided below:
+
+{clinical_summary}
+
 {behavior_summary}
-{regression_summary}
-{existing_goals_summary}
 
-RULES & CONSTRAINTS:
-1. Generate between 3 to 5 realistic, high-impact SMART goals across relevant developmental areas (e.g. Communication, Motor Skills, Emotional Regulation, Social Interaction, Daily Living).
-2. If Regression Alerts are present above, prioritize at least one goal to rehabilitate and recover the regressed skill(s).
-3. For each goal, provide 2 to 4 measurable milestones broken down in progressive sequence.
-4. For "measurementMethod" and "rationale", ALWAYS format the text using bullet points (using dashes `-`) to make it easy to read on the dashboard.
-5. Clearly ground the rationale strictly in the provided student details (do not hallucinate outside conditions).
-6. Do NOT make a formal medical diagnosis or prescribe medical treatments.
+{history_summary}
+
+MANDATORY GOAL COMPOSITION RULES:
+1. Generate between 3 to 4 SMART goals with a balanced distribution across the 3 pillars:
+   - At least 1 Goal strictly targeting PILLAR 1 (Clinical/Medical/Sensory: speech & communication, fine/gross motor adaptation, or sensory regulation tailored to {diagnosis}).
+   - At least 1 Goal directly addressing PILLAR 2 (ABC Behavioral signals: proactive coping, de-escalation, self-regulation, or alternative replacement behavior for logged triggers).
+   - At least 1 Goal directly addressing PILLAR 3 (Regression Alert recovery / skill consolidation / next developmental step from care history).
+2. For each goal:
+   - Provide 2 to 4 measurable, sequential milestones.
+   - Format "measurementMethod" and "rationale" using bullet points (with dashes `-`) for clean dashboard rendering.
+   - Clearly state which input pillar inspired the rationale (e.g. "- Directly addresses sensory trigger observed in ABC tracker" or "- Formulated to rehabilitate regressed fine-motor milestone").
+3. Do NOT invent outside medical conditions. Do NOT prescribe medical drugs.
 
 Return ONLY a valid JSON object matching this exact schema:
 {{
-  "summary": "Short 2-3 sentence overview of the IEP direction tailored to the student",
+  "summary": "2-3 sentence overview explaining how this IEP balances clinical profile, behavioral antecedents, and regression history.",
   "goals": [
     {{
       "id": "goal_1",
-      "goalArea": "Communication & Speech | Motor Skills | Emotional Regulation | Social | Cognitive",
+      "goalArea": "Communication & Speech | Motor Skills | Emotional Regulation | Social | Cognitive | Daily Living",
       "title": "Clear SMART Goal statement",
-      "targetTimeframe": "e.g., 3 months, 6 months, End of Academic Term",
-      "measurementMethod": "e.g., Weekly behavioral frequency charting, 80% accuracy over 3 consecutive sessions",
-      "rationale": "Rationale tied to student's diagnosis and needs",
+      "targetTimeframe": "e.g., 3 Months, 6 Months",
+      "measurementMethod": "- Bullet 1\\n- Bullet 2",
+      "rationale": "- Bullet 1 referencing clinical/behavioral/regression input\\n- Bullet 2",
       "milestones": [
         {{
           "id": "m1",
