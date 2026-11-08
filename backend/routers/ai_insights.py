@@ -466,7 +466,7 @@ Return ONLY a valid JSON object matching this exact schema:
                     title=f"Recover and reinforce mastered skill: {alert_skill}",
                     targetTimeframe="3 Months",
                     measurementMethod=f"- Weekly proficiency monitoring against baseline ({alert_prev}%)\n- 85% consistent accuracy over 4 consecutive evaluations",
-                    rationale=f"- Targeted directly to remediate active regression alert on "{alert_skill}" (declined from {alert_prev}% to {alert_curr}%)\n- Restores baseline functional mastery",
+                    rationale=f"- Targeted directly to remediate active regression alert on '{alert_skill}' (declined from {alert_prev}% to {alert_curr}%)\n- Restores baseline functional mastery",
                     milestones=[
                         MilestoneSchema(id=f"m_{uuid.uuid4().hex[:6]}", description=f"Re-establish structured baseline prompts for {alert_skill} with 50% independence", completed=False, targetDate="Month 1"),
                         MilestoneSchema(id=f"m_{uuid.uuid4().hex[:6]}", description=f"Achieve unprompted task execution of {alert_skill} in 4 of 5 sessions", completed=False, targetDate="Month 2"),
