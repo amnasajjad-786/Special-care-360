@@ -125,6 +125,16 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const resolvedProfile = await login(email, password);
+
+      // ── Role mismatch check ─────────────────────────────────────
+      if (selectedRole && resolvedProfile.role !== selectedRole) {
+        await logout();
+        toast.error(`This account is not a ${selectedRole} account. Please select the correct role.`);
+        setLoading(false);
+        return;
+      }
+      // ────────────────────────────────────────────────────────────
+
       if (resolvedProfile.status === "pending") {
         router.push(`/dashboard/${resolvedProfile.role}`);
         return;
