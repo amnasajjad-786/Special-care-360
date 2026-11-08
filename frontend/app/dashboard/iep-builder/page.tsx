@@ -36,6 +36,7 @@ export default function IEPBuilderPage() {
   const [medicalProfile, setMedicalProfile] = useState<MedicalProfile | null>(null);
   const [abcIncidents, setAbcIncidents] = useState<ABCIncident[]>([]);
   const [activeRegressionAlerts, setActiveRegressionAlerts] = useState<any[]>([]);
+  const [alertKey, setAlertKey] = useState(0);
   const [loadingStudentData, setLoadingStudentData] = useState(false);
 
   // IEP Editor State
@@ -376,9 +377,9 @@ export default function IEPBuilderPage() {
           const studentAlerts = await regressionDb.listForStudent(selectedStudentId, profile.centerId);
           const activeAlerts = studentAlerts.filter((a) => !a.resolved);
           
-          // Match alert by goal title or area keywords, or resolve oldest active alert if remedial goal
-          const targetAlert = activeAlerts.find((a) => {
-            if (!achievingGoal) return false;
+          // Resolve matching alert, or if all goals are completed or it's a remedial goal, resolve active alert
+          const alertsToResolve = activeAlerts.filter((a) => {
+            if (!achievingGoal) return true;
             const aTitle = (a.goalTitle || "").toLowerCase();
             const gTitle = (achievingGoal.title || "").toLowerCase();
             const gRationale = (achievingGoal.rationale || "").toLowerCase();
@@ -386,11 +387,15 @@ export default function IEPBuilderPage() {
               (aTitle && (gTitle.includes(aTitle) || aTitle.includes(gTitle))) ||
               (a.goalId && a.goalId === achievingGoal.id) ||
               gRationale.includes("regression") ||
+              gRationale.includes("recover") ||
+              gRationale.includes("remediat") ||
               gRationale.includes(aTitle)
             );
-          }) || (activeAlerts.length === 1 ? activeAlerts[0] : null);
+          });
 
-          if (targetAlert) {
+          const finalTargets = alertsToResolve.length > 0 ? alertsToResolve : (activeAlerts.length > 0 ? [activeAlerts[0]] : []);
+
+          for (const targetAlert of finalTargets) {
             await regressionDb.resolve(
               targetAlert.id,
               {
@@ -402,8 +407,13 @@ export default function IEPBuilderPage() {
               },
               user?.getIdToken.bind(user)
             );
-            setActiveRegressionAlerts((prev) => prev.filter((a) => a.id !== targetAlert.id));
-            toast.success(`Regression alert for "${targetAlert.goalTitle}" resolved & logged to Recovery History!`, { icon: "🛡️" });
+          }
+
+          if (finalTargets.length > 0) {
+            const resolvedIds = new Set(finalTargets.map((a) => a.id));
+            setActiveRegressionAlerts((prev) => prev.filter((a) => !resolvedIds.has(a.id)));
+            setAlertKey((k) => k + 1);
+            toast.success(`Regression alert resolved & moved to Recovery History! 🛡️`);
           }
         } catch (alertErr) {
           console.warn("Could not auto-resolve regression alert:", alertErr);
@@ -631,6 +641,7 @@ export default function IEPBuilderPage() {
       {/* Regression Alert Banner for Selected Student (if any alert exists) */}
       {selectedStudentId && profile?.centerId && (
         <RegressionAlertsBanner
+          key={`${selectedStudentId}-${alertKey}`}
           centerId={profile.centerId}
           studentId={selectedStudentId}
         />
