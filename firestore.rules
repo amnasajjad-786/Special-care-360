@@ -195,7 +195,7 @@ service cloud.firestore {
       allow read: if staff() && center(resource.data) && record(resource.data);
       allow update: if (admin() || role('therapist')) && record(resource.data)
         && center(resource.data)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['resolved'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['resolved', 'resolvedAt', 'resolvedBy', 'resolvedByName', 'remedialGoalId', 'remedialGoalTitle', 'resolutionNote'])
         && request.resource.data.resolved == true;
       allow create, delete: if false;
     }

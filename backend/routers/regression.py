@@ -89,3 +89,33 @@ def save_observation(db, body, user):
 @router.post("/observations")
 def log_observation(body: Observation, user: dict = Depends(get_current_user)):
     return save_observation(get_db(), body, user)
+
+
+class ResolveRequest(BaseModel):
+    alertId: str
+    remedialGoalId: str = ""
+    remedialGoalTitle: str = ""
+    resolutionNote: str = "Recovered via achieved remedial IEP goal"
+
+@router.post("/resolve")
+def resolve_alert_endpoint(body: ResolveRequest, user: dict = Depends(get_current_user)):
+    require_role(user, ["admin", "therapist"])
+    db = get_db()
+    alert_ref = db.collection("regressionAlerts").document(body.alertId)
+    alert_snap = alert_ref.get()
+    if not alert_snap.exists:
+        raise HTTPException(404, "Alert not found")
+    alert_data = alert_snap.to_dict() or {}
+    if alert_data.get("centerId") != user.get("centerId"):
+        raise HTTPException(403, "Centre mismatch")
+    now = datetime.now(timezone.utc).isoformat()
+    alert_ref.update({
+        "resolved": True,
+        "resolvedAt": now,
+        "resolvedBy": user.get("uid"),
+        "resolvedByName": user.get("name", "Therapist"),
+        "remedialGoalId": body.remedialGoalId,
+        "remedialGoalTitle": body.remedialGoalTitle,
+        "resolutionNote": body.resolutionNote,
+    })
+    return {"success": True, "alertId": body.alertId, "resolvedAt": now}

@@ -449,9 +449,36 @@ Return ONLY a valid JSON object matching this exact schema:
     except Exception as e:
         print(f"[generate_iep_goals] External AI error: {e}. Generating clinical baseline fallback.")
         
-        # Clinical fallback goals tailored to student diagnosis
+        # Clinical fallback goals tailored strictly to student diagnosis & active regression alerts
         diag_clean = (diagnosis or "developmental needs").lower()
-        fallback_goals = [
+        fallback_goals = []
+
+        # ── Pillar 3 Priority: If active regression alerts exist, generate Remedial Goal targeting the alert skill ──
+        if alerts_to_include:
+            top_alert = alerts_to_include[0]
+            alert_skill = top_alert.get("goalTitle") or "Core Skill"
+            alert_prev = top_alert.get("previousProgress", 100)
+            alert_curr = top_alert.get("currentProgress", 0)
+            fallback_goals.append(
+                GeneratedIEPGoal(
+                    id=f"iep_remedial_{uuid.uuid4().hex[:8]}",
+                    goalArea="Skill Rehabilitation & Recovery",
+                    title=f"Recover and reinforce mastered skill: {alert_skill}",
+                    targetTimeframe="3 Months",
+                    measurementMethod=f"- Weekly proficiency monitoring against baseline ({alert_prev}%)\n- 85% consistent accuracy over 4 consecutive evaluations",
+                    rationale=f"- Targeted directly to remediate active regression alert on "{alert_skill}" (declined from {alert_prev}% to {alert_curr}%)\n- Restores baseline functional mastery",
+                    milestones=[
+                        MilestoneSchema(id=f"m_{uuid.uuid4().hex[:6]}", description=f"Re-establish structured baseline prompts for {alert_skill} with 50% independence", completed=False, targetDate="Month 1"),
+                        MilestoneSchema(id=f"m_{uuid.uuid4().hex[:6]}", description=f"Achieve unprompted task execution of {alert_skill} in 4 of 5 sessions", completed=False, targetDate="Month 2"),
+                        MilestoneSchema(id=f"m_{uuid.uuid4().hex[:6]}", description=f"Full skill consolidation of {alert_skill} across therapy and home settings", completed=False, targetDate="Month 3"),
+                    ],
+                    status="In Progress",
+                    progressPercent=0
+                )
+            )
+
+        # ── Pillar 1: Clinical / Medical / Speech Profile ──
+        fallback_goals.append(
             GeneratedIEPGoal(
                 id=f"iep_goal_{uuid.uuid4().hex[:8]}",
                 goalArea="Communication & Speech",
@@ -466,14 +493,18 @@ Return ONLY a valid JSON object matching this exact schema:
                 ],
                 status="In Progress",
                 progressPercent=0
-            ),
+            )
+        )
+
+        # ── Pillar 2: ABC Behavioral Intervention ──
+        fallback_goals.append(
             GeneratedIEPGoal(
                 id=f"iep_goal_{uuid.uuid4().hex[:8]}",
                 goalArea="Emotional Regulation & Behavior",
                 title="Develop self-soothing and coping strategies during transition times",
                 targetTimeframe="3 Months",
                 measurementMethod="- Behavioral tracking logs\n- Duration of distress reduced to < 3 minutes across 4 consecutive days",
-                rationale="- Addresses behavioral cues and antecedents observed in tracker\n- Builds self-regulation foundation",
+                rationale="- Directly targets antecedents and triggers logged in ABC Behavioral Tracker\n- Builds self-regulation foundation",
                 milestones=[
                     MilestoneSchema(id=f"m_{uuid.uuid4().hex[:6]}", description="Identify early sensory/emotional dysregulation cues with visual aids", completed=False, targetDate="Month 1"),
                     MilestoneSchema(id=f"m_{uuid.uuid4().hex[:6]}", description="Utilize designated calm-down space or sensory object independently when prompted", completed=False, targetDate="Month 2"),
@@ -481,23 +512,8 @@ Return ONLY a valid JSON object matching this exact schema:
                 ],
                 status="In Progress",
                 progressPercent=0
-            ),
-            GeneratedIEPGoal(
-                id=f"iep_goal_{uuid.uuid4().hex[:8]}",
-                goalArea="Daily Living & Social Interaction",
-                title="Enhance cooperative play and task-completion endurance",
-                targetTimeframe="6 Months",
-                measurementMethod="- Weekly teacher/therapist rubrics\n- Independent participation rating scale",
-                rationale=f"- Fosters developmental milestones and social integration for {student_name}",
-                milestones=[
-                    MilestoneSchema(id=f"m_{uuid.uuid4().hex[:6]}", description="Engage in turn-taking activity with a peer for 5 minutes with visual schedule support", completed=False, targetDate="Month 1"),
-                    MilestoneSchema(id=f"m_{uuid.uuid4().hex[:6]}", description="Follow a 2-step task instruction independently in 4 out of 5 sessions", completed=False, targetDate="Month 2"),
-                    MilestoneSchema(id=f"m_{uuid.uuid4().hex[:6]}", description="Maintain focus on individualized learning activities for 15 minutes continuously", completed=False, targetDate="Month 3"),
-                ],
-                status="In Progress",
-                progressPercent=0
-            ),
-        ]
+            )
+        )
         
         return IEPGenerationResponse(
             disclaimer="NOTICE: This output is a clinical DRAFT / SUGGESTION generated by AI and must be reviewed, adapted, and approved by a qualified therapist or educator. It does NOT constitute a medical diagnosis or binding medical prescription.",

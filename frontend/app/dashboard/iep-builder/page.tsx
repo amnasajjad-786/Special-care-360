@@ -35,6 +35,7 @@ export default function IEPBuilderPage() {
   // Student Context State
   const [medicalProfile, setMedicalProfile] = useState<MedicalProfile | null>(null);
   const [abcIncidents, setAbcIncidents] = useState<ABCIncident[]>([]);
+  const [activeRegressionAlerts, setActiveRegressionAlerts] = useState<any[]>([]);
   const [loadingStudentData, setLoadingStudentData] = useState(false);
 
   // IEP Editor State
@@ -117,15 +118,26 @@ export default function IEPBuilderPage() {
       } catch (e) {
         console.warn("getCarePlan failed:", e);
       }
+      let alertsData: any[] = [];
       try {
         abcData = (await abcDb.listIncidents(selectedStudentId, scopeOf(profile), 10)) as ABCIncident[];
       } catch (e) {
         console.warn("listIncidents failed:", e);
       }
 
+      if (profile?.centerId) {
+        try {
+          const list = await regressionDb.listForStudent(selectedStudentId, profile.centerId);
+          alertsData = list.filter((a) => !a.resolved);
+        } catch (e) {
+          console.warn("listForStudent alerts failed:", e);
+        }
+      }
+
       if (!active) return;
       setMedicalProfile(medData as MedicalProfile);
       setAbcIncidents(abcData || []);
+      setActiveRegressionAlerts(alertsData);
 
       // Pre-populate with IEP goals based on role:
       // - Therapist: only restore if a real IEP was previously saved (Active or draft).
@@ -379,13 +391,18 @@ export default function IEPBuilderPage() {
           }) || (activeAlerts.length === 1 ? activeAlerts[0] : null);
 
           if (targetAlert) {
-            await regressionDb.resolve(targetAlert.id, {
-              resolvedBy: user?.uid,
-              resolvedByName: profile?.name || "Therapist",
-              remedialGoalId: achievingGoal?.id || goalId,
-              remedialGoalTitle: achievingGoal?.title || "Remedial SMART Goal",
-              resolutionNote: `Skill successfully recovered and verified. Remedial goal "${achievingGoal?.title || ''}" reached 100% mastery.`,
-            });
+            await regressionDb.resolve(
+              targetAlert.id,
+              {
+                resolvedBy: user?.uid,
+                resolvedByName: profile?.name || "Therapist",
+                remedialGoalId: achievingGoal?.id || goalId,
+                remedialGoalTitle: achievingGoal?.title || "Remedial SMART Goal",
+                resolutionNote: `Skill successfully recovered and verified. Remedial goal "${achievingGoal?.title || ''}" reached 100% mastery.`,
+              },
+              user?.getIdToken.bind(user)
+            );
+            setActiveRegressionAlerts((prev) => prev.filter((a) => a.id !== targetAlert.id));
             toast.success(`Regression alert for "${targetAlert.goalTitle}" resolved & logged to Recovery History!`, { icon: "🛡️" });
           }
         } catch (alertErr) {
@@ -715,6 +732,56 @@ export default function IEPBuilderPage() {
                     </div>
                     <div><strong>Trigger:</strong> {inc.antecedent?.text || "N/A"}</div>
                     <div><strong>Behavior:</strong> {inc.behavior?.text || "N/A"}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Active Regression Alerts Card (3rd Input) */}
+          <div className="glass-card" style={{ padding: "20px", border: activeRegressionAlerts.length > 0 ? "1px solid #f87171" : "none" }}>
+            <h3
+              style={{
+                margin: "0 0 14px",
+                fontSize: "1.05rem",
+                fontWeight: 700,
+                color: activeRegressionAlerts.length > 0 ? "#b91c1c" : "var(--primary-dark)",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+              }}
+            >
+              <AlertTriangle size={18} style={{ color: activeRegressionAlerts.length > 0 ? "#ef4444" : "#94a3b8" }} />
+              Skill Regression Signals ({activeRegressionAlerts.length})
+            </h3>
+            {activeRegressionAlerts.length === 0 ? (
+              <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)", margin: 0 }}>
+                No active skill regression alerts detected. Baseline skills intact.
+              </p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                {activeRegressionAlerts.map((alt: any) => (
+                  <div
+                    key={alt.id}
+                    style={{
+                      background: "#fef2f2",
+                      borderRadius: "8px",
+                      padding: "10px",
+                      border: "1px solid #fecaca",
+                      fontSize: "0.8rem",
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, color: "#991b1b", marginBottom: "4px" }}>
+                      ⚠️ {alt.goalTitle || "Regressed Skill"}
+                    </div>
+                    <div style={{ color: "#7f1d1d" }}>
+                      Dropped from <strong>{alt.previousProgress}%</strong> to <strong>{alt.currentProgress}%</strong> ({alt.alertLevel || "Warning"})
+                    </div>
+                    {alt.reason && (
+                      <div style={{ fontSize: "0.75rem", color: "#6b7280", marginTop: "2px" }}>
+                        Reason: {alt.reason}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
