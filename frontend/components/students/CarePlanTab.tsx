@@ -4,6 +4,7 @@ import { CarePlan, IEPGoal } from "@/types";
 import toast from "react-hot-toast";
 import { Target, Save, BrainCircuit } from "lucide-react";
 import { studentsDb } from "@/lib/firestore-api";
+import { useAuth } from "@/lib/auth-context";
 import ReactMarkdown from "react-markdown";
 
 const STATUS_OPTIONS = ["In Progress", "Mastered", "Regressed"] as const;
@@ -16,6 +17,8 @@ const STATUS_STYLES: Record<string, string> = {
 interface Props { studentId: string; carePlan: CarePlan; canEdit: boolean; onChange?: (data: CarePlan) => void; }
 
 export default function CarePlanTab({ studentId, carePlan: initial, canEdit, onChange }: Props) {
+  const { profile } = useAuth();
+  const isTherapist = profile?.role === "therapist";
   const [goals, setGoals] = useState<IEPGoal[]>((initial?.goals || []).filter(goal => goal.status !== "Achieved"));
   const [version, setVersion] = useState(initial?.version ?? 0);
 
@@ -169,8 +172,8 @@ export default function CarePlanTab({ studentId, carePlan: initial, canEdit, onC
         </div>
       )}
 
-      {/* AI Behavioral Analysis Report Section */}
-      {initial?.lastAiReport && (
+      {/* AI Behavioral Analysis Report Section - Restricted to Therapist Only */}
+      {isTherapist && initial?.lastAiReport && (
         <div className="glass-card animate-fade-in" style={{ padding: "20px", marginTop: "16px", border: "1px dashed var(--accent-purple-soft)", background: "rgba(255, 255, 255, 0.9)" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px", borderBottom: "1px solid rgba(61, 79, 107, 0.08)", paddingBottom: "8px" }}>
             <h4 style={{ margin: 0, fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.95rem", display: "flex", alignItems: "center", gap: "8px" }}>
