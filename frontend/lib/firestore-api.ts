@@ -1081,6 +1081,12 @@ export interface RegressionAlertDoc {
   decline: number;
   alertLevel: "Monitoring" | "Regression Warning";
   resolved: boolean;
+  resolvedAt?: string | null;
+  resolvedBy?: string | null;
+  resolvedByName?: string | null;
+  remedialGoalId?: string | null;
+  remedialGoalTitle?: string | null;
+  resolutionNote?: string | null;
   createdAt: string;
   // Fields added for milestone-log triggered alerts
   milestoneId?: string;
@@ -1127,8 +1133,25 @@ export const regressionDb = {
   },
 
   /** Mark an alert as resolved */
-  resolve: async (alertId: string): Promise<void> => {
-    await updateDoc(doc(db, "regressionAlerts", alertId), { resolved: true });
+  resolve: async (
+    alertId: string,
+    metadata?: {
+      resolvedBy?: string;
+      resolvedByName?: string;
+      remedialGoalId?: string;
+      remedialGoalTitle?: string;
+      resolutionNote?: string;
+    }
+  ): Promise<void> => {
+    await updateDoc(doc(db, "regressionAlerts", alertId), {
+      resolved: true,
+      resolvedAt: new Date().toISOString(),
+      resolvedBy: metadata?.resolvedBy ?? null,
+      resolvedByName: metadata?.resolvedByName ?? null,
+      remedialGoalId: metadata?.remedialGoalId ?? null,
+      remedialGoalTitle: metadata?.remedialGoalTitle ?? null,
+      resolutionNote: metadata?.resolutionNote ?? "Resolved via achieved remedial IEP goal",
+    });
   },
 
   /** Fetch ALL regression alerts (resolved + unresolved) for a centre */

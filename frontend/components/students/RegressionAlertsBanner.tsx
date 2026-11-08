@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { regressionDb, RegressionAlertDoc } from "@/lib/firestore-api";
+import { useAuth } from "@/lib/auth-context";
 import {
   AlertTriangle,
   TrendingDown,
@@ -22,7 +23,11 @@ interface Props {
 }
 
 export default function RegressionAlertsBanner({ centerId, studentId }: Props) {
+  const { profile } = useAuth();
+  const isTherapist = profile?.role === "therapist";
   const [alerts, setAlerts] = useState<RegressionAlertDoc[]>([]);
+  const [historyAlerts, setHistoryAlerts] = useState<RegressionAlertDoc[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(true);
   const [resolving, setResolving] = useState<string | null>(null);
@@ -39,7 +44,14 @@ export default function RegressionAlertsBanner({ centerId, studentId }: Props) {
       : regressionDb.listUnresolved(centerId);
 
     fetch
-      .then((data) => { if (active) setAlerts(studentId ? data.filter((a) => !a.resolved) : data); })
+      .then((data) => {
+        if (active) {
+          setAlerts(studentId ? data.filter((a) => !a.resolved) : data.filter((a) => !a.resolved));
+          if (studentId) {
+            setHistoryAlerts(data.filter((a) => a.resolved));
+          }
+        }
+      })
       .catch((err) => { if (active) setError(`Regression alerts could not be loaded: ${err.message || 'Please retry.'}`); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -48,9 +60,16 @@ export default function RegressionAlertsBanner({ centerId, studentId }: Props) {
   const handleResolve = async (alertId: string) => {
     setResolving(alertId);
     try {
-      await regressionDb.resolve(alertId);
+      await regressionDb.resolve(alertId, {
+        resolvedByName: profile?.name || "Therapist",
+        resolutionNote: "Manually reviewed and resolved by therapist",
+      });
+      const resolvedDoc = alerts.find((a) => a.id === alertId);
       setAlerts((prev) => prev.filter((a) => a.id !== alertId));
-      toast.success("Alert marked as resolved.");
+      if (resolvedDoc) {
+        setHistoryAlerts((prev) => [{ ...resolvedDoc, resolved: true, resolvedAt: new Date().toISOString() }, ...prev]);
+      }
+      toast.success("Alert marked as resolved and added to Regression History.");
     } catch {
       toast.error("Failed to resolve alert.");
     } finally {
@@ -59,7 +78,7 @@ export default function RegressionAlertsBanner({ centerId, studentId }: Props) {
   };
 
   if (error) return <div role="alert" className="glass-card" style={{ padding: 16, marginBottom: 16 }}>{error}</div>;
-  if (loading || alerts.length === 0) return null;
+  if (loading || (alerts.length === 0 && (!isTherapist || !studentId || historyAlerts.length === 0))) return null;
 
   const warnings = alerts.filter((a) => a.alertLevel === "Regression Warning");
   const monitoring = alerts.filter((a) => a.alertLevel === "Monitoring");
@@ -373,6 +392,76 @@ export default function RegressionAlertsBanner({ centerId, studentId }: Props) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* ── Closed-Loop Regression & Recovery History (Therapist Only) ── */}
+      {isTherapist && studentId && historyAlerts.length > 0 && (
+        <div style={{ borderTop: "1px solid rgba(0,0,0,0.08)", background: "rgba(255,255,255,0.7)" }}>
+          <button
+            onClick={() => setShowHistory((v) => !v)}
+            style={{
+              width: "100%",
+              padding: "10px 18px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+              fontSize: "0.82rem",
+              fontWeight: 700,
+              color: "#0f766e",
+            }}
+          >
+            <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <ClipboardCheck size={16} style={{ color: "#0d9488" }} />
+              Regression &amp; Recovery Audit History ({historyAlerts.length} Recovered)
+            </span>
+            <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
+              {showHistory ? "Hide History ▲" : "View Recovery Log ▼"}
+            </span>
+          </button>
+
+          {showHistory && (
+            <div style={{ padding: "12px 18px", display: "flex", flexDirection: "column", gap: "10px" }}>
+              {historyAlerts.map((ha) => (
+                <div
+                  key={ha.id}
+                  style={{
+                    background: "#f0fdf4",
+                    border: "1px solid #bbf7d0",
+                    borderRadius: "8px",
+                    padding: "10px 14px",
+                    fontSize: "0.78rem",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px" }}>
+                    <div style={{ fontWeight: 700, color: "#166534", fontSize: "0.85rem" }}>
+                      ✅ Recovered: {ha.goalTitle}
+                    </div>
+                    <span style={{ fontSize: "0.72rem", color: "#15803d", fontWeight: 600 }}>
+                      Recovered on {ha.resolvedAt ? new Date(ha.resolvedAt).toLocaleDateString() : "Recent"}
+                    </span>
+                  </div>
+                  <div style={{ color: "#475569", marginBottom: "4px" }}>
+                    <strong>Initial Decline:</strong> Dropped from {ha.previousProgress}% to {ha.currentProgress}% (Decline: {ha.decline}%)
+                    {ha.reason && <span> &nbsp;·&nbsp; <em>&quot;{ha.reason}&quot;</em></span>}
+                  </div>
+                  {ha.remedialGoalTitle && (
+                    <div style={{ color: "#0f766e", fontWeight: 600 }}>
+                      🎯 <strong>Remedial Goal:</strong> {ha.remedialGoalTitle}
+                    </div>
+                  )}
+                  {ha.resolutionNote && (
+                    <div style={{ color: "#334155", marginTop: "2px", fontSize: "0.75rem" }}>
+                      📝 {ha.resolutionNote}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

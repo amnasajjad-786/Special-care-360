@@ -348,14 +348,51 @@ export default function IEPBuilderPage() {
     toast.success("New goal added.");
   };
 
-  // Mark a goal as Achieved → moves it to history, triggers "Generate Next Goal" option
+  // Mark a goal as Achieved → moves it to history, auto-resolves matching regression alerts, triggers Next Goal
   const handleMarkAchieved = async (goalId: string) => {
     if (!selectedStudentId) return;
+    const achievingGoal = goals.find((g) => g.id === goalId);
     try {
       const saved = await iepDb.markGoalAchieved(selectedStudentId, goalId);
       setCareVersion(saved.version);
       setAchievedGoals(saved.achievedGoals as unknown as IEPGoal[]);
       setGoals(saved.goals as unknown as IEPGoal[]);
+
+      // ── Auto-resolve matching active regression alert for this student (Therapist flow) ──
+      if (profile?.role === "therapist" && profile?.centerId) {
+        try {
+          const studentAlerts = await regressionDb.listForStudent(selectedStudentId, profile.centerId);
+          const activeAlerts = studentAlerts.filter((a) => !a.resolved);
+          
+          // Match alert by goal title or area keywords, or resolve oldest active alert if remedial goal
+          const targetAlert = activeAlerts.find((a) => {
+            if (!achievingGoal) return false;
+            const aTitle = (a.goalTitle || "").toLowerCase();
+            const gTitle = (achievingGoal.title || "").toLowerCase();
+            const gRationale = (achievingGoal.rationale || "").toLowerCase();
+            return (
+              (aTitle && (gTitle.includes(aTitle) || aTitle.includes(gTitle))) ||
+              (a.goalId && a.goalId === achievingGoal.id) ||
+              gRationale.includes("regression") ||
+              gRationale.includes(aTitle)
+            );
+          }) || (activeAlerts.length === 1 ? activeAlerts[0] : null);
+
+          if (targetAlert) {
+            await regressionDb.resolve(targetAlert.id, {
+              resolvedBy: user?.uid,
+              resolvedByName: profile?.name || "Therapist",
+              remedialGoalId: achievingGoal?.id || goalId,
+              remedialGoalTitle: achievingGoal?.title || "Remedial SMART Goal",
+              resolutionNote: `Skill successfully recovered and verified. Remedial goal "${achievingGoal?.title || ''}" reached 100% mastery.`,
+            });
+            toast.success(`Regression alert for "${targetAlert.goalTitle}" resolved & logged to Recovery History!`, { icon: "🛡️" });
+          }
+        } catch (alertErr) {
+          console.warn("Could not auto-resolve regression alert:", alertErr);
+        }
+      }
+
       toast.success("Goal marked as Achieved! You can now generate the next progressive goal.");
     } catch (err) {
       console.error(err);
