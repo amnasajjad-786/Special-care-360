@@ -78,7 +78,18 @@ def get_patterns(
     hours:      list[int] = []
     severities: list[int] = []
 
+    # Count: how many INCIDENTS each tag appeared in (not total tag occurrences)
+    antecedent_incident_count:  dict = {}
+    behavior_incident_count:    dict = {}
+    consequence_incident_count: dict = {}
+
     for inc in incidents:
+        for tag in set(inc.get("antecedent",  {}).get("tags", [])):
+            antecedent_incident_count[tag]  = antecedent_incident_count.get(tag, 0) + 1
+        for tag in set(inc.get("behavior",    {}).get("tags", [])):
+            behavior_incident_count[tag]    = behavior_incident_count.get(tag, 0) + 1
+        for tag in set(inc.get("consequence", {}).get("tags", [])):
+            consequence_incident_count[tag] = consequence_incident_count.get(tag, 0) + 1
         antecedent_tags  += inc.get("antecedent",  {}).get("tags", [])
         behavior_tags    += inc.get("behavior",    {}).get("tags", [])
         consequence_tags += inc.get("consequence", {}).get("tags", [])
@@ -90,9 +101,9 @@ def get_patterns(
                 pass
         severities.append(inc.get("severity", 1))
 
-    top_antecedents  = [{"tag": k, "count": v} for k, v in Counter(antecedent_tags).most_common(5)]
-    top_behaviors    = [{"tag": k, "count": v} for k, v in Counter(behavior_tags).most_common(5)]
-    top_consequences = [{"tag": k, "count": v} for k, v in Counter(consequence_tags).most_common(5)]
+    top_antecedents  = [{"tag": k, "count": v} for k, v in sorted(antecedent_incident_count.items(),  key=lambda x: -x[1])[:5]]
+    top_behaviors    = [{"tag": k, "count": v} for k, v in sorted(behavior_incident_count.items(),    key=lambda x: -x[1])[:5]]
+    top_consequences = [{"tag": k, "count": v} for k, v in sorted(consequence_incident_count.items(), key=lambda x: -x[1])[:5]]
     peak_hours       = [{"hour": k, "count": v} for k, v in Counter(hours).most_common(3)]
     avg_severity     = round(sum(severities) / len(severities), 1) if severities else 0
 
@@ -141,8 +152,8 @@ def get_heatmap(
     grid: dict = {day: {s: 0 for s in range(1, 6)} for day in days}
 
     for inc in incidents:
-        ts  = inc.get("timestamp", "")
-        sev = inc.get("severity", 1)
+        ts  = inc.get("timestamp", "") or inc.get("createdAt", "")
+        sev = min(max(int(inc.get("severity", 1)), 1), 5)
         if "T" in ts:
             try:
                 dt       = datetime.fromisoformat(ts.replace("Z", "+00:00"))

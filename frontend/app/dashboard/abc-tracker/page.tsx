@@ -244,7 +244,7 @@ export default function ABCTrackerPage() {
             <table className="data-table">
               <thead><tr><th>Date/Time</th><th>Antecedent</th><th>Behavior</th><th>Consequence</th><th>Severity</th><th>Duration</th><th>Location</th></tr></thead>
               <tbody>
-                {incidents.slice(0, 10).map(inc => {
+                {incidents.map(inc => {
                   const sevColors = ["", "#38a169", "#68d391", "#d69e2e", "#ed8936", "#e53e3e"];
                   return (
                     <tr key={inc.id}>

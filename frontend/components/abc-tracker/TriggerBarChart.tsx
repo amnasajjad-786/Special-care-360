@@ -12,7 +12,7 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: { payl
   return (
     <div style={{ background: "rgba(255,255,255,0.95)", backdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,0.6)", borderRadius: "10px", padding: "10px 14px", boxShadow: "0 4px 20px rgba(0,0,0,0.1)" }}>
       <div style={{ fontWeight: 700, fontSize: "0.88rem", color: "var(--text-primary)" }}>{d.fullName}</div>
-      <div style={{ fontSize: "0.82rem", color: "var(--accent-coral)", fontWeight: 600, marginTop: "4px" }}>{d.count} occurrences</div>
+      <div style={{ fontSize: "0.82rem", color: "var(--accent-coral)", fontWeight: 600, marginTop: "4px" }}>{d.count} incident{d.count !== 1 ? 's' : ''}</div>
     </div>
   );
 }
@@ -32,7 +32,7 @@ export default function TriggerBarChart({ patterns }: Props) {
       <h3 style={{ margin: "0 0 4px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.95rem", display: "flex", alignItems: "center", gap: "8px" }}>
         <Target size={18} /> Trigger Frequency
       </h3>
-      <p style={{ margin: "0 0 14px", fontSize: "0.78rem", color: "var(--text-secondary)" }}>Top antecedents triggering incidents</p>
+      <p style={{ margin: "0 0 14px", fontSize: "0.78rem", color: "var(--text-secondary)" }}>No. of incidents each trigger appeared in</p>
       {data.length === 0 ? (
         <div style={{ height: "180px", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)", fontSize: "0.85rem" }}>No trigger data yet</div>
       ) : (
