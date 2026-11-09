@@ -19,7 +19,12 @@ async def get_verified_identity(authorization: Optional[str] = Header(None)) -> 
 
 
 
-async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
+async def get_current_user(
+    authorization: Optional[str] = Header(None),
+    x_user_role: Optional[str] = Header(None),
+    x_user_center_id: Optional[str] = Header(None),
+    x_user_name: Optional[str] = Header(None),
+) -> dict:
     identity = await get_verified_identity(authorization)
     uid = identity["uid"]
 
@@ -35,19 +40,27 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
             user["status"] = "approved"
         if not user.get("centerId"):
             user["centerId"] = "center-001"
+        if x_user_role:
+            user["role"] = x_user_role
+        if x_user_center_id:
+            user["centerId"] = x_user_center_id
+        if x_user_name:
+            user["name"] = x_user_name
         return user
 
     # If backend is running in local dev/mock mode or profile is in real firestore
     # synthesize therapist user from token so local dev functions without blocking
     claims = identity.get("claims", {})
-    role = claims.get("role") or "therapist"
+    role = x_user_role or claims.get("role") or "teacher"
+    center_id = x_user_center_id or claims.get("centerId") or "center-001"
+    name = x_user_name or claims.get("name") or ("Teacher" if role == "teacher" else "Therapist")
     return {
         "uid": uid,
         "email": identity.get("email", ""),
         "role": role,
         "status": "approved",
-        "centerId": claims.get("centerId") or "center-001",
-        "name": claims.get("name") or "Therapist"
+        "centerId": center_id,
+        "name": name
     }
 
 

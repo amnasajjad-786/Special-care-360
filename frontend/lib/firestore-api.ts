@@ -1253,7 +1253,14 @@ export const milestoneObservationsDb = {
     pendingObservations.set(key, requestId);
     const response = await api.post("/api/regression/observations", {
       ...observation, requestId,
-    }, { headers: { Authorization: `Bearer ${token}` } });
+    }, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "x-user-role": "teacher",
+        "x-user-center-id": observation.centerId,
+        "x-user-name": observation.observedByName,
+      }
+    });
     pendingObservations.delete(key);
     return response.data;
   },

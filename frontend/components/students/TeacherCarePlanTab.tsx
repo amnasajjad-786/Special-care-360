@@ -97,7 +97,7 @@ export default function TeacherCarePlanTab({
   // Observation history for this student
   const [history, setHistory] = useState<MilestoneObservationDoc[]>([]);
 
-  const resolvedCenterId = centerId || profile?.centerId || "";
+  const resolvedCenterId = centerId || profile?.centerId || "center-001";
 
   useEffect(() => {
     if (!studentId || !resolvedCenterId) return;

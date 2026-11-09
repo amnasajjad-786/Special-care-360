@@ -21,7 +21,7 @@ class MockDocument:
     def to_dict(self):
         return self._data
 
-    def get(self):
+    def get(self, transaction=None):
         return self
 
 class MockDocumentReference:
@@ -44,7 +44,7 @@ class MockDocumentReference:
         self.db.data[self.collection_name][self.id].update(updates)
         self.db.save()
 
-    def get(self):
+    def get(self, transaction=None):
         col_data = self.db.data.get(self.collection_name, {})
         doc_data = col_data.get(self.id)
         return MockDocument(self.id, doc_data)
@@ -123,6 +123,31 @@ class MockCollection:
     def order_by(self, field, direction="ASCENDING"):
         return MockQuery(self.name, self.db).order_by(field, direction)
 
+class MockTransaction:
+    def __init__(self, db_instance):
+        self.db = db_instance
+
+    def get(self, ref):
+        return ref.get()
+
+    def set(self, ref, data):
+        ref.set(data)
+
+    def create(self, ref, data):
+        ref.set(data)
+
+    def update(self, ref, updates):
+        ref.update(updates)
+
+    def delete(self, ref):
+        col_data = self.db.data.get(ref.collection_name, {})
+        col_data.pop(ref.id, None)
+        self.db.save()
+
+class MockBatch(MockTransaction):
+    def commit(self):
+        self.db.save()
+
 class MockFirestoreClient:
     def __init__(self):
         self.filepath = os.path.join(os.path.dirname(__file__), "mock_db.json")
@@ -180,6 +205,12 @@ class MockFirestoreClient:
                 json.dump(self.data, f, indent=2)
         except Exception:
             pass
+
+    def transaction(self):
+        return MockTransaction(self)
+
+    def batch(self):
+        return MockBatch(self)
 
     def collection(self, name):
         return MockCollection(name, self)
