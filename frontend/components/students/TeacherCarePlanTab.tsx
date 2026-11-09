@@ -14,7 +14,7 @@ import {
   Trophy,
   History,
   CheckCircle2,
-  TrendingUp,
+
   AlertCircle,
   Clock,
   Send,
@@ -44,14 +44,6 @@ const PERFORMANCE_OPTIONS: {
     description: "Student retains the skill and performs consistently during daily activities.",
     color: "#10b981",
     icon: CheckCircle2,
-  },
-  {
-    value: "In Progress",
-    label: "Improving / Developing",
-    badge: "Progressing with Prompts",
-    description: "Student is actively developing the skill with partial guidance or verbal cues.",
-    color: "#3b82f6",
-    icon: TrendingUp,
   },
   {
     value: "Failed/Declined",
