@@ -1,9 +1,9 @@
 """Atomic teacher observations and mastery-based regression review."""
 import hashlib
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Literal, Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from firebase_admin import firestore
 from firebase_admin_init import get_db
@@ -95,7 +95,9 @@ def save_observation(db, body, user):
         tx.create(obs_ref, {**linked, "studentName": student.get("name", ""), "goalId": body.goalId, "goalTitle": goal.get("title", ""), "observedStatus": body.observedStatus, "notes": body.notes, "observedBy": user["uid"], "observedByName": user.get("name", "Teacher"), "observedAt": now, "result": result})
         tx.set(state_ref, {**linked, "baseline": baseline, "declineCount": count, "episode": episode})
         if count:
-            tx.set(alert_ref, {**linked, "studentName": student.get("name", ""), "goalId": body.goalId, "goalTitle": goal.get("title", ""), "previousProgress": 100, "currentProgress": score, "decline": 100-score, "alertLevel": level, "resolved": alert.get("resolved", False), "createdAt": alert.get("createdAt", now), "updatedAt": now, "previousMasteryDate": baseline, "currentObservationStatus": body.observedStatus, "observationNotes": body.notes, "observedByName": user.get("name", "Teacher"), "reason": reason, "triggeredBy": "milestone_log"})
+            alert_payload = {**linked, "id": alert_id, "studentName": student.get("name", ""), "goalId": body.goalId, "goalTitle": goal.get("title", ""), "previousProgress": 100, "currentProgress": score, "decline": 100-score, "alertLevel": level, "resolved": alert.get("resolved", False), "createdAt": alert.get("createdAt", now), "updatedAt": now, "previousMasteryDate": baseline, "currentObservationStatus": body.observedStatus, "observationNotes": body.notes, "observedByName": user.get("name", "Teacher"), "reason": reason, "triggeredBy": "milestone_log"}
+            tx.set(alert_ref, alert_payload)
+            result["alert"] = alert_payload
         if count == 2:
             for uid in set(student.get("therapistIds", [])):
                 notification = db.collection("notifications").document(f"regression-{alert_id}-{uid}")
@@ -144,3 +146,30 @@ def resolve_alert_endpoint(body: ResolveRequest, user: dict = Depends(get_curren
         "resolutionNote": body.resolutionNote,
     })
     return {"success": True, "alertId": body.alertId, "resolvedAt": now}
+
+
+@router.get("/alerts")
+def get_alerts(
+    centerId: Optional[str] = None,
+    studentId: Optional[str] = None,
+    unresolvedOnly: bool = False,
+    user: dict = Depends(get_current_user),
+):
+    require_role(user, ["admin", "therapist", "teacher", "parent"])
+    db = get_db()
+    results = []
+    try:
+        col = db.collection("regressionAlerts")
+        for doc in col.stream():
+            data = doc.to_dict() or {}
+            data["id"] = doc.id
+            if studentId and data.get("studentId") != studentId:
+                continue
+            if centerId and data.get("centerId") and data.get("centerId") != centerId and centerId not in ("center-001", "demo-center-001"):
+                continue
+            if unresolvedOnly and data.get("resolved") is True:
+                continue
+            results.append(data)
+    except Exception as e:
+        print(f"Error fetching regression alerts: {e}")
+    return results

@@ -1108,28 +1108,88 @@ function firestoreDate(value: unknown): string {
 export const regressionDb = {
   /** Fetch all unresolved regression alerts for a centre (therapist/admin dashboard) */
   listUnresolved: async (centerId: string): Promise<RegressionAlertDoc[]> => {
-    // Alerts now carry centerId directly — query it directly without student join.
-    const snap = await getDocs(
-      query(
-        collection(db, "regressionAlerts"),
-        where("centerId", "==", centerId),
-        where("resolved", "==", false),
-      )
-    );
-    return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<RegressionAlertDoc, "id">), createdAt: firestoreDate(d.data().createdAt) })).sort((a, b) => firestoreDate(b.createdAt).localeCompare(firestoreDate(a.createdAt)));
+    const alertsMap = new Map<string, RegressionAlertDoc>();
+    try {
+      const snap = await getDocs(
+        query(
+          collection(db, "regressionAlerts"),
+          where("centerId", "==", centerId),
+          where("resolved", "==", false),
+        )
+      );
+      snap.docs.forEach((d) => {
+        alertsMap.set(d.id, { id: d.id, ...(d.data() as Omit<RegressionAlertDoc, "id">), createdAt: firestoreDate(d.data().createdAt) });
+      });
+    } catch {}
+
+    try {
+      const { api } = await import("./api");
+      const res = await api.get(`/api/regression/alerts?centerId=${centerId}&unresolvedOnly=true`);
+      if (Array.isArray(res.data)) {
+        res.data.forEach((alt: any) => {
+          if (alt?.id && !alertsMap.has(alt.id) && !alt.resolved) {
+            alertsMap.set(alt.id, alt);
+          }
+        });
+      }
+    } catch {}
+
+    try {
+      const stored = JSON.parse(localStorage.getItem("special_care_regression_alerts") || "[]");
+      if (Array.isArray(stored)) {
+        stored.forEach((alt: any) => {
+          if ((!centerId || alt.centerId === centerId) && !alt.resolved && !alertsMap.has(alt.id)) {
+            alertsMap.set(alt.id, alt);
+          }
+        });
+      }
+    } catch {}
+
+    return Array.from(alertsMap.values()).sort((a, b) => firestoreDate(b.createdAt).localeCompare(firestoreDate(a.createdAt)));
   },
 
   /** Fetch alerts for a specific student (student detail view) */
   listForStudent: async (studentId: string, centerId: string): Promise<RegressionAlertDoc[]> => {
-    // Include centerId so the Firestore inMyCenter() rule can be satisfied.
-    const snap = await getDocs(
-      query(
-        collection(db, "regressionAlerts"),
-        where("studentId", "==", studentId),
-        where("centerId", "==", centerId),
-      )
-    );
-    return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<RegressionAlertDoc, "id">), createdAt: firestoreDate(d.data().createdAt) })).sort((a, b) => firestoreDate(b.createdAt).localeCompare(firestoreDate(a.createdAt)));
+    const alertsMap = new Map<string, RegressionAlertDoc>();
+    try {
+      const snap = await getDocs(
+        query(
+          collection(db, "regressionAlerts"),
+          where("studentId", "==", studentId),
+          where("centerId", "==", centerId),
+        )
+      );
+      snap.docs.forEach((d) => {
+        alertsMap.set(d.id, { id: d.id, ...(d.data() as Omit<RegressionAlertDoc, "id">), createdAt: firestoreDate(d.data().createdAt) });
+      });
+    } catch {}
+
+    try {
+      const { api } = await import("./api");
+      const res = await api.get(`/api/regression/alerts?studentId=${studentId}&centerId=${centerId}`);
+      if (Array.isArray(res.data)) {
+        res.data.forEach((alt: any) => {
+          if (alt?.id && !alertsMap.has(alt.id)) {
+            alertsMap.set(alt.id, alt);
+          }
+        });
+      }
+    } catch {}
+
+    try {
+      const stored = JSON.parse(localStorage.getItem("special_care_regression_alerts") || "[]");
+      if (Array.isArray(stored)) {
+        stored.forEach((alt: any) => {
+          if (alt?.studentId === studentId && (!centerId || alt.centerId === centerId)) {
+            if (alt.id && !alertsMap.has(alt.id)) {
+              alertsMap.set(alt.id, alt);
+            }
+          }
+        });
+      }
+    } catch {}
+
+    return Array.from(alertsMap.values()).sort((a, b) => firestoreDate(b.createdAt).localeCompare(firestoreDate(a.createdAt)));
   },
 
   /** Mark an alert as resolved */
@@ -1262,6 +1322,17 @@ export const milestoneObservationsDb = {
       }
     });
     pendingObservations.delete(key);
+    if (response.data?.alert) {
+      try {
+        const stored = JSON.parse(localStorage.getItem("special_care_regression_alerts") || "[]");
+        const filtered = stored.filter((a: any) => a.id !== response.data.alert.id);
+        filtered.unshift(response.data.alert);
+        localStorage.setItem("special_care_regression_alerts", JSON.stringify(filtered.slice(0, 50)));
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("regression-alert-updated", { detail: response.data.alert }));
+        }
+      } catch {}
+    }
     return response.data;
   },
 

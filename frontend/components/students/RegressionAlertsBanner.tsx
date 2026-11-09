@@ -54,7 +54,22 @@ export default function RegressionAlertsBanner({ centerId, studentId }: Props) {
       })
       .catch((err) => { if (active) setError(`Regression alerts could not be loaded: ${err.message || 'Please retry.'}`); })
       .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+    const handleUpdate = () => {
+      const refetch = studentId
+        ? regressionDb.listForStudent(studentId, centerId)
+        : regressionDb.listUnresolved(centerId);
+      refetch.then((data) => {
+        if (active) {
+          setAlerts(data.filter((a) => !a.resolved));
+          if (studentId) setHistoryAlerts(data.filter((a) => a.resolved));
+        }
+      });
+    };
+    window.addEventListener("regression-alert-updated", handleUpdate);
+    return () => {
+      active = false;
+      window.removeEventListener("regression-alert-updated", handleUpdate);
+    };
   }, [centerId, studentId]);
 
   const handleResolve = async (alertId: string) => {
