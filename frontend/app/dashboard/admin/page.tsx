@@ -1,7 +1,7 @@
 "use client";
 import { downloadCsv } from "@/lib/workflow-state";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useAuth } from "@/lib/auth-context";
 import toast from "react-hot-toast";
 import { collection, query, where, onSnapshot, doc, updateDoc, orderBy, limit } from "firebase/firestore";
@@ -248,6 +248,25 @@ export default function AdminDashboard() {
   const [recentAlerts, setRecentAlerts] = useState<PanicAlertDoc[]>([]);
   const [alertsError, setAlertsError] = useState(false);
 
+  const fetchStaff = useCallback(async () => {
+    if (!profile) return;
+    try {
+      const data = await adminDb.listStaff(profile.centerId || "center-001");
+      const mapped: AdminStaff[] = data.map((s: Record<string, unknown>) => ({
+        id: s.id as string,
+        name: (s.name as string) ?? "",
+        subRole: (s.subRole as string) ?? "",
+        role: (s.role as AdminStaff["role"]) ?? "Teacher",
+        email: (s.email as string) ?? "",
+        studentsAssigned: (s.studentsAssigned as number) ?? 0,
+        status: (s.status as AdminStaff["status"]) ?? "Active"
+      }));
+      setStaff(mapped);
+    } catch (err) {
+      console.error("Failed to fetch admin staff", err);
+    }
+  }, [profile]);
+
   // --- Fetch Students from Firestore ---
   useEffect(() => {
     if (!profile) return;
@@ -275,23 +294,7 @@ export default function AdminDashboard() {
       }
     };
 
-    const fetchStaff = async () => {
-      try {
-        const data = await adminDb.listStaff(profile.centerId || "center-001");
-        const mapped: AdminStaff[] = data.map((s: Record<string, unknown>) => ({
-          id: s.id as string,
-          name: (s.name as string) ?? "",
-          subRole: (s.subRole as string) ?? "",
-          role: (s.role as AdminStaff["role"]) ?? "Teacher",
-          email: (s.email as string) ?? "",
-          studentsAssigned: (s.studentsAssigned as number) ?? 0,
-          status: (s.status as AdminStaff["status"]) ?? "Active"
-        }));
-        setStaff(mapped);
-      } catch (err) {
-        console.error("Failed to fetch admin staff", err);
-      }
-    };
+
 
     const fetchFees = async () => {
       try {
@@ -655,6 +658,7 @@ export default function AdminDashboard() {
           { id: uid, name: approvedUser.name ?? name, email: approvedUser.email ?? "", role: "teacher", status: "approved" }]);
       }
       toast.success(`${name} has been approved successfully!`);
+      fetchStaff();
     } catch (err) {
       console.error(err);
       toast.error("Failed to approve user");
@@ -1338,6 +1342,7 @@ export default function AdminDashboard() {
                               const therapist = therapistAccounts.filter(account => therapistIds.includes(account.id)).map(account => account.name).join(", ") || "None";
                               setStudents(current => current.map(student => student.id === s.id ? { ...student, therapistIds, therapist } : student));
                               toast.success("Therapist assignments saved.");
+                              fetchStaff();
                             } catch { toast.error("Could not save therapist assignments."); }
                           }}>
                             {therapistAccounts.map(therapist => <option key={therapist.id} value={therapist.id}>{therapist.name}</option>)}
@@ -1557,7 +1562,7 @@ export default function AdminDashboard() {
                           display: "flex", alignItems: "center", justifyContent: "center",
                           fontWeight: 700, fontSize: "0.8rem"
                         }}>
-                          {st.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()}
+                          {st.name ? st.name.trim().split(/\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase() : "ST"}
                         </div>
                         <div>
                           <div style={{ fontWeight: 600 }}>{st.name}</div>

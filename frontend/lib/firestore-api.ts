@@ -738,10 +738,106 @@ export const adminDb = {
   },
 
   listStaff: async (centerId: string) => {
-    const snap = await getDocs(
-      query(collection(db, "staff"), where("centerId", "==", centerId))
-    );
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((staff) => (staff as Record<string, unknown>).status !== "Disabled");
+    // 1. Fetch real teacher and therapist accounts from users collection
+    let usersDocs: Array<Record<string, unknown>> = [];
+    try {
+      const usersSnap = await getDocs(
+        query(collection(db, "users"), where("centerId", "==", centerId))
+      );
+      usersDocs = usersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    } catch (e) {
+      console.warn("Could not fetch users for staff list:", e);
+    }
+
+    // 2. Fetch staff collection
+    let staffDocs: Array<Record<string, unknown>> = [];
+    try {
+      const staffSnap = await getDocs(
+        query(collection(db, "staff"), where("centerId", "==", centerId))
+      );
+      staffDocs = staffSnap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((staff) => (staff as Record<string, unknown>).status !== "Disabled");
+    } catch (e) {
+      console.warn("Could not fetch staff collection:", e);
+    }
+
+    // 3. Fetch students to count real assignments
+    let studentDocs: Array<Record<string, unknown>> = [];
+    try {
+      const sSnap = await getDocs(
+        query(collection(db, "students"), where("centerId", "==", centerId))
+      );
+      studentDocs = sSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    } catch {
+      // ignore
+    }
+
+    const calcStudentsAssigned = (uid: string) => {
+      return studentDocs.filter((st) => {
+        if (st.archivedAt) return false;
+        if (st.teacherId === uid) return true;
+        if (Array.isArray(st.therapistIds) && (st.therapistIds as string[]).includes(uid)) return true;
+        return false;
+      }).length;
+    };
+
+    const staffMap = new Map<string, Record<string, unknown>>();
+    staffDocs.forEach((s) => {
+      if (s.email) staffMap.set(String(s.email).toLowerCase(), s);
+      if (s.uid) staffMap.set(String(s.uid), s);
+      staffMap.set(String(s.id), s);
+    });
+
+    const result: Array<Record<string, unknown>> = [];
+    const seenEmails = new Set<string>();
+    const seenNames = new Set<string>();
+
+    // Priority 1: Real user accounts with roles teacher or therapist
+    usersDocs.forEach((u) => {
+      const roleStr = String(u.role || "").toLowerCase();
+      if (roleStr === "teacher" || roleStr === "therapist") {
+        const email = String(u.email || "").toLowerCase();
+        const name = String(u.name || "");
+        if (email) seenEmails.add(email);
+        if (name) seenNames.add(name.toLowerCase());
+
+        const matchedStaff = (email ? staffMap.get(email) : null) || staffMap.get(String(u.id));
+        const defaultSubRole = roleStr === "therapist" ? "Speech & Behavioral Therapist" : "Special Educator";
+        const subRole = (matchedStaff?.subRole as string) || defaultSubRole;
+        const assignedCount = calcStudentsAssigned(String(u.id));
+
+        result.push({
+          id: u.id,
+          name: u.name || (roleStr === "therapist" ? "Therapist" : "Teacher"),
+          subRole,
+          role: roleStr === "therapist" ? "Therapist" : "Teacher",
+          email: u.email || "",
+          studentsAssigned: assignedCount,
+          status: u.status === "disabled" ? "Inactive" : "Active",
+          centerId,
+          uid: u.id,
+        });
+      }
+    });
+
+    // Priority 2: Any manually added or existing staff records not already in users
+    staffDocs.forEach((s) => {
+      const email = String(s.email || "").toLowerCase();
+      const name = String(s.name || "").toLowerCase();
+      if (!seenEmails.has(email) && !seenNames.has(name)) {
+        const assignedCount = s.studentsAssigned !== undefined
+          ? (s.studentsAssigned as number)
+          : calcStudentsAssigned(String(s.id));
+
+        result.push({
+          ...s,
+          studentsAssigned: assignedCount,
+        });
+      }
+    });
+
+    return result;
   },
 
   addStaff: async (data: Record<string, unknown>): Promise<string> => {
@@ -755,21 +851,42 @@ export const adminDb = {
   deleteStaff: async (staffId: string): Promise<boolean> => {
     const reference = doc(db, "staff", staffId);
     const snapshot = await getDoc(reference);
-    if (!snapshot.exists()) throw new Error("Staff member not found.");
-    const staff = snapshot.data();
-    const users = await adminDb.listAllUsers(staff.centerId);
-    const linked = users.filter((user) => user.id === staff.uid ||
-      (staff.email && String((user as Record<string, unknown>).email).toLowerCase() === String(staff.email).toLowerCase()));
-    if (linked.length > 1) throw new Error("Ambiguous staff account; resolve the account link first.");
-    if (linked.length) {
+    if (snapshot.exists()) {
+      const staff = snapshot.data();
+      const users = await adminDb.listAllUsers(staff.centerId);
+      const linked = users.filter((user) => user.id === staff.uid ||
+        (staff.email && String((user as Record<string, unknown>).email).toLowerCase() === String(staff.email).toLowerCase()));
+      if (linked.length > 1) throw new Error("Ambiguous staff account; resolve the account link first.");
+      if (linked.length) {
+        const { api } = await import("./api");
+        const token = await auth.currentUser?.getIdToken();
+        if (!token) throw new Error("Sign in again.");
+        await api.post(`/api/auth/offboard/${encodeURIComponent(linked[0].id)}`, {},
+          { headers: { Authorization: `Bearer ${token}` } });
+      }
+      await updateDoc(reference, { status: "Disabled", disabledAt: serverTimestamp() });
+      return linked.length === 1;
+    }
+
+    // Fallback: If staffId is a user account ID
+    const userRef = doc(db, "users", staffId);
+    const userSnap = await getDoc(userRef);
+    if (userSnap.exists()) {
       const { api } = await import("./api");
       const token = await auth.currentUser?.getIdToken();
-      if (!token) throw new Error("Sign in again.");
-      await api.post(`/api/auth/offboard/${encodeURIComponent(linked[0].id)}`, {},
-        { headers: { Authorization: `Bearer ${token}` } });
+      if (token) {
+        try {
+          await api.post(`/api/auth/offboard/${encodeURIComponent(staffId)}`, {},
+            { headers: { Authorization: `Bearer ${token}` } });
+        } catch {
+          // ignore
+        }
+      }
+      await updateDoc(userRef, { status: "disabled", disabledAt: serverTimestamp() });
+      return true;
     }
-    await updateDoc(reference, { status: "Disabled", disabledAt: serverTimestamp() });
-    return linked.length === 1;
+
+    throw new Error("Staff member not found.");
   },
 
   // --- Fee Management ---
