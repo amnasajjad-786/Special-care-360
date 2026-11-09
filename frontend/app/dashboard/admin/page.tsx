@@ -692,7 +692,7 @@ export default function AdminDashboard() {
         subRole: staffForm.subRole || "Specialist",
         role: staffForm.role,
         email: staffForm.email,
-        studentsAssigned: staffForm.studentsAssigned,
+        studentsAssigned: 0,
         status: staffForm.status,
         centerId: profile?.centerId || "center-001"
       });
@@ -703,7 +703,7 @@ export default function AdminDashboard() {
         subRole: staffForm.subRole || "Specialist",
         role: staffForm.role,
         email: staffForm.email,
-        studentsAssigned: staffForm.studentsAssigned,
+        studentsAssigned: 0,
         status: staffForm.status
       };
 
@@ -718,6 +718,7 @@ export default function AdminDashboard() {
         status: "Active"
       });
       toast.success(`${newMember.name} has been added as a staff member!`);
+      fetchStaff();
     } catch (err) {
       console.error(err);
       toast.error("Failed to add staff member");
@@ -2368,16 +2369,6 @@ export default function AdminDashboard() {
                     required
                     value={staffForm.email}
                     onChange={e => setStaffForm({ ...staffForm, email: e.target.value })}
-                  />
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                  <label style={{ fontSize: "0.75rem", fontWeight: 600 }}>Assigned Students</label>
-                  <input
-                    type="number"
-                    className="glass-input"
-                    placeholder="0"
-                    value={staffForm.studentsAssigned}
-                    onChange={e => setStaffForm({ ...staffForm, studentsAssigned: parseInt(e.target.value) || 0 })}
                   />
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
