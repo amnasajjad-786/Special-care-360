@@ -180,6 +180,8 @@ export default function AdminDashboard() {
   // --- Modals State ---
   const [isAddStudentOpen, setIsAddStudentOpen] = useState(false);
   const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
+  const [staffPassword, setStaffPassword] = useState("");
+  const [showStaffPassword, setShowStaffPassword] = useState(false);
   const [isAddInvoiceOpen, setIsAddInvoiceOpen] = useState(false);
   const [isConfigureFeeOpen, setIsConfigureFeeOpen] = useState(false);
 
@@ -685,20 +687,24 @@ export default function AdminDashboard() {
       toast.error("Please fill in the name and email fields");
       return;
     }
+    if (!staffPassword || staffPassword.length < 8) {
+      toast.error("Password must be at least 8 characters long");
+      return;
+    }
 
     try {
-      const newId = await adminDb.addStaff({
+      toast.loading("Creating staff account...", { id: "create-staff" });
+      const createdStaff = await adminDb.createStaffAccount({
         name: staffForm.name,
-        subRole: staffForm.subRole || "Specialist",
-        role: staffForm.role,
         email: staffForm.email,
-        studentsAssigned: 0,
-        status: staffForm.status,
-        centerId: profile?.centerId || "center-001"
+        password: staffPassword,
+        role: staffForm.role.toLowerCase() as "teacher" | "therapist" | "admin",
+        subRole: staffForm.subRole || "Specialist",
+        centerId: profile?.centerId || "center-001",
       });
 
       const newMember: AdminStaff = {
-        id: newId,
+        id: createdStaff.id,
         name: staffForm.name,
         subRole: staffForm.subRole || "Specialist",
         role: staffForm.role,
@@ -709,19 +715,17 @@ export default function AdminDashboard() {
 
       setStaff([...staff, newMember]);
       setIsAddStaffOpen(false);
-      setStaffForm({
-        name: "",
-        subRole: "",
-        role: "Teacher",
-        email: "",
-        studentsAssigned: 0,
-        status: "Active"
-      });
-      toast.success(`${newMember.name} has been added as a staff member!`);
+      setStaffForm({ name: "", subRole: "", role: "Teacher", email: "", studentsAssigned: 0, status: "Active" });
+      setStaffPassword("");
+      toast.success(`${newMember.name} has been added!`, { id: "create-staff" });
       fetchStaff();
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to add staff member");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to add staff member";
+      if (msg.includes("email-already-in-use")) {
+        toast.error("This email already exists in the system.", { id: "create-staff" });
+      } else {
+        toast.error(msg, { id: "create-staff" });
+      }
     }
   };
 
@@ -2370,6 +2374,23 @@ export default function AdminDashboard() {
                     value={staffForm.email}
                     onChange={e => setStaffForm({ ...staffForm, email: e.target.value })}
                   />
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                  <label style={{ fontSize: "0.75rem", fontWeight: 600 }}>Password</label>
+                  <div style={{ position: "relative" }}>
+                    <input
+                      type={showStaffPassword ? "text" : "password"}
+                      className="glass-input"
+                      placeholder="Min. 8 characters"
+                      required
+                      value={staffPassword}
+                      onChange={e => setStaffPassword(e.target.value)}
+                      style={{ width: "100%", paddingRight: "40px" }}
+                    />
+                    <button type="button" onClick={() => setShowStaffPassword(v => !v)} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)" }}>
+                      {showStaffPassword ? "🙈" : "👁️"}
+                    </button>
+                  </div>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                   <label style={{ fontSize: "0.75rem", fontWeight: 600 }}>Status</label>

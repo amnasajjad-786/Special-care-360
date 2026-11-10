@@ -719,6 +719,43 @@ export const adminDb = {
     }
   },
 
+  createStaffAccount: async ({
+    name, email, password, role, subRole, centerId,
+  }: {
+    name: string; email: string; password: string;
+    role: "teacher" | "therapist" | "admin"; subRole: string; centerId: string;
+  }): Promise<{ id: string; name: string; email: string }> => {
+    const secondaryAppName = `staff-creator-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+    const secondaryApp = initializeApp(firebaseConfig, secondaryAppName);
+    try {
+      const secondaryAuth = getAuth(secondaryApp);
+      const secondaryDb = getFirestore(secondaryApp);
+
+      const cred = await createUserWithEmailAndPassword(secondaryAuth, email.trim(), password);
+      const newUid = cred.user.uid;
+
+      await setDoc(doc(secondaryDb, "users", newUid), {
+        uid: newUid,
+        name: name.trim(),
+        email: email.trim(),
+        role,
+        subRole,
+        centerId,
+        status: "pending",
+        createdAt: serverTimestamp(),
+      });
+
+      await signOut(secondaryAuth);
+
+      // Approve immediately via admin session
+      await updateDoc(doc(db, "users", newUid), { status: "approved" });
+
+      return { id: newUid, name: name.trim(), email: email.trim() };
+    } finally {
+      await deleteApp(secondaryApp).catch(() => {});
+    }
+  },
+
   listAllUsers: async (centerId: string) => {
     const snap = await getDocs(
       query(collection(db, "users"), where("centerId", "==", centerId))
