@@ -1344,7 +1344,7 @@ export default function AdminDashboard() {
                               setStudents(current => current.map(student => student.id === s.id ? { ...student, therapistIds, therapist } : student));
                               toast.success("Therapist assignments saved.");
                               fetchStaff();
-                            } catch { toast.error("Could not save therapist assignments."); }
+                            } catch (err) { console.error("Therapist assign error:", err); toast.error("Could not save therapist assignments."); }
                           }}>
                             {therapistAccounts.map(therapist => <option key={therapist.id} value={therapist.id}>{therapist.name}</option>)}
                           </select>
@@ -1363,7 +1363,7 @@ export default function AdminDashboard() {
                               await studentsDb.update(String(s.id), { teacherId });
                               setStudents(current => current.map(student => student.id === s.id ? { ...student, teacherId } : student));
                               toast.success("Teacher assignment saved.");
-                            } catch { toast.error("Could not save teacher assignment."); }
+                            } catch (err) { console.error("Teacher assign error:", err); toast.error("Could not save teacher assignment."); }
                           }}>
                             <option value="">No teacher assigned</option>
                             {teacherAccounts.map(teacher => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}

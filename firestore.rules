@@ -30,7 +30,7 @@ service cloud.firestore {
     }
     function member(uid, r, cid) {
       let p = get(/databases/$(database)/documents/users/$(uid)).data;
-      return uid is string && p.uid == uid && p.role == r && p.status == 'approved' && p.centerId == cid;
+      return uid is string && p.role == r && p.status == 'approved' && p.centerId == cid;
     }
     function assignments(s) {
       return member(s.parentId, 'parent', s.centerId)
