@@ -90,7 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   // ── Login with Google ──────────────────────────────────────────────────────
-  const loginWithGoogle = async (role: string): Promise<UserProfile> => {
+  const loginWithGoogle = async (): Promise<UserProfile> => {
     const provider = new GoogleAuthProvider();
     const cred = await signInWithPopup(auth, provider);
     const userRef = doc(db, "users", cred.user.uid);
@@ -100,25 +100,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const existingProfile = snap.data() as UserProfile;
       setProfile(existingProfile);
       return existingProfile;
-    } else {
-      const profileData: UserProfile = {
-        uid:      cred.user.uid,
-        name:     cred.user.displayName || cred.user.email?.split("@")[0] || "Google User",
-        email:    cred.user.email || "",
-        role:     role as UserProfile["role"],
-        centerId: DEFAULT_CENTER_ID,
-        // A self-registration can never approve itself, whatever role was picked.
-        // An existing admin approves it; the first admin is provisioned
-        // out-of-band by backend/seed_firestore.py.
-        status:   "pending",
-      };
-      await setDoc(userRef, {
-        ...profileData,
-        createdAt: serverTimestamp(),
-      });
-      setProfile(profileData);
-      return profileData;
     }
+
+    // Accounts are created only by the centre administrator (Staff section for
+    // teachers/therapists, Students section for parents). A Google sign-in with
+    // no matching profile is refused instead of creating a new account.
+    await signOut(auth);
+    setUser(null);
+    setProfile(null);
+    throw new Error(
+      "No Special Care 360 account was found for this Google email. Ask your centre administrator to create your account."
+    );
   };
 
   // ── Register ───────────────────────────────────────────────────────────────
