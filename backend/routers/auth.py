@@ -5,6 +5,7 @@ from middleware.auth_middleware import get_current_user, get_verified_identity, 
 from middleware.student_access import valid_id
 from config import DEFAULT_CENTER_ID
 from datetime import datetime, timezone
+from audit import record_audit
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -126,5 +127,7 @@ def offboard_user(uid: str, current_user: dict = Depends(get_current_user)):
         firebase_auth.update_user(uid, disabled=True)
         firebase_auth.revoke_refresh_tokens(uid)
     except Exception:
+        record_audit(db, current_user, "user.offboard", "user", uid, summary="Disabled account; identity revocation needs retry")
         raise HTTPException(503, "Database access revoked; identity revocation needs retry")
+    record_audit(db, current_user, "user.offboard", "user", uid, summary="Disabled account and revoked sign-in")
     return {"message": "User access revoked"}

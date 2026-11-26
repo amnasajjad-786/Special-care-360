@@ -35,6 +35,9 @@ class Reference:
             raise RuntimeError('Missing document')
         self.set(data, merge=True)
 
+    def delete(self):
+        self.db.data.pop(self.path, None)
+
     def collection(self, name):
         return Collection(self.db, self.path + '/' + name)
 

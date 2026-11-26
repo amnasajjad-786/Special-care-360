@@ -133,7 +133,7 @@ def send_panic_email_alert(alert_data: dict) -> bool:
     <body>
         <div class="container">
             <div class="header">
-                <h1 style="margin: 0; font-size: 24px; letter-spacing: 0.05em;">🚨 PANIC ALERT TRIGGERED 🚨</h1>
+                <h1 style="margin: 0; font-size: 24px; letter-spacing: 0.05em;">PANIC ALERT TRIGGERED</h1>
             </div>
             <div class="content">
                 <p style="font-size: 16px; margin-top: 0; color: #2d3748; line-height: 1.5;">

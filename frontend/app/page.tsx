@@ -4,11 +4,17 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import toast from "react-hot-toast";
+import { sendPasswordResetEmail } from "firebase/auth";
+import { auth } from "@/lib/firebase";
 
-import { Users, GraduationCap, Brain, Shield, Lock, Eye, EyeOff } from "lucide-react";
+import { Users, GraduationCap, Brain, Shield, Lock, Eye, EyeOff, HeartHandshake, Hourglass } from "lucide-react";
+
+// Family accounts register with any email; staff need the centre domain.
+const FAMILY_ROLES = ["parent", "caregiver"];
 
 const ROLES = [
   { id: "parent",    label: "Parent Login",    icon: Users, desc: "View your child's progress" },
+  { id: "caregiver", label: "Caregiver Login", icon: HeartHandshake, desc: "Follow a child you help care for" },
   { id: "teacher",   label: "Teacher Login",   icon: GraduationCap, desc: "Manage daily care & journals" },
   { id: "therapist", label: "Therapist Login",  icon: Brain, desc: "Track behavioral patterns" },
   { id: "admin",     label: "Admin Login",     icon: Shield, desc: "Full center management" },
@@ -26,6 +32,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [resetSending, setResetSending] = useState(false);
 
   // Register form state
   const [regName, setRegName] = useState("");
@@ -56,7 +63,7 @@ export default function LoginPage() {
         }}
       >
         <div className="glass-card animate-fade-in" style={{ padding: "48px", textAlign: "center", maxWidth: "420px" }}>
-          <div style={{ fontSize: "52px", marginBottom: "16px" }}>⏳</div>
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: "16px", color: "var(--primary-dark)" }}><Hourglass size={52} /></div>
           <h2 style={{ color: "var(--primary-dark)", fontWeight: 800, margin: "0 0 10px" }}>
             Awaiting Approval
           </h2>
@@ -82,38 +89,6 @@ export default function LoginPage() {
     setEmail("");
     setPassword("");
     setShowPassword(false);
-  };
-
-  // Check if an email exists in Firebase Auth when modern invalid-credential is returned
-  const checkEmailExists = async (targetEmail: string): Promise<boolean> => {
-    try {
-      const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
-      if (!apiKey) return false;
-      const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: targetEmail.trim(),
-          password: `Tmp_${Date.now()}_!#${Math.random()}`,
-          returnSecureToken: true,
-        }),
-      });
-      const data = await res.json();
-      if (data?.error?.message?.includes("EMAIL_EXISTS")) {
-        return true;
-      }
-      if (data?.idToken) {
-        await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:delete?key=${apiKey}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ idToken: data.idToken }),
-        }).catch(() => {});
-        return false;
-      }
-      return false;
-    } catch {
-      return false;
-    }
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -143,17 +118,13 @@ export default function LoginPage() {
       router.push(`/dashboard/${resolvedProfile.role}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Login failed";
-      if (msg.includes("wrong-password")) {
-        toast.error("Wrong password");
-      } else if (msg.includes("user-not-found") || msg.includes("invalid-email")) {
-        toast.error("Wrong email");
-      } else if (msg.includes("invalid-credential")) {
-        const exists = await checkEmailExists(email);
-        if (exists) {
-          toast.error("Wrong password");
-        } else {
-          toast.error("Wrong email");
-        }
+      // One message for every credential failure, so the login form cannot be
+      // used to discover which emails are registered. (It used to probe by
+      // creating and deleting a throwaway account.)
+      if (msg.includes("invalid-email")) {
+        toast.error("That email address is not valid.");
+      } else if (msg.includes("wrong-password") || msg.includes("user-not-found") || msg.includes("invalid-credential")) {
+        toast.error("Incorrect email or password.");
       } else if (msg.includes("too-many-requests")) {
         toast.error("Too many attempts. Please try again later.");
       } else {
@@ -162,6 +133,34 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handlePasswordReset = async () => {
+    const target = email.trim();
+    if (!target) {
+      toast.error("Enter your email above, then select Forgot password.");
+      return;
+    }
+    setResetSending(true);
+    try {
+      await sendPasswordResetEmail(auth, target);
+    } catch (err: unknown) {
+      const code = (err as { code?: string }).code ?? "";
+      if (code === "auth/invalid-email") {
+        toast.error("That email address is not valid.");
+        return;
+      }
+      if (code === "auth/too-many-requests") {
+        toast.error("Too many attempts. Please try again later.");
+        return;
+      }
+      // Any other outcome, including an unknown account, gets the neutral
+      // message below so the form cannot be used to discover who is registered.
+      if (code !== "auth/user-not-found") console.warn("[auth] password reset failed:", err);
+    } finally {
+      setResetSending(false);
+    }
+    toast.success("If an account exists for that email, a password reset link has been sent.");
   };
 
   const handleGoogleSignIn = async () => {
@@ -189,7 +188,7 @@ export default function LoginPage() {
   const handleGoogleRegister = async () => {
     // Staff roles are restricted to the organisation domain on the Google path
     // too — otherwise the domain check on the manual form is trivially bypassed.
-    if (regRole !== "parent") {
+    if (!FAMILY_ROLES.includes(regRole)) {
       toast.error("Staff accounts must be registered with a @specialcare360.com email using the form below.");
       return;
     }
@@ -228,11 +227,11 @@ export default function LoginPage() {
     // Validation checks
     const emailLower = regEmail.trim().toLowerCase();
     // Staff must use an organisation address; parents sign up with a personal one.
-    if (regRole !== "parent" && !emailLower.endsWith("@specialcare360.com")) {
+    if (!FAMILY_ROLES.includes(regRole) && !emailLower.endsWith("@specialcare360.com")) {
       toast.error("Staff registration requires a @specialcare360.com email address");
       return;
     }
-    if (regRole === "parent" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailLower)) {
+    if (FAMILY_ROLES.includes(regRole) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailLower)) {
       toast.error("Please enter a valid email address");
       return;
     }
@@ -318,7 +317,7 @@ export default function LoginPage() {
               Special Care 360
             </h1>
             <p style={{ margin: "6px 0 0", fontSize: "0.9rem", color: "var(--text-secondary)" }}>
-              HIPAA-Compliant Special Education Platform
+              Care Coordination for Special Education
             </p>
           </div>
 
@@ -436,6 +435,16 @@ export default function LoginPage() {
                         }}
                       >
                         {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                      </button>
+                    </div>
+                    <div style={{ textAlign: "right", marginTop: 6 }}>
+                      <button
+                        type="button"
+                        onClick={handlePasswordReset}
+                        disabled={resetSending}
+                        style={{ border: "none", background: "transparent", color: "var(--accent-teal)", fontSize: "0.8rem", fontWeight: 600, cursor: "pointer", padding: 0 }}
+                      >
+                        {resetSending ? "Sending reset link…" : "Forgot password?"}
                       </button>
                     </div>
                   </div>
@@ -560,6 +569,7 @@ export default function LoginPage() {
                   <option value="teacher">Teacher</option>
                   <option value="therapist">Therapist</option>
                   <option value="parent">Parent</option>
+                  <option value="caregiver">Caregiver (family / home carer)</option>
                 </select>
               </div>
 
@@ -635,7 +645,7 @@ export default function LoginPage() {
 
         {/* Footer */}
         <p style={{ textAlign: "center", marginTop: "16px", fontSize: "0.78rem", color: "rgba(255,255,255,0.65)" }}>
-          © 2026 Special Care 360 · HIPAA Compliant
+          © 2026 Special Care 360 · Privacy-first care records
         </p>
       </div>
     </main>

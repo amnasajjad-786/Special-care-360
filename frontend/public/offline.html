@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#3d4f6b" />
+  <title>Offline — Special Care 360</title>
+  <style>
+    body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif; color: #2d3748;
+      background: linear-gradient(135deg, #e8eef7 0%, #f5f0fa 100%); padding: 24px; box-sizing: border-box; }
+    .card { max-width: 420px; text-align: center; background: rgba(255,255,255,0.85); border-radius: 20px;
+      padding: 36px 28px; box-shadow: 0 8px 32px rgba(31,38,135,0.12); }
+    img { width: 72px; height: 72px; }
+    h1 { font-size: 1.3rem; margin: 18px 0 8px; color: #3d4f6b; }
+    p { line-height: 1.55; color: #4a5568; margin: 0 0 12px; }
+    button { margin-top: 10px; border: 0; border-radius: 12px; padding: 12px 22px; font-size: 1rem;
+      font-weight: 600; color: #fff; background: #3d4f6b; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <img src="/icon-192.png" alt="Special Care 360" />
+    <h1>You are offline</h1>
+    <p>Special Care 360 needs a connection to show care records. Nothing is stored on this device, so the
+      latest information appears as soon as you are back online.</p>
+    <p>In an emergency, contact the centre by phone.</p>
+    <button type="button" onclick="location.reload()">Try again</button>
+  </div>
+</body>
+</html>

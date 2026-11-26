@@ -5,7 +5,7 @@ A platform for special education centres built with **Next.js 16**, **FastAPI** 
 ## Modules
 | # | Module | Description |
 |---|--------|-------------|
-| 1 | **Auth** | Role-based login (Admin / Teacher / Therapist / Parent) with Firebase Auth. Every self-registration requires admin approval. |
+| 1 | **Auth** | Role-based login (Admin / Teacher / Therapist / Parent / Caregiver) with Firebase Auth, password reset by email. Every self-registration requires admin approval. |
 | 2 | **Student Profiles** | Searchable student list with tabbed profiles — Overview, Medical, Care Plan, Emergency |
 | 3 | **Daily Care Journal** | Teacher meal/mood/hygiene journaling + parent read-only Daily Digest |
 | 4 | **Medication Safety** | Scheduled dose administration records and missed-dose alerts for parents and center admins |
@@ -14,6 +14,12 @@ A platform for special education centres built with **Next.js 16**, **FastAPI** 
 | 7 | **Fees & Billing** | Admin invoicing and payment recording, parent-facing billing view |
 | 8 | **Teletherapy** | Scheduled remote sessions in an embedded Jitsi room, with therapist session summaries |
 | 9 | **Home Plan Bridge** | Therapist-assigned home activities, guardian daily logging, adherence tracking and per-activity discussion threads |
+| 10 | **Progress Tracking** | Measured mastery % per goal, per-goal progress charts against the 80% mastery line, early regression alerts |
+| 11 | **Care-Team Messaging** | One live, append-only thread per child for parent, caregivers, teacher, therapists and admins |
+| 12 | **Documents & Reports** | Private document sharing (PDF, images, Word) and printable progress reports |
+| 13 | **Appointment Reminders** | In-app reminders 24 h and 1 h before teletherapy and therapy sessions |
+| 14 | **Audit Log** | Append-only record of who changed or viewed which child's record, admin-only, CSV export |
+| 15 | **Mobile (PWA)** | Installable on Android and iOS home screens; phone-friendly layout |
 
 ## Tech Stack
 - **Frontend:** Next.js 16 (App Router) + React 19 + TypeScript
@@ -103,7 +109,11 @@ lands in the pending queue, and the security rules stop a user changing their ow
 The first admin comes from `seed_firestore.py`. After that, admins approve new staff and parents
 from the Admin Panel.
 
-Staff must register with an `@specialcare360.com` address; parents may use any email.
+Staff must register with an `@specialcare360.com` address; parents and caregivers may use any email.
+
+A **caregiver** (a relative or home carer) registers with the Caregiver role. After approval, an
+admin links them to a child in Admin Panel -> Students -> Caregivers (up to three per child). They get
+a read-only family view, messages, documents and the same notifications as the parent.
 
 ## Notes
 
@@ -139,16 +149,19 @@ point at a self-hosted Jitsi instead if you have one.
 
 ## Private Home Plan videos
 
-Use a **private** Supabase Storage bucket named `progress-videos`. Set its
-allowed MIME type to `video/mp4` and its max file size to 12 MiB. Leave
-client access policies unset: the backend signs playback links only after
-checking the Firebase user's current student and activity access.
+Videos and documents live in **Firebase Storage** (project's default bucket, or
+`FIREBASE_STORAGE_BUCKET`). One-time setup:
 
-Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in the backend environment,
-install FFmpeg and ffprobe, then restart the backend. Use a dedicated Supabase
-project for this app. The service role key must never appear in the frontend
-or Git. No Firebase Storage subscription is needed. Clip metadata stays in
-Firestore; only the compressed MP4 goes to Supabase.
+1. Move the Firebase project to the **Blaze** plan and enable Storage in the console.
+2. Deploy the deny-all rules: `firebase deploy --only storage`. `storage.rules` blocks
+   every browser read and write; only the backend touches the bucket, through the
+   service account (`backend/serviceAccountKey.json`), after re-checking the caller's
+   access to the child. Downloads and playback use five-minute signed links.
+3. Install FFmpeg and ffprobe for video compression, then restart the backend.
+
+Clips are stored at `progress-videos/<clipId>.mp4` (compressed to at most 12 MiB);
+metadata stays in Firestore. Without the service account the API runs in mock mode and
+file endpoints return 503.
 
 In **Home Plan Bridge**, open an activity's **Progress and demonstration
 videos** section. The linked parent can upload a practice clip, and assigned
@@ -171,14 +184,60 @@ data handling before enabling video or AI for real students.
 Release check with synthetic accounts: upload and replay as the linked
 parent and assigned therapist; confirm an unrelated account is denied.
 
-## Parent fee payments
-
-Parent payments use manual bank transfer. Configure `NEXT_PUBLIC_BANK_NAME`,
-`NEXT_PUBLIC_BANK_ACCOUNT_TITLE`, and `NEXT_PUBLIC_BANK_ACCOUNT_NUMBER` in
-`frontend/.env.local` to show the centre's payment instructions. The parent
-submits the transaction reference; this only creates a pending submission.
-An administrator must verify the transfer and record the payment in the fee
-ledger before the invoice becomes paid. Never put secret Supabase keys or
-Firebase admin credentials in these public frontend variables.
 Then verify feedback, playback expiration, deletion and optional AI failure
 recovery against the configured providers.
+
+## Parent fee payments
+
+**Online (Safepay).** Set `SAFEPAY_API_KEY`, `SAFEPAY_SECRET_KEY`,
+`SAFEPAY_WEBHOOK_SECRET`, `SAFEPAY_ENVIRONMENT` (`sandbox` or `production`) and
+`FRONTEND_URL` in `backend/.env`, and register the webhook
+`<backend-url>/api/payments/safepay/webhook` in the Safepay dashboard. Until the keys are
+set, the "Pay online" button is hidden. The parent is sent to Safepay's hosted checkout for
+the exact invoice amount; card details never reach this app. On return (and through the
+webhook) the backend asks Safepay for the result, checks the amount, records the payment
+in the ledger, marks the invoice paid and notifies admins. A payment that arrives for an
+invoice already settled by bank transfer is not recorded twice; admins are notified to
+refund it.
+
+**Bank transfer.** Configure `NEXT_PUBLIC_BANK_NAME`, `NEXT_PUBLIC_BANK_ACCOUNT_TITLE`
+and `NEXT_PUBLIC_BANK_ACCOUNT_NUMBER` in `frontend/.env.local`. The parent submits the
+transaction reference; an administrator verifies it and records the payment. Never put
+secret keys or Firebase admin credentials in these public frontend variables.
+
+## Student documents
+
+Stored in Firebase Storage under `student-documents/<studentId>/<documentId>` (setup
+above). Allowed types: PDF, PNG, JPEG, DOCX; 10 MiB limit. The backend checks the file's
+real type from its content, stores it, records metadata in Firestore `studentDocuments`,
+and signs five-minute download links only after re-checking the caller's access to the
+child. Until Storage is enabled, uploads return a "not configured" message.
+
+## Mobile app (PWA)
+
+The web app is installable: Chrome/Edge/Android show an **Install** prompt, iPhone/iPad
+users get "Share, then Add to Home Screen" steps. `public/sw.js` (registered in production
+builds only) caches build assets and an offline page. It never caches care data,
+API responses or file links, so a shared or lost phone holds no copy of a child's records.
+When a new version is deployed, users see an **Update** toast.
+
+Progress reports need no setup: they are compiled in the browser from records
+the viewer may already read and printed or saved as PDF.
+
+## Appointment reminders
+
+The backend scans every `APPOINTMENT_REMINDER_INTERVAL_SECONDS` (default 300)
+for scheduled teletherapy and therapy-timeline sessions and sends in-app
+reminders to the parent, linked caregivers and the therapist 24 hours and 1 hour
+before. Each reminder is sent once; the server-only `appointmentReminders`
+collection records what has been sent. Requires the real service account and
+a continuously running backend.
+
+## Documentation
+
+- `docs/SRS.md` — software requirements specification with implementation status
+- `docs/USE_CASES.md` — use-case specifications
+- `docs/user-guides/` — guides for parents and caregivers, teachers and therapists, and admins
+- `docs/UAT_PLAN.md` — user acceptance test plan and sign-off sheet
+- `docs/DEPLOYMENT.md` — production deployment, monitoring and backup runbook
+- `docs/SECURITY_TESTING.md` — security test results

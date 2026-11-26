@@ -4,7 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { panicDb, studentsDb, scopeOf } from "@/lib/firestore-api";
 import toast from "react-hot-toast";
-import { AlertOctagon, AlertTriangle } from "lucide-react";
+import { AlertOctagon, AlertTriangle, Check } from "lucide-react";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
@@ -157,7 +157,7 @@ export default function PanicPage() {
           <input
             type="text"
             className="glass-input"
-            placeholder="🔍 Search student by name..."
+            placeholder="Search student by name..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             style={{ marginBottom: "16px" }}
@@ -181,7 +181,7 @@ export default function PanicPage() {
                     {s.name.charAt(0)}
                   </div>
                   <span style={{ fontWeight: 600, color: studentId === s.id ? "var(--danger)" : "var(--text-primary)" }}>{s.name}</span>
-                  {studentId === s.id && <span style={{ marginLeft: "auto", color: "var(--danger)", fontSize: "1.2rem" }}>✓</span>}
+                  {studentId === s.id && <span style={{ marginLeft: "auto", color: "var(--danger)", fontSize: "1.2rem", display: "inline-flex" }}><Check size={18} /></span>}
                 </button>
               ))
             )}

@@ -14,6 +14,7 @@
  * rules, so these two must stay in step.
  */
 
+import { instrument } from "./audit";
 import {
   collection,
   doc,
@@ -526,3 +527,17 @@ export function computeAdherence(
 
   return { completed, expected, percent, streak, recent };
 }
+
+// Audit trail (WBS 2.4.3): see lib/audit.ts.
+instrument(teletherapyDb, {
+  schedule: ([input], id) => ({ action: "teletherapy.schedule", targetType: "teletherapySession", targetId: id, studentId: input.studentId, summary: `Scheduled "${input.title}" for ${input.scheduledAt}` }),
+  complete: ([id]) => ({ action: "teletherapy.complete", targetType: "teletherapySession", targetId: id, summary: "Completed session with notes" }),
+  cancel: ([id]) => ({ action: "teletherapy.cancel", targetType: "teletherapySession", targetId: id, summary: "Cancelled session" }),
+});
+
+instrument(homePlanDb, {
+  assign: ([input], id) => ({ action: "homeplan.assign", targetType: "homePlanActivity", targetId: id, studentId: input.studentId, summary: `Assigned home activity "${input.title}"` }),
+  setActive: ([id, active]) => ({ action: "homeplan.active", targetType: "homePlanActivity", targetId: id, summary: active ? "Reactivated activity" : "Paused activity" }),
+  deleteActivity: ([id]) => ({ action: "homeplan.delete", targetType: "homePlanActivity", targetId: id, summary: "Deleted home activity" }),
+  logDay: ([input]) => ({ action: "homeplan.log", targetType: "homePlanLog", targetId: `${input.activity.id}_${input.date}`, studentId: input.activity.studentId, summary: `Logged ${input.completed ? "completed" : "not completed"} for ${input.date}` }),
+});

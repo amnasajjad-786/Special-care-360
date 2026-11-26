@@ -42,6 +42,7 @@ import { auth, db } from "./firebase";
 import { firebaseConfig } from "./firebase-config";
 import { v4 as uuidv4 } from "uuid";
 import { confirmWithin } from "./workflow-state";
+import { instrument } from "./audit";
 
 export const DEFAULT_CENTER_ID = "center-001";
 
@@ -71,6 +72,11 @@ export interface AccessScope {
   uid: string;
   centerId: string;
   name?: string;
+}
+
+/** Parents and the caregivers they share a child with: read-mostly family views. */
+export function isGuardian(role: string | undefined | null): boolean {
+  return role === "parent" || role === "caregiver";
 }
 
 export function scopeOf(
@@ -137,15 +143,21 @@ async function notify(
   try {
     const student = typeof payload.studentId === "string" ? await studentsDb.get(payload.studentId) : null;
     if (!student) return;
-    await addDoc(collection(db, "notifications"), {
-      recipientId,
-      senderId: auth.currentUser?.uid ?? null,
-      read: false,
-      createdAt: serverTimestamp(),
-      ...payload,
-      centerId: student.centerId,
-      parentId: student.parentId,
-    });
+    // Caregivers the admin linked to the child hear what the guardian hears.
+    const recipients = recipientId === student.parentId
+      ? [recipientId, ...((student.caregiverIds as string[] | undefined) ?? [])]
+      : [recipientId];
+    for (const uid of new Set(recipients)) {
+      await addDoc(collection(db, "notifications"), {
+        recipientId: uid,
+        senderId: auth.currentUser?.uid ?? null,
+        read: false,
+        createdAt: serverTimestamp(),
+        ...payload,
+        centerId: student.centerId,
+        parentId: student.parentId,
+      });
+    }
   } catch (err) {
     console.warn("[notifications] delivery failed for", recipientId, err);
   }
@@ -173,6 +185,7 @@ export const studentsDb = {
     if (scope.role === "parent") constraints.push(where("centerId", "==", scope.centerId));
     if (scope.role === "teacher") constraints.push(where("teacherId", "==", scope.uid));
     if (scope.role === "therapist") constraints.push(where("therapistIds", "array-contains", scope.uid));
+    if (scope.role === "caregiver") constraints.push(where("caregiverIds", "array-contains", scope.uid));
     const snap = await getDocs(query(collection(db, "students"), ...constraints));
 
     // Resolve staff UIDs to names for display. Only admins may read the full
@@ -436,13 +449,48 @@ export const abcDb = {
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   },
 
-  getPatterns: async (studentId: string, scope: AccessScope) => {
-    const incidents = await abcDb.listIncidents(studentId, scope, 100);
+  getPatterns: async (studentId: string, scope: AccessScope) =>
+    computePatterns(await abcDb.listIncidents(studentId, scope, 100)),
 
+  getHeatmap: async (studentId: string, scope: AccessScope) =>
+    computeHeatmap(await abcDb.listIncidents(studentId, scope, 200)),
+};
+
+/** Recorded sensory context for an incident (WBS 3.3.3). */
+export const SENSORY_FACTORS = [
+  "Auditory (noise)",
+  "Visual (light / clutter)",
+  "Tactile (touch / texture)",
+  "Smell",
+  "Taste / food",
+  "Movement / balance",
+  "Body pressure",
+  "Temperature",
+  "Crowding / proximity",
+] as const;
+
+export const TIME_OF_DAY = [
+  { id: "morning", label: "Morning (6am-12pm)", from: 6, to: 12 },
+  { id: "afternoon", label: "Afternoon (12-5pm)", from: 12, to: 17 },
+  { id: "evening", label: "Evening (5-9pm)", from: 17, to: 21 },
+  { id: "night", label: "Night (9pm-6am)", from: 21, to: 6 },
+] as const;
+
+export function timeOfDayOf(timestamp: unknown): string | null {
+  const parsed = new Date(String(timestamp ?? ""));
+  if (Number.isNaN(parsed.getTime())) return null;
+  const hour = parsed.getHours();
+  const slot = TIME_OF_DAY.find((t) => (t.from < t.to ? hour >= t.from && hour < t.to : hour >= t.from || hour < t.to));
+  return slot?.id ?? null;
+}
+
+/** Pure pattern summary over an already-scoped (and optionally filtered) list. */
+export function computePatterns(incidents: Record<string, unknown>[]) {
     if (!incidents.length) {
       return {
         topAntecedents: [], topBehaviors: [], topConsequences: [],
         peakHours: [], avgSeverity: 0, totalIncidents: 0, insights: [],
+        byLocation: [], bySensoryFactor: [], byTimeOfDay: [],
       };
     }
 
@@ -452,7 +500,15 @@ export const abcDb = {
     const hours: number[] = [];
     const severities: number[] = [];
 
-    for (const inc of incidents as Record<string, unknown>[]) {
+    const locations: string[] = [];
+    const sensory: string[] = [];
+    const periods: string[] = [];
+
+    for (const inc of incidents) {
+      if (typeof inc.location === "string" && inc.location) locations.push(inc.location);
+      sensory.push(...((inc.sensoryFactors as string[] | undefined) ?? []));
+      const period = timeOfDayOf(inc.timestamp);
+      if (period) periods.push(TIME_OF_DAY.find((t) => t.id === period)!.label);
       antecedentTags.push(...((inc.antecedent as AbcTagged)?.tags ?? []));
       behaviorTags.push(...((inc.behavior as AbcTagged)?.tags ?? []));
       consequenceTags.push(...((inc.consequence as AbcTagged)?.tags ?? []));
@@ -498,12 +554,19 @@ export const abcDb = {
     if (avgSeverity >= 3.5) insights.push(`Average severity is high (${avgSeverity}/5) — consider a behaviour intervention plan review`);
     else if (avgSeverity > 0 && avgSeverity < 2) insights.push(`Average severity is low (${avgSeverity}/5) — student is showing improvement`);
 
-    return { topAntecedents, topBehaviors, topConsequences, peakHours, avgSeverity, totalIncidents: incidents.length, insights };
-  },
+    const byLocation = count(locations);
+    const bySensoryFactor = count(sensory);
+    const byTimeOfDay = count(periods);
+    if (byLocation[0]) insights.push(`Most incidents recorded in: ${byLocation[0].tag} (${byLocation[0].count})`);
+    if (bySensoryFactor[0]) insights.push(`Most recorded sensory factor: ${bySensoryFactor[0].tag} (${bySensoryFactor[0].count} incidents)`);
 
-  getHeatmap: async (studentId: string, scope: AccessScope) => {
-    const incidents = await abcDb.listIncidents(studentId, scope, 200);
+    return {
+      topAntecedents, topBehaviors, topConsequences, peakHours, avgSeverity,
+      totalIncidents: incidents.length, insights, byLocation, bySensoryFactor, byTimeOfDay,
+    };
+}
 
+export function computeHeatmap(incidents: Record<string, unknown>[]) {
     const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
     const grid: Record<string, Record<number, number>> = {};
     days.forEach((day) => { grid[day] = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }; });
@@ -523,8 +586,7 @@ export const abcDb = {
       }
     }
     return result;
-  },
-};
+}
 
 // ─── Panic Alerts ─────────────────────────────────────────────────────────────
 
@@ -1138,7 +1200,7 @@ export const iepDb = {
       if (student?.parentId) {
         await notify(student.parentId, {
           type: "iep_finalized",
-          title: "New IEP Finalized ðŸŽ¯",
+          title: "New IEP Finalized",
           message: `A new Individualized Education Program (IEP) has been finalized for ${student.name}.`,
           studentId,
         });
@@ -1500,6 +1562,12 @@ export interface MilestoneObservationDoc {
   milestoneId?: string;
   milestoneDescription?: string;
   observedStatus: MilestoneObservationStatus;
+  /** Measured mastery (0-100). Absent when only a category was recorded. */
+  masteryPercent?: number;
+  /** Score the server used: the measured percent, or the category's level. */
+  progressScore?: number;
+  /** Whether the goal was mastered (regression review) or still active. */
+  goalStage?: "mastered" | "active";
   notes: string;
   observedBy: string;       // teacher's uid
   observedByName: string;   // teacher's display name
@@ -1527,7 +1595,7 @@ export const milestoneObservationsDb = {
     if (!observation.centerId || !auth.currentUser) throw new Error("Profile not loaded. Please sign in and wait for your profile.");
     const { api } = await import("./api");
     const token = await auth.currentUser.getIdToken();
-    const key = JSON.stringify([auth.currentUser.uid, observation.studentId, observation.goalId, observation.observedStatus, observation.notes]);
+    const key = JSON.stringify([auth.currentUser.uid, observation.studentId, observation.goalId, observation.observedStatus, observation.notes, observation.masteryPercent ?? null]);
     const requestId = pendingObservations.get(key) ?? uuidv4();
     pendingObservations.set(key, requestId);
     const response = await api.post("/api/regression/observations", {
@@ -1558,6 +1626,62 @@ export const milestoneObservationsDb = {
       where("studentId", "==", studentId), where("centerId", "==", centerId),
       );
     const snap = await getDocs(q);
-    return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<MilestoneObservationDoc, "id">) })).sort((a,b) => b.observedAt.localeCompare(a.observedAt)).slice(0,50);
+    return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<MilestoneObservationDoc, "id">) })).sort((a,b) => b.observedAt.localeCompare(a.observedAt)).slice(0,200);
   },
 };
+
+// ─── Audit trail (WBS 2.4.3) ──────────────────────────────────────────────────
+// Each successful write below appends an entry to `auditLogs`. See lib/audit.ts.
+
+type Rec = Record<string, unknown>;
+const str = (value: unknown) => (typeof value === "string" ? value : "");
+
+instrument(studentsDb, {
+  create: ([data], id) => ({ action: "student.create", targetType: "student", targetId: id, studentId: id, summary: `Enrolled student ${str((data as Rec).name)}` }),
+  update: ([id, data]) => ({ action: "student.update", targetType: "student", targetId: id, studentId: id, summary: `Updated student fields: ${Object.keys(data as Rec).join(", ")}` }),
+  delete: ([id]) => ({ action: "student.archive", targetType: "student", targetId: id, studentId: id, summary: "Archived student record" }),
+  updateMedical: ([id, data]) => ({ action: "medical.update", targetType: "medicalProfile", targetId: id, studentId: id, summary: `Updated medical profile: ${Object.keys(data as Rec).join(", ")}` }),
+  updateCarePlan: ([id, data]) => ({ action: "careplan.update", targetType: "carePlan", targetId: id, studentId: id, summary: `Updated care plan: ${Object.keys(data as Rec).filter((k) => k !== "expectedVersion").join(", ")}` }),
+});
+
+instrument(dailyCareDb, {
+  submit: ([data], docId) => ({ action: "dailycare.submit", targetType: "dailyCareJournal", targetId: docId, studentId: str((data as Rec).studentId), summary: `Submitted daily care journal for ${str((data as Rec).date)}` }),
+  delete: ([studentId, date]) => ({ action: "dailycare.delete", targetType: "dailyCareJournal", targetId: `${date}_${studentId}`, studentId, summary: `Deleted daily care journal for ${date}` }),
+});
+
+instrument(abcDb, {
+  logIncident: ([data], id) => ({ action: "abc.log", targetType: "abcIncident", targetId: id, studentId: str((data as Rec).studentId), summary: `Logged behaviour incident (severity ${String((data as Rec).severity ?? "?")})` }),
+});
+
+instrument(panicDb, {
+  sendAlert: ([data], result) => ({ action: "panic.raise", targetType: "panicAlert", targetId: result.id, studentId: str((data as Rec).studentId), summary: `Raised ${str((data as Rec).emergencyType) || "emergency"} alert (${result.recorded ? "recorded" : "unconfirmed"})` }),
+  resolveAlert: ([id]) => ({ action: "panic.resolve", targetType: "panicAlert", targetId: id, summary: "Resolved emergency alert" }),
+});
+
+instrument(adminDb, {
+  approveUser: ([uid]) => ({ action: "user.approve", targetType: "user", targetId: uid, summary: "Approved account" }),
+  createParentAccount: ([input]) => ({ action: "user.create.parent", targetType: "user", summary: `Created parent account for ${str((input as Rec).email)}` }),
+  createStaffAccount: ([input]) => ({ action: "user.create.staff", targetType: "user", summary: `Created ${str((input as Rec).role)} account for ${str((input as Rec).email)}` }),
+  addStaff: ([data], id) => ({ action: "staff.add", targetType: "staff", targetId: id, summary: `Added staff directory entry ${str((data as Rec).name)}` }),
+  deleteStaff: ([id]) => ({ action: "staff.offboard", targetType: "staff", targetId: id, summary: "Offboarded staff member" }),
+  saveFeeConfig: ([centerId]) => ({ action: "fees.config", targetType: "center", targetId: centerId, summary: "Changed fee configuration" }),
+  addInvoice: ([data], id) => ({ action: "invoice.create", targetType: "invoice", targetId: id, studentId: str((data as Rec).studentId) || null, summary: `Issued invoice ${String((data as Rec).amount ?? "")}`.trim() }),
+  updateInvoiceStatus: ([id, status]) => ({ action: "invoice.status", targetType: "invoice", targetId: id, summary: `Set invoice status to ${status}` }),
+  recordInvoicePayment: ([id, payment]) => ({ action: "invoice.pay", targetType: "invoice", targetId: id, summary: `Recorded payment by ${str((payment as Rec).method)}` }),
+  addPayment: ([data], id) => ({ action: "payment.create", targetType: "payment", targetId: id, studentId: str((data as Rec).studentId) || null, summary: `Recorded payment ${String((data as Rec).amount ?? "")}`.trim() }),
+});
+
+instrument(billingDb, {
+  submitBankTransfer: ([invoiceId]) => ({ action: "invoice.transfer.submit", targetType: "invoice", targetId: invoiceId, summary: "Submitted bank transfer reference" }),
+});
+
+instrument(iepDb, {
+  saveDraft: ([studentId], id) => ({ action: "iep.draft", targetType: "iep", targetId: id, studentId, summary: "Saved IEP draft" }),
+  finalize: ([studentId], id) => ({ action: "iep.finalize", targetType: "iep", targetId: id, studentId, summary: "Finalized IEP version" }),
+  markGoalAchieved: ([studentId, goalId]) => ({ action: "iep.goal.achieved", targetType: "goal", targetId: goalId, studentId, summary: "Marked IEP goal achieved" }),
+  acceptPendingAiGoal: ([studentId, goal]) => ({ action: "iep.goal.accept_ai", targetType: "goal", targetId: str((goal as Rec).id), studentId, summary: `Accepted AI-suggested goal ${str((goal as Rec).title)}` }),
+});
+
+instrument(regressionDb, {
+  resolve: ([alertId]) => ({ action: "regression.resolve", targetType: "regressionAlert", targetId: alertId, summary: "Resolved regression alert" }),
+});

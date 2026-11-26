@@ -14,7 +14,8 @@ service cloud.firestore {
         (
           (role('parent') && s.parentId == request.auth.uid) ||
           (role('teacher') && s.teacherId == request.auth.uid) ||
-          (role('therapist') && request.auth.uid in s.therapistIds)));
+          (role('therapist') && request.auth.uid in s.therapistIds) ||
+          (role('caregiver') && 'caregiverIds' in s && request.auth.uid in s.caregiverIds)));
     }
     function child(id) { return id is string && visible(student(id)); }
     function activeChild(id) { return child(id) && !('archivedAt' in student(id)); }
@@ -41,6 +42,16 @@ service cloud.firestore {
         && (s.therapistIds.size() < 3 || member(s.therapistIds[2], 'therapist', s.centerId))
         && (s.therapistIds.size() < 4 || member(s.therapistIds[3], 'therapist', s.centerId));
     }
+    // Caregivers: up to three approved centre members with the caregiver role,
+    // added by an admin. A caregiver sees the child read-only and may message.
+    function caregivers(s) {
+      let c = 'caregiverIds' in s ? s.caregiverIds : [];
+      return c is list && c.size() <= 3
+        && (c.size() < 1 || member(c[0], 'caregiver', s.centerId))
+        && (c.size() < 2 || member(c[1], 'caregiver', s.centerId))
+        && (c.size() < 3 || member(c[2], 'caregiver', s.centerId));
+    }
+    function guardian() { return role('parent') || role('caregiver'); }
     function activityLink(data) {
       let a = get(/databases/$(database)/documents/homePlanActivities/$(data.activityId)).data;
       return linked(data) && a.studentId == data.studentId && a.centerId == data.centerId && a.parentId == data.parentId;
@@ -50,7 +61,7 @@ service cloud.firestore {
       allow read: if authenticated() && (request.auth.uid == uid || (admin() && center(resource.data)));
       allow create: if authenticated() && request.auth.uid == uid
         && request.resource.data.uid == uid && request.resource.data.status == 'pending'
-        && request.resource.data.role in ['admin','teacher','therapist','parent']
+        && request.resource.data.role in ['admin','teacher','therapist','parent','caregiver']
         && exists(/databases/$(database)/documents/centers/$(request.resource.data.centerId));
       allow update: if request.resource.data.uid == uid && (
         (admin() && center(resource.data) && center(request.resource.data)) ||
@@ -66,11 +77,12 @@ service cloud.firestore {
     match /students/{id} {
       allow read: if visible(resource.data);
       // getAfter makes enrollment atomic: the main document cannot exist alone.
-      allow create: if admin() && center(request.resource.data) && assignments(request.resource.data)
+      allow create: if admin() && center(request.resource.data) && assignments(request.resource.data) && caregivers(request.resource.data)
         && getAfter(/databases/$(database)/documents/students/$(id)/medicalProfile/main).data.allergies is list
         && getAfter(/databases/$(database)/documents/students/$(id)/carePlan/main).data.goals == [];
       allow update: if admin() && center(resource.data) && center(request.resource.data)
-        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['parentId','teacherId','therapistIds']) || assignments(request.resource.data));
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['parentId','teacherId','therapistIds']) || assignments(request.resource.data))
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['caregiverIds']) || caregivers(request.resource.data));
       // Removal is an atomic archive. No client may cascade destructive deletes.
       allow delete: if false;
       match /medicalProfile/{docId} {
@@ -136,12 +148,15 @@ service cloud.firestore {
     }
     match /notifications/{id} {
       allow read: if approved() && resource.data.recipientId == request.auth.uid;
-      allow create: if staff() && linked(request.resource.data)
+      // Guardians may only raise care-team message and shared-document notices.
+      allow create: if (staff() || (guardian() && request.resource.data.type in ['care_team_message','student_document']))
+        && linked(request.resource.data)
         && request.resource.data.senderId == request.auth.uid
-        && request.resource.data.type in ['daily_journal','behavior_incident','medical_update','care_plan_update','iep_finalized','teletherapy_session','home_plan_activity','therapy_session_scheduled','therapy_session_cancelled','therapy_session_rescheduled']
+        && request.resource.data.type in ['daily_journal','behavior_incident','medical_update','care_plan_update','iep_finalized','teletherapy_session','home_plan_activity','therapy_session_scheduled','therapy_session_cancelled','therapy_session_rescheduled','care_team_message','student_document']
         && (request.resource.data.recipientId == student(request.resource.data.studentId).parentId
           || request.resource.data.recipientId == student(request.resource.data.studentId).teacherId
-          || request.resource.data.recipientId in student(request.resource.data.studentId).therapistIds);
+          || request.resource.data.recipientId in student(request.resource.data.studentId).therapistIds
+          || ('caregiverIds' in student(request.resource.data.studentId) && request.resource.data.recipientId in student(request.resource.data.studentId).caregiverIds));
       allow update: if approved() && resource.data.recipientId == request.auth.uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
       allow delete: if approved() && resource.data.recipientId == request.auth.uid;
@@ -211,8 +226,49 @@ service cloud.firestore {
       allow create, delete: if false;
     }
     match /milestoneObservations/{id} {
-      allow read: if staff() && center(resource.data) && record(resource.data);
+      // Guardians see their own child's progress history (Charter objective 3).
+      allow read: if center(resource.data) && record(resource.data);
       allow create, update, delete: if false;
+    }
+    // Document metadata. Files sit in private storage; only the API, after
+    // validating the upload and the caller's access, writes these records.
+    match /studentDocuments/{id} {
+      allow read: if record(resource.data);
+      allow write: if false;
+    }
+    // Safepay checkout sessions (tracker -> invoice). Written and read only by the API.
+    match /onlinePayments/{id} {
+      allow read, write: if false;
+    }
+    // Server-only de-duplication markers for appointment reminders.
+    match /appointmentReminders/{id} {
+      allow read, write: if false;
+    }
+    // One care-team conversation per child; append-only, members only.
+    match /careMessages/{id} {
+      allow read: if record(resource.data);
+      allow create: if linked(request.resource.data)
+        && request.resource.data.keys().hasOnly(['studentId','centerId','parentId','senderId','senderName','senderRole','text','createdAt'])
+        && request.resource.data.senderId == request.auth.uid
+        && request.resource.data.senderRole == user().role
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000
+        && request.resource.data.createdAt == request.time;
+      allow update, delete: if false;
+    }
+    // Append-only audit trail. Anyone approved may record their own actions;
+    // nobody can edit or delete an entry. Only the centre's admins read it.
+    match /auditLogs/{id} {
+      allow read: if admin() && center(resource.data);
+      allow create: if approved() && center(request.resource.data)
+        && request.resource.data.keys().hasOnly(['centerId','actorUid','actorName','actorRole','action','targetType','targetId','studentId','summary','source','at'])
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.actorRole == user().role
+        && request.resource.data.source == 'web'
+        && request.resource.data.at == request.time
+        && request.resource.data.action is string && request.resource.data.action.size() <= 80
+        && request.resource.data.summary is string && request.resource.data.summary.size() <= 500;
+      allow update, delete: if false;
     }
     match /regressionState/{id} {
       allow read, write: if false;

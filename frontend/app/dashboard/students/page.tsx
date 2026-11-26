@@ -1,5 +1,6 @@
 "use client";
 
+import { recordStudentView } from "@/lib/audit";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { studentsDb, scopeOf } from "@/lib/firestore-api";
@@ -87,6 +88,12 @@ export default function StudentsPage() {
     }
   }, [profile, reloadCount]);
 
+  /* ── Access audit: who opened which part of a child's record ─────────── */
+  const selectedName = selectedStudent?.name;
+  useEffect(() => {
+    if (selectedId && selectedName) recordStudentView(selectedId, selectedName, activeTab.toLowerCase().replace(/\s+/g, "-"));
+  }, [selectedId, selectedName, activeTab]);
+
   /* ── Persist selected student ──────────────────────────────────────────── */
   useEffect(() => {
     if (selectedId) localStorage.setItem("selectedStudentId", selectedId);
@@ -168,7 +175,7 @@ export default function StudentsPage() {
               {/* Tab bar */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
                 <div className="tab-bar">
-                  {TABS.map((tab) => (
+                  {TABS.filter((tab) => profile?.role !== "caregiver" || tab !== "Therapy Timeline").map((tab) => (
                     <button
                       key={tab}
                       className={`tab-item${activeTab === tab ? " active" : ""}`}

@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import { studentsDb, billingDb, scopeOf, type StudentDoc } from "@/lib/firestore-api";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { onlinePayments } from "@/lib/payments-api";
 import toast from "react-hot-toast";
 import {
   Receipt,
@@ -56,6 +57,8 @@ export default function ParentFeesPage() {
   const [transferReference, setTransferReference] = useState("");
   const [submittingTransfer, setSubmittingTransfer] = useState(false);
   const [showTransferForm, setShowTransferForm] = useState(false);
+  const [onlineEnabled, setOnlineEnabled] = useState(false);
+  const [paying, setPaying] = useState(false);
   
   const [invoiceErrorChildId, setInvoiceErrorChildId] = useState<string | null>(null);
   const [paymentsErrorChildId, setPaymentsErrorChildId] = useState<string | null>(null);
@@ -75,6 +78,47 @@ export default function ParentFeesPage() {
       toast.error(error instanceof Error ? error.message : "Could not submit the transfer reference.");
     } finally {
       setSubmittingTransfer(false);
+    }
+  };
+
+  // Online payment is offered only when the backend has Safepay keys.
+  useEffect(() => {
+    if (!profile) return;
+    let active = true;
+    onlinePayments.enabled().then((on) => { if (active) setOnlineEnabled(on); });
+    return () => { active = false; };
+  }, [profile]);
+
+  // Returning from Safepay: ?safepay=return&tracker=track_... (or =cancel).
+  // The server checks the outcome with Safepay before anything is recorded.
+  useEffect(() => {
+    if (!profile) return;
+    const params = new URLSearchParams(window.location.search);
+    const outcome = params.get("safepay");
+    if (!outcome) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    const tracker = params.get("tracker");
+    if (outcome === "cancel" || !tracker) {
+      toast("Online payment was cancelled. Nothing was charged.");
+      return;
+    }
+    onlinePayments.confirm(tracker)
+      .then((status) => {
+        if (status === "paid") toast.success("Payment received. Your invoice is marked as paid.");
+        else if (status === "duplicate") toast.error("This invoice was already paid. The centre will arrange a refund of the online payment.");
+        else toast("Your payment has not been confirmed yet. If you were charged, it will update shortly.");
+      })
+      .catch((err) => toast.error(err instanceof Error ? err.message : "Could not confirm the payment."));
+  }, [profile]);
+
+  const payOnline = async () => {
+    if (!activeInvoice) return;
+    setPaying(true);
+    try {
+      await onlinePayments.payInvoice(activeInvoice.id);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not start online payment.");
+      setPaying(false);
     }
   };
 
@@ -363,6 +407,18 @@ export default function ParentFeesPage() {
                 )}
               </div>
 
+              {/* Online payment (Safepay) */}
+              {onlineEnabled && activeInvoice.status !== "paid" && (
+                <button
+                  className="btn-primary"
+                  onClick={() => void payOnline()}
+                  disabled={paying}
+                  style={{ width: "100%", padding: "11px", fontSize: "0.85rem", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", marginBottom: "10px" }}
+                >
+                  <CreditCard size={15} /> {paying ? "Opening secure checkout…" : `Pay ₨ ${activeInvoice.amount.toLocaleString()} online (card / wallet)`}
+                </button>
+              )}
+
               {/* Action bar */}
               <div style={{ display: "flex", gap: "10px" }}>
                 <button
@@ -378,7 +434,7 @@ export default function ParentFeesPage() {
                     onClick={() => { if (process.env.NEXT_PUBLIC_BANK_NAME && process.env.NEXT_PUBLIC_BANK_ACCOUNT_TITLE && process.env.NEXT_PUBLIC_BANK_ACCOUNT_NUMBER) setShowTransferForm(v => !v); else toast.error("Bank transfer details are not configured yet."); }}
                     style={{ flex: 2, padding: "10px", fontSize: "0.82rem", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
                   >
-                    <CreditCard size={14} /> {showTransferForm ? "Cancel" : "Submit transfer reference"}
+                    <Receipt size={14} /> {showTransferForm ? "Cancel" : "Submit transfer reference"}
                   </button>
                 )}
               </div>

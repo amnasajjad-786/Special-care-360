@@ -3,18 +3,7 @@
 import { useEffect, useState } from "react";
 import { regressionDb, RegressionAlertDoc } from "@/lib/firestore-api";
 import { useAuth } from "@/lib/auth-context";
-import {
-  AlertTriangle,
-  TrendingDown,
-  CheckCircle,
-  ChevronDown,
-  ChevronUp,
-  User,
-  Activity,
-  Calendar,
-  ArrowDownRight,
-  ClipboardCheck,
-} from "lucide-react";
+import { AlertTriangle, TrendingDown, CheckCircle, ChevronDown, ChevronUp, User, Activity, Calendar, ArrowDownRight, ClipboardCheck, Target, FileText } from "lucide-react";
 import toast from "react-hot-toast";
 
 interface Props {
@@ -217,7 +206,7 @@ export default function RegressionAlertsBanner({ centerId, studentId }: Props) {
                   <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                     <TrendingDown size={16} style={{ color: accentColor }} />
                     <span style={{ fontWeight: 800, fontSize: "0.88rem", color: "#1e293b" }}>
-                      {isWarning ? "⚠️ Regression Warning" : "📋 Monitoring — Possible Regression"}
+                      {isWarning ? "Regression Warning" : "Monitoring — Possible Regression"}
                     </span>
                   </div>
                   <span
@@ -453,7 +442,7 @@ export default function RegressionAlertsBanner({ centerId, studentId }: Props) {
                 >
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px" }}>
                     <div style={{ fontWeight: 700, color: "#166534", fontSize: "0.85rem" }}>
-                      ✅ Recovered: {ha.goalTitle}
+                      <CheckCircle size={13} style={{ verticalAlign: "-2px" }} /> Recovered: {ha.goalTitle}
                     </div>
                     <span style={{ fontSize: "0.72rem", color: "#15803d", fontWeight: 600 }}>
                       Recovered on {ha.resolvedAt ? new Date(ha.resolvedAt).toLocaleDateString() : "Recent"}
@@ -465,12 +454,12 @@ export default function RegressionAlertsBanner({ centerId, studentId }: Props) {
                   </div>
                   {ha.remedialGoalTitle && (
                     <div style={{ color: "#0f766e", fontWeight: 600 }}>
-                      🎯 <strong>Remedial Goal:</strong> {ha.remedialGoalTitle}
+                      <Target size={13} style={{ verticalAlign: "-2px" }} /> <strong>Remedial Goal:</strong> {ha.remedialGoalTitle}
                     </div>
                   )}
                   {ha.resolutionNote && (
                     <div style={{ color: "#334155", marginTop: "2px", fontSize: "0.75rem" }}>
-                      📝 {ha.resolutionNote}
+                      <FileText size={12} style={{ verticalAlign: "-2px" }} /> {ha.resolutionNote}
                     </div>
                   )}
                 </div>

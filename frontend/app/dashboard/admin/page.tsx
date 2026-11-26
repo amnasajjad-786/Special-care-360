@@ -1,4 +1,5 @@
 "use client";
+import AuditLogPanel from "@/components/admin/AuditLogPanel";
 import { downloadCsv } from "@/lib/workflow-state";
 
 import { useState, useMemo, useEffect, useCallback } from "react";
@@ -9,6 +10,7 @@ import { db } from "@/lib/firebase";
 import { studentsDb, adminDb, dailyCareDb, abcDb, scopeOf, studentAge, type PanicAlertDoc } from "@/lib/firestore-api";
 import {
   LayoutDashboard,
+  ShieldCheck,
   Users,
   Receipt,
   Contact,
@@ -40,6 +42,7 @@ import {
 interface AdminStudent {
   teacherId?: string;
   therapistIds?: string[];
+  caregiverIds?: string[];
   id: string;
   name: string;
   age: number | null;
@@ -153,7 +156,7 @@ const DIAGNOSES_OPTIONS = ["Autism", "Down Syndrome", "ADHD", "Cerebral Palsy", 
 
 export default function AdminDashboard() {
   const { profile } = useAuth();
-  const [activeTab, setActiveTab] = useState<"dashboard" | "students" | "fees" | "staff" | "reports">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "students" | "fees" | "staff" | "reports" | "audit">("dashboard");
 
   // --- Reports State ---
   const [selectedReportType, setSelectedReportType] = useState<"progress" | "fees" | "behavior" | "attendance" | null>(null);
@@ -169,6 +172,7 @@ export default function AdminDashboard() {
   const [pendingUsers, setPendingUsers] = useState<PendingUser[]>([]);
   const [parentAccounts, setParentAccounts] = useState<UserAccount[]>([]);
   const [therapistAccounts, setTherapistAccounts] = useState<UserAccount[]>([]);
+  const [caregiverAccounts, setCaregiverAccounts] = useState<UserAccount[]>([]);
   const [teacherAccounts, setTeacherAccounts] = useState<UserAccount[]>([]);
   const [selectedPendingUser, setSelectedPendingUser] = useState<PendingUser | null>(null);
 
@@ -284,6 +288,7 @@ export default function AdminDashboard() {
           therapist: s.therapistNames?.length ? s.therapistNames.join(", ") : "None",
           teacherId: s.teacherId,
           therapistIds: s.therapistIds,
+          caregiverIds: (s.caregiverIds as string[] | undefined) ?? [],
           parentId: s.parentId ?? null,
           // Derived from the invoice list once it loads — this was hardcoded
           // to "paid" for every student regardless of their actual balance.
@@ -369,6 +374,7 @@ export default function AdminDashboard() {
           .filter((user) => user.status === "approved");
         setParentAccounts(approved.filter((user) => user.role === "parent"));
         setTherapistAccounts(approved.filter((user) => user.role === "therapist"));
+        setCaregiverAccounts(approved.filter((user) => user.role === "caregiver"));
         setTeacherAccounts(approved.filter((user) => user.role === "teacher"));
       } catch (err) {
         console.error("Failed to load approved parent and therapist accounts", err);
@@ -660,6 +666,9 @@ export default function AdminDashboard() {
       } else if (approvedUser?.role === "teacher") {
         setTeacherAccounts(current => [...current.filter(account => account.id !== uid),
           { id: uid, name: approvedUser.name ?? name, email: approvedUser.email ?? "", role: "teacher", status: "approved" }]);
+      } else if (approvedUser?.role === "caregiver") {
+        setCaregiverAccounts(current => [...current.filter(account => account.id !== uid),
+          { id: uid, name: approvedUser.name ?? name, email: approvedUser.email ?? "", role: "caregiver", status: "approved" }]);
       }
       toast.success(`${name} has been approved successfully!`);
       fetchStaff();
@@ -999,7 +1008,14 @@ export default function AdminDashboard() {
             <BarChart3 size={16} /> Reports
           </div>
         </button>
+        <button className={`tab-item ${activeTab === "audit" ? "active" : ""}`} onClick={() => setActiveTab("audit")}>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <ShieldCheck size={16} /> Audit Log
+          </div>
+        </button>
       </div>
+
+      {activeTab === "audit" && <AuditLogPanel centerId={profile?.centerId ?? "center-001"} />}
 
       {/* --- CONTENT AREA --- */}
       
@@ -1308,6 +1324,7 @@ export default function AdminDashboard() {
                   <th>Age</th>
                   <th>Diagnosis</th>
                   <th>Therapist</th>
+                  <th>Caregivers</th>
                   <th>Fee Status</th>
                   <th>Status</th>
                   <th style={{ textAlign: "right" }}>Actions</th>
@@ -1356,6 +1373,26 @@ export default function AdminDashboard() {
                           </select>
                           <div style={{ fontSize: "0.68rem", color: "var(--text-secondary)", marginTop: 4 }}>Select to assign; Ctrl+click to select multiple.</div>
                         </td>
+                        <td>
+                          <div style={{ fontSize: "0.76rem", fontWeight: 600, marginBottom: 6 }}>
+                            {caregiverAccounts.filter(account => (s.caregiverIds ?? []).includes(account.id)).map(account => account.name).join(", ") || "None"}
+                          </div>
+                          {caregiverAccounts.length === 0 ? (
+                            <div style={{ fontSize: "0.68rem", color: "var(--text-secondary)" }}>No approved caregiver accounts yet.</div>
+                          ) : (
+                            <select multiple size={2} aria-label={`Caregivers for ${s.name}`} className="glass-input" value={s.caregiverIds ?? []} onChange={async event => {
+                              const caregiverIds = Array.from(event.target.selectedOptions, option => option.value);
+                              if (caregiverIds.length > 3) { toast.error("Select at most three caregivers."); return; }
+                              try {
+                                await studentsDb.update(String(s.id), { caregiverIds });
+                                setStudents(current => current.map(student => student.id === s.id ? { ...student, caregiverIds } : student));
+                                toast.success("Caregiver access saved.");
+                              } catch (err) { console.error("Caregiver assign error:", err); toast.error("Could not save caregiver access."); }
+                            }}>
+                              {caregiverAccounts.map(caregiver => <option key={caregiver.id} value={caregiver.id}>{caregiver.name}</option>)}
+                            </select>
+                          )}
+                        </td>
                         <td>{feeStatusLabels[feeStatusOf(s)]}</td>
                         <td>
                           <span className={`chip ${s.status === "Active" ? "chip-success" : "chip-gray"}`}>
@@ -1387,7 +1424,7 @@ export default function AdminDashboard() {
                   })
                 ) : (
                   <tr>
-                    <td colSpan={7} style={{ textAlign: "center", padding: "40px", color: "var(--text-secondary)" }}>
+                    <td colSpan={8} style={{ textAlign: "center", padding: "40px", color: "var(--text-secondary)" }}>
                       No students found matching filters.
                     </td>
                   </tr>
@@ -2397,7 +2434,7 @@ export default function AdminDashboard() {
                       style={{ width: "100%", paddingRight: "40px" }}
                     />
                     <button type="button" onClick={() => setShowStaffPassword(v => !v)} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)" }}>
-                      {showStaffPassword ? "🙈" : "👁️"}
+                      {showStaffPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
                   </div>
                 </div>

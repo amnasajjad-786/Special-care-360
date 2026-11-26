@@ -36,8 +36,11 @@ test('regression observations and alerts are child-scoped and server-owned', asy
   }
   for (const uid of ['t2','h2','a2','p1','pending']) {
     await assertFails(getDoc(doc(dbOf(uid),'regressionAlerts/regression')));
-    await assertFails(getDoc(doc(dbOf(uid),'milestoneObservations/observation')));
+    if (uid !== 'p1') await assertFails(getDoc(doc(dbOf(uid),'milestoneObservations/observation')));
   }
+  // The child's own guardian may read progress history (not regression alerts).
+  await assertSucceeds(getDoc(doc(dbOf('p1'),'milestoneObservations/observation')));
+  await assertFails(getDoc(doc(dbOf('p2'),'milestoneObservations/observation')));
   await assertFails(updateDoc(doc(dbOf('t1'),'regressionAlerts/regression'), {resolved:true}));
   await assertFails(updateDoc(doc(dbOf('h1'),'regressionAlerts/regression'), {centerId:'c2'}));
   await assertSucceeds(updateDoc(doc(dbOf('h1'),'regressionAlerts/regression'), {resolved:true}));
@@ -167,4 +170,67 @@ test('clinical edits and directory removal cannot bypass assignment or erase chi
   await assertFails(deleteDoc(doc(dbOf('a1'),'students/s1/carePlan/main')));
   await assertFails(deleteDoc(doc(dbOf('a1'),'staff/staff')));
   await assertFails(setDoc(doc(dbOf('h2'),'teletherapySessions/new'), {...linked, therapistId:'h2'}));
+});
+
+test('caregivers see only linked children and stay read-only on clinical records', async () => {
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    const batch = writeBatch(db);
+    for (const uid of ['g1', 'g2']) batch.set(doc(db, 'users', uid), { uid, role: 'caregiver', centerId: 'c1', status: 'approved' });
+    batch.set(doc(db, 'students/s3'), { ...child, caregiverIds: ['g1'] });
+    batch.set(doc(db, 'dailyCareJournals/j3'), { studentId: 's3', centerId: 'c1', parentId: 'p1', date: '2026-11-21' });
+    await batch.commit();
+  });
+  const g1 = dbOf('g1');
+  await assertSucceeds(getDoc(doc(g1, 'students/s3')));
+  await assertSucceeds(getDocs(query(collection(g1, 'students'), where('centerId', '==', 'c1'), where('caregiverIds', 'array-contains', 'g1'))));
+  await assertSucceeds(getDocs(query(collection(g1, 'dailyCareJournals'), where('studentId', '==', 's3'), where('centerId', '==', 'c1'))));
+  await assertFails(getDoc(doc(g1, 'students/s1')));
+  await assertFails(getDocs(query(collection(g1, 'dailyCareJournals'), where('centerId', '==', 'c1'))));
+  await assertFails(setDoc(doc(g1, 'dailyCareJournals/2026-11-22_s3'), { studentId: 's3', centerId: 'c1', parentId: 'p1' }));
+  await assertFails(updateDoc(doc(g1, 'students/s3'), { caregiverIds: ['g1', 'g2'] }));
+  await assertFails(getDoc(doc(dbOf('g2'), 'students/s3')));
+  // Only an admin may link caregivers, and only to approved caregiver accounts.
+  await assertFails(updateDoc(doc(dbOf('a1'), 'students/s3'), { caregiverIds: ['t1'] }));
+  await assertSucceeds(updateDoc(doc(dbOf('a1'), 'students/s3'), { caregiverIds: ['g1', 'g2'] }));
+  await assertSucceeds(getDoc(doc(dbOf('g2'), 'students/s3')));
+  await assertSucceeds(setDoc(doc(dbOf('newcg'), 'users/newcg'), { uid: 'newcg', role: 'caregiver', status: 'pending', centerId: 'c1' }));
+});
+
+test('care-team messages are append-only and limited to the child\'s team', async () => {
+  const message = (sender, role) => ({ ...linked, senderId: sender, senderName: 'Synthetic', senderRole: role, text: 'Synthetic message', createdAt: serverTimestamp() });
+  await assertSucceeds(setDoc(doc(dbOf('p1'), 'careMessages/m1'), message('p1', 'parent')));
+  await assertSucceeds(setDoc(doc(dbOf('h1'), 'careMessages/m2'), message('h1', 'therapist')));
+  await assertFails(setDoc(doc(dbOf('p1'), 'careMessages/forged'), message('h1', 'therapist')));
+  await assertFails(setDoc(doc(dbOf('p1'), 'careMessages/role'), message('p1', 'admin')));
+  await assertFails(setDoc(doc(dbOf('p2'), 'careMessages/outsider'), message('p2', 'parent')));
+  await assertFails(setDoc(doc(dbOf('p1'), 'careMessages/long'), { ...message('p1', 'parent'), text: 'x'.repeat(2001) }));
+  await assertSucceeds(getDocs(query(collection(dbOf('p1'), 'careMessages'), where('studentId', '==', 's1'), where('parentId', '==', 'p1'))));
+  await assertSucceeds(getDocs(query(collection(dbOf('t1'), 'careMessages'), where('studentId', '==', 's1'), where('centerId', '==', 'c1'))));
+  await assertFails(getDocs(query(collection(dbOf('p2'), 'careMessages'), where('studentId', '==', 's1'), where('parentId', '==', 'p2'))));
+  await assertFails(updateDoc(doc(dbOf('p1'), 'careMessages/m1'), { text: 'edited' }));
+  await assertFails(deleteDoc(doc(dbOf('a1'), 'careMessages/m1')));
+});
+
+test('documents are server-written; audit log is append-only and admin-read; reminders are server-only', async () => {
+  await env.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'studentDocuments/d1'), { ...linked, title: 'Synthetic', fileName: 'a.pdf' });
+  });
+  await assertSucceeds(getDoc(doc(dbOf('p1'), 'studentDocuments/d1')));
+  await assertFails(getDoc(doc(dbOf('p2'), 'studentDocuments/d1')));
+  for (const uid of ['a1', 'h1', 'p1']) await assertFails(setDoc(doc(dbOf(uid), 'studentDocuments/forged'), { ...linked, title: 'x' }));
+
+  const entry = (uid, role) => ({ centerId: 'c1', actorUid: uid, actorName: 'Synthetic', actorRole: role, action: 'test.write', targetType: 'test', targetId: 'x', studentId: 's1', summary: 'Synthetic audit entry', source: 'web', at: serverTimestamp() });
+  await assertSucceeds(setDoc(doc(dbOf('t1'), 'auditLogs/e1'), entry('t1', 'teacher')));
+  await assertFails(setDoc(doc(dbOf('t1'), 'auditLogs/forged'), entry('h1', 'therapist')));
+  await assertFails(setDoc(doc(dbOf('t1'), 'auditLogs/role'), entry('t1', 'admin')));
+  await assertFails(setDoc(doc(dbOf('t1'), 'auditLogs/source'), { ...entry('t1', 'teacher'), source: 'api' }));
+  await assertSucceeds(getDocs(query(collection(dbOf('a1'), 'auditLogs'), where('centerId', '==', 'c1'))));
+  await assertFails(getDocs(query(collection(dbOf('t1'), 'auditLogs'), where('centerId', '==', 'c1'))));
+  await assertFails(getDocs(query(collection(dbOf('a2'), 'auditLogs'), where('centerId', '==', 'c1'))));
+  await assertFails(updateDoc(doc(dbOf('a1'), 'auditLogs/e1'), { summary: 'rewritten' }));
+  await assertFails(deleteDoc(doc(dbOf('a1'), 'auditLogs/e1')));
+
+  await assertFails(getDoc(doc(dbOf('a1'), 'appointmentReminders/any')));
+  await assertFails(setDoc(doc(dbOf('a1'), 'appointmentReminders/any'), { sent: true }));
 });

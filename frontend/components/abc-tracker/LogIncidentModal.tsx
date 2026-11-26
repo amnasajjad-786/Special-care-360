@@ -1,10 +1,10 @@
 "use client";
 import { localDateTime } from "@/lib/workflow-state";
 import { useState, useEffect } from "react";
-import { abcDb, studentsDb, scopeOf } from "@/lib/firestore-api";
+import { abcDb, studentsDb, scopeOf, SENSORY_FACTORS } from "@/lib/firestore-api";
 import { useAuth } from "@/lib/auth-context";
 import toast from "react-hot-toast";
-import { Brain, Search, Zap, MessageSquare, BarChart, Plus } from "lucide-react";
+import { Brain, Search, Zap, MessageSquare, BarChart, Plus, Ear } from "lucide-react";
 
 const ANTECEDENT_TAGS = ["Loud Noise", "Transition", "Crowded Space", "Denied Request", "Unexpected Change"];
 const BEHAVIOR_TAGS = ["Hitting", "Screaming", "Self-harm", "Crying", "Running away", "Withdrawal"];
@@ -45,6 +45,7 @@ export default function LogIncidentModal({ onClose, onSaved }: Props) {
   const [severity, setSeverity] = useState(3);
   const [duration, setDuration] = useState(10);
   const [location, setLocation] = useState("Classroom A");
+  const [sensory, setSensory] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -76,6 +77,7 @@ export default function LogIncidentModal({ onClose, onSaved }: Props) {
           severity,
           durationMinutes: duration,
           location,
+          sensoryFactors: sensory,
         },
         profile?.uid ?? "unknown"
       );
@@ -140,6 +142,13 @@ export default function LogIncidentModal({ onClose, onSaved }: Props) {
             <div style={{ fontWeight: 700, color: "var(--accent-lavender)", fontSize: "0.9rem", marginBottom: "10px", display: "flex", alignItems: "center", gap: "6px" }}><MessageSquare size={16} /> C — Consequence (How did staff respond?)</div>
             <textarea className="glass-input" rows={2} placeholder="Describe the staff response…" style={{ marginBottom: "10px", resize: "vertical" }} value={conText} onChange={e => setConText(e.target.value)} />
             <TagSelector tags={CONSEQUENCE_TAGS} selected={conTags} onToggle={toggleTag(setConTags)} color="var(--accent-lavender)" />
+          </div>
+
+          {/* Sensory context */}
+          <div style={{ padding: "16px", background: "rgba(61,79,107,0.04)", borderRadius: "12px", border: "1px solid rgba(61,79,107,0.12)" }}>
+            <div style={{ fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.9rem", marginBottom: "4px", display: "flex", alignItems: "center", gap: "6px" }}><Ear size={16} /> Sensory factors present</div>
+            <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginBottom: "10px" }}>Select any sensory conditions noticed at the time. Leave empty if none were observed.</div>
+            <TagSelector tags={[...SENSORY_FACTORS]} selected={sensory} onToggle={toggleTag(setSensory)} color="var(--primary-dark)" />
           </div>
 
           {/* Severity */}

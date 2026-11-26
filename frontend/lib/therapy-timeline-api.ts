@@ -6,6 +6,7 @@
  * parent notification dispatch, and backend validation fallback.
  */
 
+import { instrument } from "./audit";
 import {
   collection,
   doc,
@@ -459,3 +460,10 @@ export const therapyTimelineDb = {
     await deleteDoc(doc(db, "therapySessions", sessionId));
   },
 };
+
+// Audit trail (WBS 2.4.3): see lib/audit.ts.
+instrument(therapyTimelineDb, {
+  create: ([session], ids) => ({ action: "therapy.schedule", targetType: "therapySession", targetId: ids.join(","), studentId: session.studentId, summary: `Scheduled ${ids.length} therapy session(s)` }),
+  update: ([id, updates]) => ({ action: "therapy.update", targetType: "therapySession", targetId: id, summary: `Updated session: ${Object.keys(updates).join(", ")}` }),
+  delete: ([id]) => ({ action: "therapy.delete", targetType: "therapySession", targetId: id, summary: "Deleted therapy session" }),
+});

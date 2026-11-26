@@ -36,7 +36,7 @@ async def get_current_user(
     status = profile.get("status")
     center_id = profile.get("centerId")
     if (profile.get("uid") != uid or status != "approved"
-            or role not in ("admin", "teacher", "therapist", "parent")
+            or role not in ("admin", "teacher", "therapist", "parent", "caregiver")
             or not isinstance(center_id, str) or not center_id.strip()):
         raise HTTPException(403, "An approved account profile is required")
 
@@ -54,7 +54,7 @@ async def get_current_user(
 def require_approved(user: dict):
     if (user.get("status") != "approved" or not user.get("uid")
             or not user.get("centerId") or user.get("role") not in
-            ("admin", "teacher", "therapist", "parent")):
+            ("admin", "teacher", "therapist", "parent", "caregiver")):
         raise HTTPException(403, "An approved account is required")
 
 

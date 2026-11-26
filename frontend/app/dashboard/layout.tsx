@@ -1,5 +1,6 @@
 "use client";
 
+import { Hourglass } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
@@ -13,10 +14,12 @@ import { SidebarContext } from "@/components/layout/SidebarContext";
 // gates the route, that list gates the link. A path in one and not the other
 // either hides a reachable page or offers a link that bounces.
 const ROLE_PATHS: Record<string, string[]> = {
-  admin:     ["/dashboard/admin", "/dashboard/iep-builder", "/dashboard/students", "/dashboard/daily-care", "/dashboard/abc-tracker", "/dashboard/panic", "/dashboard/teletherapy", "/dashboard/home-plan", "/dashboard/therapy-timeline", "/dashboard/calendar"],
-  teacher:   ["/dashboard/students", "/dashboard/iep-builder", "/dashboard/daily-care", "/dashboard/abc-tracker", "/dashboard/panic", "/dashboard/teletherapy", "/dashboard/home-plan", "/dashboard/therapy-timeline", "/dashboard/calendar"],
-  therapist: ["/dashboard/students", "/dashboard/iep-builder", "/dashboard/abc-tracker", "/dashboard/panic", "/dashboard/teletherapy", "/dashboard/home-plan", "/dashboard/therapy-timeline", "/dashboard/calendar"],
-  parent:    ["/dashboard/students", "/dashboard/iep-builder", "/dashboard/daily-care", "/dashboard/abc-tracker", "/dashboard/fees", "/dashboard/teletherapy", "/dashboard/home-plan", "/dashboard/therapy-timeline", "/dashboard/calendar"],
+  admin:     ["/dashboard/admin", "/dashboard/iep-builder", "/dashboard/students", "/dashboard/daily-care", "/dashboard/abc-tracker", "/dashboard/panic", "/dashboard/teletherapy", "/dashboard/home-plan", "/dashboard/therapy-timeline", "/dashboard/calendar", "/dashboard/messages", "/dashboard/documents"],
+  teacher:   ["/dashboard/students", "/dashboard/iep-builder", "/dashboard/daily-care", "/dashboard/abc-tracker", "/dashboard/panic", "/dashboard/teletherapy", "/dashboard/home-plan", "/dashboard/therapy-timeline", "/dashboard/calendar", "/dashboard/messages", "/dashboard/documents"],
+  therapist: ["/dashboard/students", "/dashboard/iep-builder", "/dashboard/abc-tracker", "/dashboard/panic", "/dashboard/teletherapy", "/dashboard/home-plan", "/dashboard/therapy-timeline", "/dashboard/calendar", "/dashboard/messages", "/dashboard/documents"],
+  parent:    ["/dashboard/students", "/dashboard/iep-builder", "/dashboard/daily-care", "/dashboard/abc-tracker", "/dashboard/fees", "/dashboard/teletherapy", "/dashboard/home-plan", "/dashboard/therapy-timeline", "/dashboard/calendar", "/dashboard/messages", "/dashboard/documents"],
+  // Read-only family view plus the care-team thread and shared documents.
+  caregiver: ["/dashboard/students", "/dashboard/daily-care", "/dashboard/abc-tracker", "/dashboard/messages", "/dashboard/documents"],
 };
 
 export default function DashboardLayout({
@@ -109,7 +112,7 @@ export default function DashboardLayout({
         padding: "24px",
       }}>
         <div className="glass-card animate-fade-in" style={{ padding: "48px", textAlign: "center", maxWidth: "420px" }}>
-          <div style={{ fontSize: "52px", marginBottom: "16px" }}>⏳</div>
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: "16px", color: "var(--primary-dark)" }}><Hourglass size={52} /></div>
           <h2 style={{ color: "var(--primary-dark)", fontWeight: 800, margin: "0 0 10px" }}>
             Awaiting Approval
           </h2>

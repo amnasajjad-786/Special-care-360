@@ -40,3 +40,6 @@ __pycache__/
 *.pyc
 .coverage
 
+
+# Local requirements review (not for commit)
+docs/REQUIREMENTS_GAP_REVIEW.md

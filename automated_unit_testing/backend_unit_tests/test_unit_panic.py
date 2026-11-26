@@ -112,8 +112,14 @@ class PanicAlertUnitTests(unittest.TestCase):
     # ─────────────────── TC-PANIC-05: hijack rejection ──────────────
     @patch("routers.panic.get_db")
     def test_create_panic_alert_mismatched_reporter_hijack_rejected(self, mock_get_db):
-        """TC-PANIC-05: Different teacher reusing existing alertId is rejected with 403."""
+        """TC-PANIC-05: Different teacher reusing existing alertId is rejected with 403.
+
+        The attacker is an assigned co-teacher, so student access passes and the
+        alert-reference check is what must stop them. (An unassigned teacher is
+        already rejected earlier with "Student access denied"; see TC-PANIC-03.)
+        """
         mock_get_db.return_value = self.store
+        self.store.collection("students").document("student-p1").update({"teacherIds": ["teacher-t1", "teacher-t2"]})
         body = self._make_body(
             alertId="alert-001",
             reportedBy={"uid": "teacher-t2", "name": "Attacker"},

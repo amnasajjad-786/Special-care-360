@@ -69,3 +69,32 @@ class RegressionTests(unittest.TestCase):
         alert['resolved'] = True
         self.assertEqual(self.save('second')['alertLevel'], 'Monitoring')
         self.assertEqual(sum(path.startswith('regressionAlerts/') for path in self.db.data), 2)
+
+
+class MasteryPercentTests(RegressionTests):
+    def test_measured_percent_must_match_status_band(self):
+        with self.assertRaises(HTTPException) as caught:
+            self.save('mismatch', 'Achieved', masteryPercent=50)
+        self.assertEqual(caught.exception.status_code, 422)
+
+    def test_measured_mastery_above_threshold_is_maintained(self):
+        result = self.save('kept', 'Achieved', masteryPercent=85)
+        self.assertIsNone(result['alertLevel'])
+        saved = next(v for k, v in self.db.data.items() if k.startswith('milestoneObservations/'))
+        self.assertEqual((saved['masteryPercent'], saved['progressScore'], saved['goalStage']), (85, 85, 'mastered'))
+
+    def test_measured_drop_below_threshold_starts_monitoring(self):
+        self.assertEqual(self.save('drop', 'In Progress', masteryPercent=70)['alertLevel'], 'Monitoring')
+
+    def test_active_goal_records_progress_without_alert(self):
+        self.db.data['students/s1/carePlan/main']['goals'] = [{'id': 'g2', 'title': 'New skill'}]
+        result = self.save('progress', 'In Progress', goalId='g2', masteryPercent=45)
+        self.assertFalse(result['alertCreated'])
+        self.assertFalse(any(k.startswith('regressionAlerts/') for k in self.db.data))
+        saved = next(v for k, v in self.db.data.items() if k.startswith('milestoneObservations/'))
+        self.assertEqual((saved['goalStage'], saved['progressScore']), ('active', 45))
+
+    def test_unknown_goal_is_rejected(self):
+        with self.assertRaises(HTTPException) as caught:
+            self.save('missing', goalId='nope')
+        self.assertEqual(caught.exception.status_code, 404)

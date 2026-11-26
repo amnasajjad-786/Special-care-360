@@ -1,5 +1,6 @@
 "use client";
 
+import { resetAuditActor } from "./audit";
 import {
   createContext,
   useContext,
@@ -141,6 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ── Logout ─────────────────────────────────────────────────────────────────
   const logout = async (): Promise<void> => {
+    resetAuditActor();
     await signOut(auth);
     setUser(null);
     setProfile(null);

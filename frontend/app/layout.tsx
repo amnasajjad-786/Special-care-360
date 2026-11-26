@@ -1,13 +1,23 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { AuthProvider } from "@/lib/auth-context";
 import { Toaster } from "react-hot-toast";
+import PwaSetup from "@/components/layout/PwaSetup";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Special Care 360 — HIPAA-Compliant Special Education Platform",
+  title: "Special Care 360 — Care Coordination for Special Education",
   description:
     "A comprehensive platform for special education centers — student profiles, daily care journaling, behavioral tracking, and crisis management.",
-  keywords: "special education, HIPAA, IEP, behavioral tracking, daily care",
+  keywords: "special education, IEP, behavioral tracking, daily care, therapy",
+  applicationName: "Special Care 360",
+  appleWebApp: { capable: true, title: "Care 360", statusBarStyle: "default" },
+  icons: { icon: "/icon-192.png", apple: "/apple-touch-icon.png" },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#3d4f6b",
 };
 
 export default function RootLayout({
@@ -23,6 +33,7 @@ export default function RootLayout({
       <body>
         <AuthProvider>
           {children}
+          <PwaSetup />
           <Toaster
             position="top-right"
             toastOptions={{

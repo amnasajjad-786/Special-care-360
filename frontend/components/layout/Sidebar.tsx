@@ -8,7 +8,7 @@ import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import toast from "react-hot-toast";
 import { useSidebar } from "@/components/layout/SidebarContext";
-import { Users, BookOpen, Brain, Bell, Key, AlertTriangle, LogOut, Receipt, Video, Home, Calendar } from "lucide-react";
+import { Users, BookOpen, Brain, Bell, Key, AlertTriangle, LogOut, Receipt, Video, Home, Calendar, MessageSquare, FileText, X } from "lucide-react";
 
 interface NavItem {
   href: string;
@@ -18,13 +18,15 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { href: "/dashboard/students",    icon: Users, label: "Students",    roles: ["admin","teacher","therapist","parent"] },
+  { href: "/dashboard/students",    icon: Users, label: "Students",    roles: ["admin","teacher","therapist","parent","caregiver"] },
   { href: "/dashboard/iep-builder", icon: Brain, label: "IEP Builder", roles: ["admin","teacher","therapist","parent"] },
-  { href: "/dashboard/daily-care",  icon: BookOpen, label: "Daily Care",  roles: ["admin","teacher","parent"] },
-  { href: "/dashboard/abc-tracker", icon: Brain, label: "ABC Tracker", roles: ["admin","teacher","therapist","parent"] },
+  { href: "/dashboard/daily-care",  icon: BookOpen, label: "Daily Care",  roles: ["admin","teacher","parent","caregiver"] },
+  { href: "/dashboard/abc-tracker", icon: Brain, label: "ABC Tracker", roles: ["admin","teacher","therapist","parent","caregiver"] },
   { href: "/dashboard/therapy-timeline", icon: Calendar, label: "Dynamic Therapy Timeline", roles: ["admin","teacher","therapist","parent"] },
   { href: "/dashboard/teletherapy", icon: Video, label: "Teletherapy",  roles: ["admin","therapist","teacher","parent"] },
   { href: "/dashboard/home-plan",   icon: Home, label: "Home Plan",    roles: ["admin","therapist","teacher","parent"] },
+  { href: "/dashboard/messages",    icon: MessageSquare, label: "Messages", roles: ["admin","teacher","therapist","parent","caregiver"] },
+  { href: "/dashboard/documents",   icon: FileText, label: "Documents & Reports", roles: ["admin","teacher","therapist","parent","caregiver"] },
   { href: "/dashboard/fees",        icon: Receipt, label: "Fees & Billing", roles: ["parent"] },
   { href: "/dashboard/admin/alerts",icon: Bell, label: "Alerts",      roles: ["admin"] },
   { href: "/dashboard/admin",       icon: Key, label: "Admin Panel", roles: ["admin"] },
@@ -71,6 +73,7 @@ export default function Sidebar() {
     teacher: "#7bc4c4",
     therapist: "#b8a8d4",
     parent: "#9b8ec4",
+    caregiver: "#c9a46b",
   };
   const roleColor = roleColors[profile?.role || "admin"] || "#7bc4c4";
 
@@ -113,7 +116,7 @@ export default function Sidebar() {
             onClick={close}
             aria-label="Close navigation menu"
           >
-            ✕
+            <X size={18} />
           </button>
         </div>
       </div>

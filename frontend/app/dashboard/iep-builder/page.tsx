@@ -11,23 +11,7 @@ import { IEPGoal, MedicalProfile, CarePlan, ABCIncident } from "@/types";
 import toast from "react-hot-toast";
 
 import RegressionAlertsBanner from "@/components/students/RegressionAlertsBanner";
-import {
-  BrainCircuit,
-  Sparkles,
-  Plus,
-  Trash2,
-  Save,
-  CheckCircle,
-  AlertTriangle,
-  FileText,
-  Clock,
-  Target,
-  Activity,
-  ShieldAlert,
-  Trophy,
-  ChevronDown,
-  ChevronUp,
-} from "lucide-react";
+import { BrainCircuit, Sparkles, Plus, Trash2, Save, CheckCircle, AlertTriangle, FileText, Clock, Target, Activity, ShieldAlert, Trophy, ChevronDown, ChevronUp, Eye } from "lucide-react";
 
 function displayIepHistoryDate(value: unknown): string {
   try {
@@ -443,7 +427,7 @@ export default function IEPBuilderPage() {
             const resolvedIds = new Set(finalTargets.map((a) => a.id));
             setActiveRegressionAlerts((prev) => prev.filter((a) => !resolvedIds.has(a.id)));
             setAlertKey((k) => k + 1);
-            toast.success(`Regression alert resolved & moved to Recovery History! 🛡️`);
+            toast.success(`Regression alert resolved & moved to Recovery History.`);
           }
         } catch (alertErr) {
           console.warn("Could not auto-resolve regression alert:", alertErr);
@@ -579,7 +563,7 @@ export default function IEPBuilderPage() {
         profile?.name
       );
       setIepVersions(await iepDb.listIEPRecords(selectedStudentId) as Array<Record<string, unknown> & { id: string }>);
-      toast.success("IEP Finalized & synchronized with student's active Care Plan! 🎯");
+      toast.success("IEP Finalized & synchronized with student's active Care Plan.");
       setCareVersion(version => version + 1);
     } catch (err) {
       console.error(err);
@@ -737,7 +721,7 @@ export default function IEPBuilderPage() {
                 </div>
                 <div>
                   <span style={{ fontWeight: 600, color: "var(--text-secondary)" }}>Seizure Protocol: </span>
-                  <span>{medicalProfile?.seizureHistory?.hasHistory ? "⚠️ Active Seizure Protocol" : "No history"}</span>
+                  <span>{medicalProfile?.seizureHistory?.hasHistory ? "Active Seizure Protocol" : "No history"}</span>
                 </div>
               </div>
             ) : (
@@ -822,7 +806,7 @@ export default function IEPBuilderPage() {
                     }}
                   >
                     <div style={{ fontWeight: 700, color: "#991b1b", marginBottom: "4px" }}>
-                      ⚠️ {alt.goalTitle || "Regressed Skill"}
+                      <AlertTriangle size={13} style={{ verticalAlign: "-2px" }} /> {alt.goalTitle || "Regressed Skill"}
                     </div>
                     <div style={{ color: "#7f1d1d" }}>
                       Dropped from <strong>{alt.previousProgress}%</strong> to <strong>{alt.currentProgress}%</strong> ({alt.alertLevel || "Warning"})
@@ -903,7 +887,7 @@ export default function IEPBuilderPage() {
                 </>
               ) : (
                 <span className="chip chip-info" style={{ fontSize: "0.8rem", padding: "6px 14px", fontWeight: 600 }}>
-                  👁️ View Only Mode ({profile?.role})
+                  <Eye size={14} style={{ verticalAlign: "-2px" }} /> View Only Mode ({profile?.role})
                 </span>
               )}
             </div>
@@ -1504,7 +1488,7 @@ export default function IEPBuilderPage() {
                         </div>
                       </div>
                       <span className="chip" style={{ marginLeft: "auto", background: "rgba(16,185,129,0.15)", color: "#065f46", fontWeight: 700, fontSize: "0.72rem", flexShrink: 0 }}>
-                        ✅ Achieved
+                        <CheckCircle size={12} style={{ verticalAlign: "-2px" }} /> Achieved
                       </span>
                     </div>
                   ))}

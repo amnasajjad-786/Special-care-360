@@ -29,8 +29,9 @@ the practical verification loop; `npm run build` is the final gate.
 module scope, so prerendering crashes with `auth/invalid-api-key` when the `NEXT_PUBLIC_FIREBASE_*`
 vars are absent. Copy `frontend/.env.local.example`; placeholder values are enough for a build.
 
-Lint is clean apart from nine `react-hooks/set-state-in-effect` warnings, which are deliberate —
-see the rationale in `eslint.config.mjs`.
+Lint has no errors. The remaining warnings are almost all `react-hooks/set-state-in-effect`
+(load-on-select effects), which are deliberate — see the rationale in `eslint.config.mjs`. Don't
+add new ones: derive state instead (the ABC tracker keys its filters to the selected student).
 
 ### Data scripts (backend/, run with the venv active and `serviceAccountKey.json` present)
 
@@ -61,11 +62,16 @@ Firestore directly from the browser. The FastAPI backend is nearly vestigial.
 - `frontend/lib/api.ts` — axios client for the FastAPI `/api/*` routes. Only one caller, and it is
   easy to miss: `panicDb.sendAlert` pulls it in through a dynamic `await import("./api")`, so a
   grep for static imports finds nothing. Everything else in it is unused.
-- Two backend endpoints are live: `GET /ai-insights/abc/{student_id}` (Gemini behavioural
-  analysis, called with `fetch()` in `app/dashboard/abc-tracker/page.tsx`) and
-  `POST /api/panic/alert` (staff notification fan-out plus email). The rest of
-  `backend/routers/{auth,students,daily_care,abc_tracker}.py` is dead code mirroring an older
-  architecture — the Firestore schema still matches it, which is why it is kept.
+- Live backend endpoints are the ones the browser cannot do alone: AI insights
+  (`/ai-insights/*`, Gemini/Cohere), `POST /api/panic/alert` (staff fan-out plus email), regression
+  observations (`/api/regression/*`), teletherapy tokens, progress videos and student documents
+  (`/api/documents/*`), the last two backed by Firebase Storage (`backend/file_storage.py`; `storage.rules` denies
+  all browser access) that only the API can touch. Online fee payment (`/api/payments/*`,
+  Safepay hosted checkout, verified server-side, stored in server-only `onlinePayments`). `main.py` also runs background loops: missed-medication checks and appointment
+  reminders (`appointment_reminders.py`, 24 h and 1 h before a session, de-duplicated through the
+  server-only `appointmentReminders` collection). Server-side writes are audited via
+  `backend/audit.py`. The rest of `backend/routers/{auth,students,daily_care,abc_tracker}.py` is
+  dead code mirroring an older architecture — the Firestore schema still matches it.
 
 Consequence: authorization is enforced by `firestore.rules`, not by backend middleware. Any new
 collection or access pattern needs a matching rule there or reads/writes fail at runtime.
@@ -94,7 +100,12 @@ entry there or it throws `failed-precondition` at runtime.
   admin approves it via `adminDb.approveUser`. The rules enforce this too — a user cannot write
   their own `role`, `status` or `centerId`. The first admin is therefore provisioned out-of-band
   by `backend/seed_firestore.py`; there is no way to bootstrap one through the UI, by design.
-- `profile.role` is `admin | teacher | therapist | parent`. `app/dashboard/layout.tsx` holds the
+- `profile.role` is `admin | teacher | therapist | parent | caregiver`. A caregiver is a family
+  member or home carer an admin links to a child through `students.caregiverIds` (max 3); they
+  get a read-only family view plus messages and documents. Their child-record queries rely on a
+  `studentId ==` constraint so the rules can resolve `child()`; a caregiver query without one is
+  denied. `isGuardian(role)` in `firestore-api.ts` covers parent-or-caregiver UI branches.
+  `app/dashboard/layout.tsx` holds the
   `ROLE_PATHS` map that gates which `/dashboard/*` prefixes each role may visit and redirects
   otherwise. This is the single place role-based navigation is decided — update it when adding a
   dashboard route, and update `components/layout/Sidebar.tsx` to match.
@@ -108,7 +119,14 @@ entry there or it throws `failed-precondition` at runtime.
 `users`, `students` (with `medicalProfile/main` and `carePlan/main` sub-documents — always the
 literal doc id `main`), `dailyCareJournals`, `abcIncidents`, `panicAlerts`, `notifications`,
 `staff`, `invoices`, `payments`, `centers`, `teletherapySessions`, `homePlanActivities`,
-`homePlanLogs`, `homePlanMessages`.
+`homePlanLogs`, `homePlanMessages`, `milestoneObservations`, `regressionAlerts`,
+`therapySessions`, `careMessages` (append-only care-team thread per child), `studentDocuments`
+(metadata only; written by the API), `auditLogs` (append-only, admin-readable; written by
+`lib/audit.ts` and `backend/audit.py`), `appointmentReminders` (server-only).
+
+Audit trail: `firestore-api.ts`, `teletherapy-api.ts` and `therapy-timeline-api.ts` end with an
+`instrument(...)` block that wraps write methods so each success records an audit entry. Add new
+write methods to that block. Audit failures are swallowed, like notifications.
 
 Conventions worth keeping:
 - **Records carry denormalised `centerId` and `parentId`.** See the query/rule section above. Join
@@ -159,7 +177,7 @@ the real path.
 - Shared types live in `frontend/types/index.ts`; `firestore-api.ts` defines its own looser
   `StudentDoc` with an index signature for Firestore round-trips.
 
-`frontend/CLAUDE.md` imports `frontend/AGENTS.md`, which warns that this Next.js version (16.2.4,
+`frontend/CLAUDE.md` imports `frontend/AGENTS.md`, which warns that this Next.js version (16.4.6,
 React 19) differs from older conventions — consult `node_modules/next/dist/docs/` before writing
 framework-level code.
 

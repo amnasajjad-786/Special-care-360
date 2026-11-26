@@ -1,6 +1,6 @@
 "use client";
-import { useEffect, useState } from "react";
-import { abcDb, studentsDb, scopeOf } from "@/lib/firestore-api";
+import { useEffect, useMemo, useState } from "react";
+import { abcDb, studentsDb, scopeOf, computePatterns, computeHeatmap, timeOfDayOf, SENSORY_FACTORS, TIME_OF_DAY } from "@/lib/firestore-api";
 import { ABCIncident, PatternAnalysis, HeatmapCell } from "@/types";
 import HeatmapGrid from "@/components/abc-tracker/HeatmapGrid";
 import TrendChart from "@/components/abc-tracker/TrendChart";
@@ -11,15 +11,22 @@ import { useAuth } from "@/lib/auth-context";
 
 import toast from "react-hot-toast";
 import ReactMarkdown from "react-markdown";
-import { Sparkles, BarChart2, TrendingUp, Search, Zap, BrainCircuit, Lightbulb, ClipboardList, Save, X } from "lucide-react";
+import { Sparkles, BarChart2, TrendingUp, Search, Zap, BrainCircuit, Lightbulb, ClipboardList, Save, X, Filter, MapPin, Ear, Clock } from "lucide-react";
+
+const NO_FILTERS = { from: "", to: "", timeOfDay: "", location: "", sensory: "" };
 
 export default function ABCTrackerPage() {
   const { profile, getIdToken } = useAuth();
   const [students, setStudents] = useState<{ id: string; name: string; parentId?: string }[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<{ id: string; name: string } | null>(null);
   const [incidents, setIncidents] = useState<ABCIncident[]>([]);
-  const [patterns, setPatterns] = useState<PatternAnalysis | null>(null);
-  const [heatmap, setHeatmap] = useState<HeatmapCell[]>([]);
+  // Filters belong to the student they were set for, so switching child
+  // starts from a clean slate without resetting state inside an effect.
+  const [filterState, setFilterState] = useState<{ studentId?: string; values: typeof NO_FILTERS }>({ values: NO_FILTERS });
+  const filters = filterState.studentId === selectedStudent?.id ? filterState.values : NO_FILTERS;
+  const setFilters = (next: typeof NO_FILTERS | ((current: typeof NO_FILTERS) => typeof NO_FILTERS)) =>
+    setFilterState({ studentId: selectedStudent?.id, values: typeof next === "function" ? next(filters) : next });
+  const filtersActive = Object.values(filters).some(Boolean);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
 
@@ -54,23 +61,32 @@ export default function ABCTrackerPage() {
     const scope = scopeOf(profile);
     setLoading(true);
     try {
-      const [incidents, patterns, heatmap] = await Promise.all([
-        abcDb.listIncidents(studentId, scope),
-        abcDb.getPatterns(studentId, scope),
-        abcDb.getHeatmap(studentId, scope),
-      ]);
-      setIncidents(incidents as unknown as ABCIncident[]);
-      setPatterns(patterns as unknown as PatternAnalysis);
-      setHeatmap(heatmap as unknown as HeatmapCell[]);
+      // One scoped fetch. Patterns, heatmap and filters are derived from it
+      // in memory, so filtering never widens what the rules allow.
+      const loaded = await abcDb.listIncidents(studentId, scope, 200);
+      setIncidents(loaded as unknown as ABCIncident[]);
     } catch (err) {
       console.error("Failed to load ABC data:", err);
       toast.error("Failed to load behavioral data");
       setIncidents([]);
-      setPatterns(null);
-      setHeatmap([]);
     }
     setLoading(false);
   };
+
+  const filtered = useMemo(() => incidents.filter((inc) => {
+    const at = new Date(inc.timestamp);
+    if (filters.from && !(at >= new Date(`${filters.from}T00:00:00`))) return false;
+    if (filters.to && !(at <= new Date(`${filters.to}T23:59:59.999`))) return false;
+    if (filters.timeOfDay && timeOfDayOf(inc.timestamp) !== filters.timeOfDay) return false;
+    if (filters.location && inc.location !== filters.location) return false;
+    if (filters.sensory && !(inc.sensoryFactors ?? []).includes(filters.sensory)) return false;
+    return true;
+  }), [incidents, filters]);
+  const patterns = useMemo(
+    () => (filtered.length ? computePatterns(filtered as unknown as Record<string, unknown>[]) as PatternAnalysis : null),
+    [filtered]);
+  const heatmap = useMemo(() => computeHeatmap(filtered as unknown as Record<string, unknown>[]) as HeatmapCell[], [filtered]);
+  const locations = useMemo(() => [...new Set(incidents.map((i) => i.location).filter(Boolean))].sort(), [incidents]);
 
   const selectedStudentId = selectedStudent?.id;
   useEffect(() => {
@@ -183,6 +199,53 @@ export default function ABCTrackerPage() {
         </div>
       )}
 
+      {/* Filters (WBS 3.3.3): time, location and sensory factor */}
+      {incidents.length > 0 && (
+        <div className="glass-card" style={{ padding: "14px 18px", marginBottom: 20, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.85rem", alignSelf: "center" }}>
+            <Filter size={16} /> Filter incidents
+          </div>
+          <FilterField label="From">
+            <input type="date" className="glass-input" value={filters.from} onChange={(e) => setFilters((f) => ({ ...f, from: e.target.value }))} />
+          </FilterField>
+          <FilterField label="To">
+            <input type="date" className="glass-input" value={filters.to} onChange={(e) => setFilters((f) => ({ ...f, to: e.target.value }))} />
+          </FilterField>
+          <FilterField label="Time of day">
+            <select className="glass-input" value={filters.timeOfDay} onChange={(e) => setFilters((f) => ({ ...f, timeOfDay: e.target.value }))}>
+              <option value="">Any time</option>
+              {TIME_OF_DAY.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
+          </FilterField>
+          <FilterField label="Location">
+            <select className="glass-input" value={filters.location} onChange={(e) => setFilters((f) => ({ ...f, location: e.target.value }))}>
+              <option value="">Any location</option>
+              {locations.map((l) => <option key={l} value={l}>{l}</option>)}
+            </select>
+          </FilterField>
+          <FilterField label="Sensory factor">
+            <select className="glass-input" value={filters.sensory} onChange={(e) => setFilters((f) => ({ ...f, sensory: e.target.value }))}>
+              <option value="">Any</option>
+              {SENSORY_FACTORS.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </FilterField>
+          {filtersActive && (
+            <button className="btn-ghost" style={{ padding: "8px 14px" }} onClick={() => setFilters(NO_FILTERS)}>
+              Clear filters
+            </button>
+          )}
+          <div style={{ marginLeft: "auto", fontSize: "0.8rem", color: "var(--text-secondary)", alignSelf: "center" }} role="status">
+            Showing {filtered.length} of {incidents.length} incidents
+          </div>
+        </div>
+      )}
+
+      {filtersActive && filtered.length === 0 && (
+        <div className="glass-card" role="status" style={{ padding: "14px 18px", marginBottom: 20, color: "var(--text-secondary)" }}>
+          No incidents match these filters.
+        </div>
+      )}
+
       {/* Stats row */}
       {patterns && incidents.length >= 5 && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "16px", marginBottom: "24px" }}>
@@ -234,12 +297,20 @@ export default function ABCTrackerPage() {
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px", marginBottom: "20px" }}>
-        <TrendChart incidents={loading ? [] : incidents} />
+        <TrendChart incidents={loading ? [] : filtered} />
         <TriggerBarChart patterns={loading ? null : patterns} />
       </div>
       </>}
 
       {incidents.length >= 5 && <PatternTable patterns={loading ? null : patterns} />}
+
+      {incidents.length >= 5 && patterns && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "20px", marginTop: "20px" }}>
+          <Breakdown title="By time of day" icon={<Clock size={16} />} rows={patterns.byTimeOfDay ?? []} total={filtered.length} />
+          <Breakdown title="By location" icon={<MapPin size={16} />} rows={patterns.byLocation ?? []} total={filtered.length} />
+          <Breakdown title="By sensory factor" icon={<Ear size={16} />} rows={patterns.bySensoryFactor ?? []} total={filtered.length} />
+        </div>
+      )}
 
       {/* Recent incidents table */}
       <div className="glass-card" style={{ padding: "20px", marginTop: "20px" }}>
@@ -248,14 +319,14 @@ export default function ABCTrackerPage() {
         </h3>
         {loading ? (
           <div className="skeleton" style={{ height: "150px", borderRadius: "8px" }} />
-        ) : incidents.length === 0 ? (
-          <p style={{ color: "var(--text-secondary)", textAlign: "center", padding: "24px 0" }}>No incidents recorded</p>
+        ) : filtered.length === 0 ? (
+          <p style={{ color: "var(--text-secondary)", textAlign: "center", padding: "24px 0" }}>{incidents.length === 0 ? "No incidents recorded" : "No incidents match these filters"}</p>
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table className="data-table">
-              <thead><tr><th>Date/Time</th><th>Antecedent</th><th>Behavior</th><th>Consequence</th><th>Severity</th><th>Duration</th><th>Location</th></tr></thead>
+              <thead><tr><th>Date/Time</th><th>Antecedent</th><th>Behavior</th><th>Consequence</th><th>Severity</th><th>Duration</th><th>Location</th><th>Sensory</th></tr></thead>
               <tbody>
-                {incidents.map(inc => {
+                {filtered.map(inc => {
                   const sevColors = ["", "#38a169", "#68d391", "#d69e2e", "#ed8936", "#e53e3e"];
                   return (
                     <tr key={inc.id}>
@@ -283,6 +354,7 @@ export default function ABCTrackerPage() {
                       </td>
                       <td style={{ fontSize: "0.85rem" }}>{inc.durationMinutes}m</td>
                       <td style={{ fontSize: "0.82rem", color: "var(--text-secondary)" }}>{inc.location}</td>
+                      <td style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>{(inc.sensoryFactors ?? []).join(", ") || "—"}</td>
                     </tr>
                   );
                 })}
@@ -358,10 +430,9 @@ export default function ABCTrackerPage() {
                   className="btn-primary" 
                   onClick={async () => {
                     try {
-                      // Fetch current Care Plan to avoid overwriting existing goals
-                      const existing = await studentsDb.getCarePlan(selectedStudent.id);
-                      await studentsDb.updateCarePlan(selectedStudent.id, { 
-                        ...existing,
+                      // Merge only the report. Re-sending the goals would trip the
+                      // care-plan version check and could overwrite a concurrent edit.
+                      await studentsDb.updateCarePlan(selectedStudent.id, {
                         lastAiReport: { 
                           report: aiReport, 
                           timestamp: new Date().toISOString() 
@@ -382,6 +453,35 @@ export default function ABCTrackerPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function FilterField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: "0.72rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", minWidth: 140 }}>
+      {label}
+      {children}
+    </label>
+  );
+}
+
+function Breakdown({ title, icon, rows, total }: { title: string; icon: React.ReactNode; rows: { tag: string; count: number }[]; total: number }) {
+  return (
+    <div className="glass-card" style={{ padding: "18px" }}>
+      <h3 style={{ margin: "0 0 12px", fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.9rem", display: "flex", alignItems: "center", gap: 8 }}>{icon} {title}</h3>
+      {rows.length === 0 ? (
+        <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--text-secondary)" }}>None recorded for the incidents shown.</p>
+      ) : rows.map((row) => (
+        <div key={row.tag} style={{ marginBottom: 8 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.82rem", marginBottom: 3 }}>
+            <span>{row.tag}</span><strong>{row.count}</strong>
+          </div>
+          <div style={{ height: 6, borderRadius: 999, background: "rgba(61,79,107,0.08)" }}>
+            <div style={{ width: `${Math.round((row.count / Math.max(total, 1)) * 100)}%`, height: "100%", borderRadius: 999, background: "var(--accent-teal)" }} />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

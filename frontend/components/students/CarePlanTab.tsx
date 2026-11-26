@@ -1,9 +1,10 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CarePlan, IEPGoal } from "@/types";
 import toast from "react-hot-toast";
-import { Target, Save, BrainCircuit } from "lucide-react";
-import { studentsDb } from "@/lib/firestore-api";
+import { Target, Save, BrainCircuit, CheckCircle2, Hourglass } from "lucide-react";
+import { milestoneObservationsDb, studentsDb, type MilestoneObservationDoc } from "@/lib/firestore-api";
+import GoalProgressChart from "./GoalProgressChart";
 import { useAuth } from "@/lib/auth-context";
 import ReactMarkdown from "react-markdown";
 
@@ -21,6 +22,18 @@ export default function CarePlanTab({ studentId, carePlan: initial, canEdit, onC
   const isTherapist = profile?.role === "therapist";
   const [goals, setGoals] = useState<IEPGoal[]>((initial?.goals || []).filter(goal => goal.status !== "Achieved"));
   const [version, setVersion] = useState(initial?.version ?? 0);
+  const [observations, setObservations] = useState<MilestoneObservationDoc[] | null>(null);
+  const [observationError, setObservationError] = useState(false);
+  const centerId = profile?.centerId;
+
+  useEffect(() => {
+    if (!centerId) return;
+    let cancelled = false;
+    milestoneObservationsDb.listForStudent(studentId, centerId)
+      .then((rows) => { if (!cancelled) { setObservations(rows); setObservationError(false); } })
+      .catch((err) => { console.error("[care plan] progress history failed:", err); if (!cancelled) setObservationError(true); });
+    return () => { cancelled = true; };
+  }, [studentId, centerId]);
 
   const [saving, setSaving] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
@@ -65,6 +78,16 @@ export default function CarePlanTab({ studentId, carePlan: initial, canEdit, onC
         </div>
         {canEdit && <button className="btn-primary" onClick={() => setShowAdd(true)} style={{ padding: "8px 18px", fontSize: "0.85rem" }}>+ Add Goal</button>}
       </div>
+
+      {observationError ? (
+        <div className="glass-card" role="alert" style={{ padding: "14px 18px", color: "var(--danger)", fontSize: "0.85rem" }}>
+          Progress history could not be loaded. Reload the page to try again.
+        </div>
+      ) : observations === null ? (
+        <div className="skeleton" style={{ height: 120, borderRadius: 12 }} />
+      ) : (
+        <GoalProgressChart observations={observations} goals={[...(initial?.goals ?? []), ...(initial?.achievedGoals ?? [])]} />
+      )}
 
       {showAdd && (
         <div className="glass-card animate-slide-down" style={{ padding: "20px", marginBottom: "16px", border: "2px solid var(--accent-teal)" }}>
@@ -125,7 +148,7 @@ export default function CarePlanTab({ studentId, carePlan: initial, canEdit, onC
                   <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                     {goal.milestones.map((m) => (
                       <div key={m.id} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.82rem" }}>
-                        <span style={{ fontSize: "0.9rem" }}>{m.completed ? "✅" : "⏳"}</span>
+                        <span style={{ display: "inline-flex" }}>{m.completed ? <CheckCircle2 size={15} color="var(--success)" /> : <Hourglass size={15} color="var(--text-secondary)" />}</span>
                         <span style={{ color: m.completed ? "var(--success)" : "var(--text-primary)", textDecoration: m.completed ? "line-through" : "none" }}>
                           {m.description}
                         </span>

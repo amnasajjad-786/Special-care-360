@@ -1,0 +1,12 @@
+rules_version = '2';
+// All files (student documents, progress videos) are private. Browsers never
+// read or write Storage directly: the FastAPI backend uses the Admin SDK, which
+// bypasses these rules, re-checks the caller's access to the child, and hands
+// out five-minute signed links.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -9,8 +9,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from firebase_admin_init import init_firebase, is_placeholder_mode
 from medication_monitor import check_missed_medication_doses
+from appointment_reminders import send_appointment_reminders
 from panic_delivery import process_pending_alerts, process_pending_emails
-from routers import auth, students, daily_care, abc_tracker, panic, ai_insights, teletherapy, regression, therapy_sessions, therapy_timeline, progress_videos
+from routers import auth, students, daily_care, abc_tracker, panic, ai_insights, teletherapy, regression, therapy_sessions, therapy_timeline, progress_videos, documents, payments
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -27,6 +28,18 @@ async def _medication_monitor_loop(executor):
             await asyncio.get_running_loop().run_in_executor(executor, check_missed_medication_doses)
         except Exception:
             logger.exception("Medication missed-dose check failed.")
+        await asyncio.sleep(interval)
+
+
+async def _appointment_reminder_loop(executor):
+    interval = max(60, int(os.getenv("APPOINTMENT_REMINDER_INTERVAL_SECONDS", "300")))
+    while True:
+        try:
+            sent = await asyncio.get_running_loop().run_in_executor(executor, send_appointment_reminders)
+            if sent:
+                logger.info("Sent %d appointment reminders", sent)
+        except Exception:
+            logger.exception("Appointment reminder scan failed; will retry")
         await asyncio.sleep(interval)
 
 
@@ -62,24 +75,26 @@ async def _progress_video_retention_loop(executor):
 @asynccontextmanager
 async def lifespan(_app):
     # Safety scans have capacity independent of request/AI/authentication work.
-    executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="safety")
+    executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="safety")
     monitor_task = None
     delivery_task = None
     email_task = None
     retention_task = None
+    reminder_task = None
     if is_placeholder_mode():
-        logger.warning("Missed-dose monitoring is disabled in placeholder Firestore mode.")
+        logger.warning("Missed-dose monitoring and appointment reminders are disabled in placeholder Firestore mode.")
     else:
         ZoneInfo("Asia/Karachi")  # Fail startup on missing timezone data, not silently disable safety scans.
         monitor_task = asyncio.create_task(_medication_monitor_loop(executor))
         delivery_task = asyncio.create_task(_panic_delivery_loop(executor))
         email_task = asyncio.create_task(_panic_email_loop(executor))
         retention_task = asyncio.create_task(_progress_video_retention_loop(executor))
+        reminder_task = asyncio.create_task(_appointment_reminder_loop(executor))
 
     try:
         yield
     finally:
-        for task in (monitor_task, delivery_task, email_task, retention_task):
+        for task in (monitor_task, delivery_task, email_task, retention_task, reminder_task):
             if task:
                 task.cancel()
                 try:
@@ -122,6 +137,8 @@ app.include_router(regression.router)
 app.include_router(therapy_sessions.router)
 app.include_router(therapy_timeline.router)
 app.include_router(progress_videos.router)
+app.include_router(documents.router)
+app.include_router(payments.router)
 
 
 @app.get("/")

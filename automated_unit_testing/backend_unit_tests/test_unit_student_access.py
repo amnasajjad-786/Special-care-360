@@ -80,6 +80,22 @@ class StudentAccessUnitTests(unittest.TestCase):
             authorize_student_data(unassigned_therapist, self.student)
         self.assertEqual(cm.exception.status_code, 403)
 
+    def test_unassigned_teacher_denied(self):
+        """TC-ACCESS-14: Teacher in the same centre but not assigned is denied (BUG-01 regression)."""
+        other_teacher = {"uid": "teacher-other", "role": "teacher", "status": "approved", "centerId": "center-001"}
+        with self.assertRaises(HTTPException) as cm:
+            authorize_student_data(other_teacher, self.student)
+        self.assertEqual(cm.exception.status_code, 403)
+
+    def test_linked_caregiver_allowed_unlinked_denied(self):
+        """TC-ACCESS-15: Caregiver sees only a child an admin linked them to via caregiverIds."""
+        student = dict(self.student, caregiverIds=["caregiver-1"])
+        linked = {"uid": "caregiver-1", "role": "caregiver", "status": "approved", "centerId": "center-001"}
+        authorize_student_data(linked, student)
+        with self.assertRaises(HTTPException) as cm:
+            authorize_student_data(dict(linked, uid="caregiver-2"), student)
+        self.assertEqual(cm.exception.status_code, 403)
+
     def test_unapproved_account_denied(self):
         """TC-ACCESS-08: Pending or unapproved user must be denied access with 403 Forbidden."""
         pending_teacher = {"uid": "teacher-100", "role": "teacher", "status": "pending", "centerId": "center-001"}

@@ -40,7 +40,28 @@ const NOTIFICATION_TITLES: Record<string, string> = {
   teletherapy_session: "Teletherapy Session",
   home_plan_activity: "Home Plan Activity",
   home_plan_message: "Home Plan Message",
+  appointment_reminder: "Appointment Reminder",
+  care_team_message: "Care Team Message",
+  student_document: "New Document",
 };
+
+/** Where a notification's "View" button goes, by type. */
+function notificationHref(data: Record<string, unknown>): string | undefined {
+  switch (data.type) {
+    case "teletherapy_session":
+      return "/dashboard/teletherapy";
+    case "appointment_reminder":
+      return data.sessionCollection === "teletherapySessions" ? "/dashboard/teletherapy" : "/dashboard/therapy-timeline";
+    case "care_team_message":
+      return "/dashboard/messages";
+    case "student_document":
+      return "/dashboard/documents";
+    case "fee_payment":
+      return "/dashboard/admin";
+    default:
+      return undefined;
+  }
+}
 
 export default function TopBar() {
   const { profile, logout } = useAuth();
@@ -115,7 +136,7 @@ export default function TopBar() {
             body: data.message || "",
             time: timeStr,
             read: !!data.read,
-            href: data.type === "teletherapy_session" ? "/dashboard/teletherapy" : undefined,
+            href: notificationHref(data),
             _rawDate: parsedDate,
           };
         });

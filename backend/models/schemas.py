@@ -1,5 +1,5 @@
 from config import DEFAULT_CENTER_ID
-from typing import Optional
+from typing import List, Optional
 from pydantic import BaseModel, EmailStr
 from datetime import datetime
 
@@ -82,6 +82,7 @@ class ABCIncidentCreate(BaseModel):
     severity: int       # 1–5
     durationMinutes: int
     location: str
+    sensoryFactors: List[str] = []
 
 
 # ──────────────────────────── PANIC ALERT ─────────────────────

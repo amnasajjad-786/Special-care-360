@@ -22,7 +22,8 @@ def authorize_student_data(user, student):
     allowed = (role == "admin" or
                (role == "parent" and student.get("parentId") == uid) or
                (role == "teacher" and teacher_assigned) or
-               (role == "therapist" and isinstance(therapists, list) and uid in therapists))
+               (role == "therapist" and isinstance(therapists, list) and uid in therapists) or
+               (role == "caregiver" and uid in (student.get("caregiverIds") or [])))
     if not allowed:
         raise HTTPException(403, "Student access denied")
 

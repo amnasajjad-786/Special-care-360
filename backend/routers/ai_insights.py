@@ -60,6 +60,69 @@ def authorize_iep_student(current_user: dict, student_data: dict) -> None:
 class AIResponse(BaseModel):
     report: str
 
+
+def _tag_list(value) -> list:
+    if isinstance(value, dict):
+        return [str(t) for t in value.get("tags") or []]
+    return []
+
+
+def _time_of_day(timestamp) -> Optional[str]:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    try:
+        moment = datetime.fromisoformat(str(timestamp).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    # Stored timestamps are UTC; the centre runs on Pakistan time.
+    hour = moment.astimezone(ZoneInfo("Asia/Karachi")).hour if moment.tzinfo else moment.hour
+    if 6 <= hour < 12:
+        return "Morning (6am-12pm)"
+    if 12 <= hour < 17:
+        return "Afternoon (12-5pm)"
+    if 17 <= hour < 21:
+        return "Evening (5-9pm)"
+    return "Night (9pm-6am)"
+
+
+def summarize_incidents(incidents: list) -> str:
+    """Counts of recorded ABC fields, used when the AI provider is unavailable.
+
+    Every line is a tally of stored values. Nothing here is an inference,
+    a recommendation or a clinical finding.
+    """
+    from collections import Counter
+
+    def top(counter: Counter) -> str:
+        if not counter:
+            return "None recorded"
+        return ", ".join(f"{name} ({count})" for name, count in counter.most_common(5))
+
+    total = len(incidents)
+    severities = [int(i.get("severity") or 0) for i in incidents if i.get("severity")]
+    average = sum(severities) / len(severities) if severities else 0
+    antecedents = Counter(t for i in incidents for t in _tag_list(i.get("antecedent")))
+    behaviors = Counter(t for i in incidents for t in _tag_list(i.get("behavior")))
+    consequences = Counter(t for i in incidents for t in _tag_list(i.get("consequence")))
+    sensory = Counter(str(s) for i in incidents for s in (i.get("sensoryFactors") or []))
+    locations = Counter(str(i["location"]) for i in incidents if i.get("location"))
+    periods = Counter(p for p in (_time_of_day(i.get("timestamp")) for i in incidents) if p)
+    without_sensory = sum(1 for i in incidents if not i.get("sensoryFactors"))
+
+    return f"""### Recorded incident summary
+
+The AI analysis service is unavailable, so this is a count of what staff recorded. It contains no interpretation or recommendations. Try again later for the full analysis.
+
+- **Incidents reviewed:** {total}
+- **Average recorded severity:** {average:.1f} / 5 ({len(severities)} with a severity)
+- **Antecedent tags:** {top(antecedents)}
+- **Behaviour tags:** {top(behaviors)}
+- **Consequence tags:** {top(consequences)}
+- **Sensory factors:** {top(sensory)} — {without_sensory} incident(s) have none recorded
+- **Locations:** {top(locations)}
+- **Time of day:** {top(periods)}
+"""
+
 @router.get("/abc/{student_id}", response_model=AIResponse)
 async def generate_abc_insights(
     student_id: str,
@@ -98,6 +161,7 @@ Here are their recent logged incidents:
     for inc in incidents:
         prompt += f"\n- **Date/Time**: {inc.get('timestamp') or (str(inc.get('date') or '') + ' ' + str(inc.get('time') or ''))}\n"
         prompt += f"  - **Location**: {inc.get('location')}\n"
+        prompt += f"  - **Sensory factors**: {', '.join(inc.get('sensoryFactors') or []) or 'None recorded'}\n"
         prompt += f"  - **Antecedent**: {inc.get('antecedent')} (Notes: {inc.get('antecedentNotes', 'None')})\n"
         prompt += f"  - **Behavior**: {inc.get('behavior')} (Severity: {inc.get('severity')}/5, Duration: {inc.get('durationMinutes')} mins)\n"
         prompt += f"  - **Consequence**: {inc.get('consequence')} (Notes: {inc.get('consequenceNotes', 'None')})\n"
@@ -125,33 +189,10 @@ Here are their recent logged incidents:
             return AIResponse(report=report_text)
         raise Exception("Empty response from AI service.")
     except Exception as e:
-        print(f"[generate_abc_insights] AI call error: {e}. Generating clinical baseline report.")
-        
-        # Clinical baseline analysis fallback based on actual incidents
-        incident_count = len(incidents)
-        avg_sev = sum(int(inc.get('severity', 1)) for inc in incidents) / max(incident_count, 1)
-        common_triggers = list(set(
-            str(inc.get('antecedent', {}).get('text') if isinstance(inc.get('antecedent'), dict) else inc.get('antecedent', 'N/A'))
-            for inc in incidents[:5]
-        ))
-        
-        fallback_report = f"""### Clinical Behavioral Analysis Summary for {student_name}
-
-**Overview:**
-A clinical review of {incident_count} recent behavioral events shows an average severity level of **{avg_sev:.1f} / 5.0**. Incidents primarily correlate with environmental transitions and structured task demands.
-
-### Key Behavioral Patterns & Triggers
-- **Primary Antecedents / Triggers:** {', '.join(common_triggers) or 'Sensory changes, task transitions'}
-- **Typical Response Pattern:** Disruptive avoidance or sensory overwhelm noted during peak interaction periods.
-- **Consequence Dynamics:** Redirection to quiet calming spaces showed highest efficacy in de-escalating distress.
-
-### Recommended Actionable Interventions
-1. **Pre-Transition Sensory Buffers:** Provide 2-minute visual warnings and gentle prompts before transitioning between activities.
-2. **Proactive Sensory Regulation:** Offer scheduled sensory breaks (deep pressure, calming corner) before high-demand cognitive tasks.
-3. **Alternative Communication Options:** Reinforce functional request cards or gestures so {student_name} can request a break before distress escalates.
-
-*Note: Generated via Clinical Behavioral Rules Engine.*"""
-        return AIResponse(report=fallback_report)
+        print(f"[generate_abc_insights] AI call error: {e}. Returning recorded-data summary.")
+        # The provider is unavailable. Report only what was recorded; never
+        # state findings or interventions the data does not support.
+        return AIResponse(report=summarize_incidents(incidents))
 
 
 class MilestoneSchema(BaseModel):

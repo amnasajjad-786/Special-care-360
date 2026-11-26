@@ -14,11 +14,13 @@ import {
   Trophy,
   History,
   CheckCircle2,
-
   AlertCircle,
+  AlertTriangle,
   Clock,
   Send,
+  Target,
 } from "lucide-react";
+import GoalProgressChart, { MASTERY_THRESHOLD, statusForPercent } from "./GoalProgressChart";
 import toast from "react-hot-toast";
 
 interface Props {
@@ -63,11 +65,14 @@ export default function TeacherCarePlanTab({
 }: Props) {
   const { profile, user } = useAuth();
   const achievedGoals: IEPGoal[] = Array.isArray(carePlan.achievedGoals) ? carePlan.achievedGoals : [];
+  const activeGoals: IEPGoal[] = (Array.isArray(carePlan.goals) ? carePlan.goals : []).filter((g) => g.status !== "Achieved");
 
   // Selected performance per goal: { [goalId]: "Achieved" | "In Progress" | "Failed/Declined" }
   const [selectedStatus, setSelectedStatus] = useState<Record<string, MilestoneObservationStatus>>({});
   // Notes per goal: { [goalId]: string }
   const [notes, setNotes] = useState<Record<string, string>>({});
+  // Measured mastery percentage per goal, as typed (empty = not measured)
+  const [percent, setPercent] = useState<Record<string, string>>({});
   // Saving state per goal: { [goalId]: boolean }
   const [savingGoalId, setSavingGoalId] = useState<string | null>(null);
 
@@ -99,10 +104,23 @@ export default function TeacherCarePlanTab({
       .catch((err) => console.error("Could not load observation history:", err));
   }, [studentId, resolvedCenterId]);
 
+  const measuredFor = (goalId: string): number | null => {
+    const raw = (percent[goalId] ?? "").trim();
+    if (raw === "") return null;
+    const value = Number(raw);
+    return Number.isInteger(value) && value >= 0 && value <= 100 ? value : NaN;
+  };
+
   const handleRecordStatus = async (goal: IEPGoal) => {
-    const currentStatus = selectedStatus[goal.id];
+    const measured = measuredFor(goal.id);
+    if (Number.isNaN(measured)) {
+      toast.error("Mastery percentage must be a whole number from 0 to 100.");
+      return;
+    }
+    // A measured percentage decides the status; otherwise the selected category does.
+    const currentStatus = measured !== null ? statusForPercent(measured) : selectedStatus[goal.id];
     if (!currentStatus) {
-      toast.error("Please select current skill performance first.");
+      toast.error("Enter a measured percentage or select current skill performance first.");
       return;
     }
 
@@ -123,6 +141,7 @@ export default function TeacherCarePlanTab({
         goalId: goal.id,
         goalTitle: goal.title,
         observedStatus: currentStatus,
+        ...(measured !== null ? { masteryPercent: measured } : {}),
         notes: notes[goal.id] || "",
         observedBy: user?.uid ?? "",
         observedByName: profile?.name ?? "Teacher",
@@ -144,7 +163,7 @@ export default function TeacherCarePlanTab({
       }));
 
       if (result.alertCreated && result.alertLevel === "Regression Warning") {
-        toast("⚠️ Regression warning sent to assigned therapists.", {
+        toast.error("Regression warning sent to assigned therapists.", {
           style: { background: "#fef2f2", color: "#991b1b", border: "1px solid #fca5a5" },
         });
       } else if (result.alertLevel === "Monitoring") {
@@ -154,6 +173,13 @@ export default function TeacherCarePlanTab({
       } else {
         toast.success("Skill performance logged successfully.");
       }
+
+      setPercent((prev) => ({ ...prev, [goal.id]: "" }));
+      setSelectedStatus((prev) => {
+        const next = { ...prev };
+        delete next[goal.id];
+        return next;
+      });
 
       // Refresh history list
       try {
@@ -196,6 +222,57 @@ export default function TeacherCarePlanTab({
           {achievedGoals.length} Mastered Goal{achievedGoals.length === 1 ? "" : "s"}
         </span>
       </div>
+
+      <GoalProgressChart observations={history} goals={[...activeGoals, ...achievedGoals]} />
+
+      {/* Active goals: record progress toward mastery (WBS 3.5.2) */}
+      {activeGoals.length > 0 && (
+        <div className="glass-card" style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
+          <div>
+            <h4 style={{ margin: 0, fontWeight: 700, color: "var(--primary-dark)", fontSize: "0.95rem", display: "flex", alignItems: "center", gap: 8 }}>
+              <Target size={17} /> Current goals: record measured progress
+            </h4>
+            <p style={{ margin: "4px 0 0", fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+              Enter the percentage of correct trials observed today. {MASTERY_THRESHOLD}% or above counts as meeting the mastery criterion.
+            </p>
+          </div>
+          {activeGoals.map((goal) => {
+            const measured = measuredFor(goal.id);
+            const last = history.find((h) => h.goalId === goal.id);
+            return (
+              <div key={goal.id} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "10px 0", borderTop: "1px solid rgba(61,79,107,0.08)" }}>
+                <div style={{ flex: "1 1 220px" }}>
+                  <div style={{ fontWeight: 700, fontSize: "0.88rem", color: "var(--primary-dark)" }}>{goal.title}</div>
+                  <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)" }}>
+                    {last ? `Last recorded ${typeof last.masteryPercent === "number" ? `${last.masteryPercent}%` : last.observedStatus} on ${new Date(last.observedAt).toLocaleDateString()}` : "No progress recorded yet"}
+                  </div>
+                </div>
+                <input
+                  type="number" min={0} max={100} step={1} inputMode="numeric"
+                  className="glass-input" aria-label={`Measured mastery percent for ${goal.title}`}
+                  placeholder="%" value={percent[goal.id] ?? ""}
+                  onChange={(e) => setPercent((prev) => ({ ...prev, [goal.id]: e.target.value }))}
+                  style={{ width: 90, padding: "8px 10px" }}
+                />
+                <input
+                  type="text" className="glass-input" placeholder="Observation note (optional)"
+                  value={notes[goal.id] || ""}
+                  onChange={(e) => setNotes((prev) => ({ ...prev, [goal.id]: e.target.value }))}
+                  style={{ flex: "2 1 220px", fontSize: "0.82rem", padding: "8px 12px" }}
+                />
+                <button
+                  className="btn-primary"
+                  onClick={() => handleRecordStatus(goal)}
+                  disabled={savingGoalId === goal.id || measured === null || Number.isNaN(measured)}
+                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", fontSize: "0.82rem", whiteSpace: "nowrap" }}
+                >
+                  <Send size={14} /> {savingGoalId === goal.id ? "Saving..." : "Record progress"}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Achieved Goals Cards */}
       {achievedGoals.length === 0 ? (
@@ -256,7 +333,7 @@ export default function TeacherCarePlanTab({
                       flexShrink: 0,
                     }}
                   >
-                    🏆 Mastered Baseline
+                    <Trophy size={12} style={{ marginRight: 4, verticalAlign: "-1px" }} />Mastered Baseline
                   </span>
                 </div>
 
@@ -276,7 +353,7 @@ export default function TeacherCarePlanTab({
                     <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
                       {ag.milestones.map((m) => (
                         <div key={m.id} style={{ fontSize: "0.78rem", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "6px" }}>
-                          <span>✅</span>
+                          <CheckCircle2 size={13} style={{ color: "#10b981", flexShrink: 0 }} />
                           <span>{m.description}</span>
                         </div>
                       ))}
@@ -336,8 +413,18 @@ export default function TeacherCarePlanTab({
                   </div>
                 </div>
 
-                {/* Optional Note + Save Action */}
+                {/* Optional measured percentage + note + save */}
                 <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.78rem", color: "var(--text-secondary)" }}>
+                    Measured %
+                    <input
+                      type="number" min={0} max={100} step={1} inputMode="numeric"
+                      className="glass-input" aria-label={`Measured mastery percent for ${ag.title}`}
+                      placeholder="optional" value={percent[ag.id] ?? ""}
+                      onChange={(e) => setPercent((prev) => ({ ...prev, [ag.id]: e.target.value }))}
+                      style={{ width: 96, padding: "8px 10px" }}
+                    />
+                  </label>
                   <input
                     type="text"
                     className="glass-input"
@@ -352,7 +439,7 @@ export default function TeacherCarePlanTab({
                   <button
                     className="btn-primary"
                     onClick={() => handleRecordStatus(ag)}
-                    disabled={isSaving || !currentSelected}
+                    disabled={isSaving || (!currentSelected && measuredFor(ag.id) === null) || Number.isNaN(measuredFor(ag.id))}
                     style={{
                       display: "flex",
                       alignItems: "center",
@@ -367,6 +454,13 @@ export default function TeacherCarePlanTab({
                     {isSaving ? "Saving..." : "Save Progress Log"}
                   </button>
                 </div>
+
+                {measuredFor(ag.id) !== null && !Number.isNaN(measuredFor(ag.id)) && (
+                  <div style={{ fontSize: "0.76rem", color: "var(--text-secondary)" }}>
+                    {measuredFor(ag.id)}% will be recorded as <strong style={{ color: "var(--text-primary)" }}>{statusForPercent(measuredFor(ag.id) as number)}</strong>
+                    {(measuredFor(ag.id) as number) < MASTERY_THRESHOLD ? ` (below the ${MASTERY_THRESHOLD}% mastery criterion)` : ""}. The measured value takes precedence over the selected category.
+                  </div>
+                )}
 
                 {/* Analysis / Detection Result Card */}
                 {result && (
@@ -417,9 +511,11 @@ export default function TeacherCarePlanTab({
                               : "var(--success)",
                         }}
                       >
-                        {result.change === "Declining"
-                          ? `⚠️ ${result.alertLevel || "Early Regression Alert"}`
-                          : "✅ Mastered / Maintaining"}
+                        {result.change === "Declining" ? (
+                          <><AlertTriangle size={12} style={{ marginRight: 4, verticalAlign: "-1px" }} />{result.alertLevel || "Early Regression Alert"}</>
+                        ) : result.change === "In Progress" ? "Progress recorded" : (
+                          <><CheckCircle2 size={12} style={{ marginRight: 4, verticalAlign: "-1px" }} />Mastered / Maintaining</>
+                        )}
                       </span>
                     </div>
 
@@ -459,7 +555,7 @@ export default function TeacherCarePlanTab({
                     <Clock size={12} />
                     <span>
                       Last checked by {lastObs.observedByName}:{" "}
-                      <strong style={{ color: "var(--text-primary)" }}>{lastObs.observedStatus}</strong> on{" "}
+                      <strong style={{ color: "var(--text-primary)" }}>{typeof lastObs.masteryPercent === "number" ? `${lastObs.masteryPercent}% (${lastObs.observedStatus})` : lastObs.observedStatus}</strong> on{" "}
                       {new Date(lastObs.observedAt).toLocaleDateString()}
                     </span>
                   </div>

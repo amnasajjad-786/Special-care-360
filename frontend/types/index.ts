@@ -1,6 +1,6 @@
 // ─── Shared TypeScript types for Special Care 360 ────────────────────────────
 
-export type Role = "admin" | "teacher" | "therapist" | "parent";
+export type Role = "admin" | "teacher" | "therapist" | "parent" | "caregiver";
 export type Status = "active" | "resolved" | "pending" | "approved";
 
 // ─── User ──────────────────────────────────────────────────────────────────
@@ -159,6 +159,8 @@ export interface ABCIncident {
   severity: number;
   durationMinutes: number;
   location: string;
+  /** Sensory context recorded at logging time. Absent on older incidents. */
+  sensoryFactors?: string[];
 }
 
 export interface PatternAnalysis {
@@ -169,6 +171,9 @@ export interface PatternAnalysis {
   avgSeverity: number;
   totalIncidents: number;
   insights: string[];
+  byLocation?: { tag: string; count: number }[];
+  bySensoryFactor?: { tag: string; count: number }[];
+  byTimeOfDay?: { tag: string; count: number }[];
 }
 
 export interface HeatmapCell {

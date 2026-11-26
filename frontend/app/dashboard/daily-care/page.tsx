@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { format } from "date-fns";
 import { useAuth } from "@/lib/auth-context";
-import { dailyCareDb, studentsDb, scopeOf } from "@/lib/firestore-api";
+import { dailyCareDb, studentsDb, scopeOf, isGuardian } from "@/lib/firestore-api";
 import { DailyCareJournal } from "@/types";
 import JournalForm from "@/components/daily-care/JournalForm";
 import DailyDigest from "@/components/daily-care/DailyDigest";
@@ -169,14 +169,14 @@ export default function DailyCarePage() {
             </button>
           )}
           {isTeacher && <span className="chip chip-info">Teacher View</span>}
-          {profile?.role === "parent" && <span className="chip chip-purple">Parent View</span>}
+          {isGuardian(profile?.role) && <span className="chip chip-purple">Family View</span>}
         </div>
       </div>
 
       {/* Journal Title */}
       <div style={{ marginBottom: "20px" }}>
         <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 800, color: "var(--primary-dark)" }}>
-          {profile?.role === "parent" ? "Daily Digest" : "Today's Care Journal"}
+          {isGuardian(profile?.role) ? "Daily Digest" : "Today's Care Journal"}
         </h2>
         <p style={{ margin: "4px 0 0", color: "var(--text-secondary)", fontSize: "0.88rem" }}>
           {selectedStudent.name} · {new Date(date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
@@ -194,7 +194,7 @@ export default function DailyCarePage() {
           <AlertTriangle size={20} />
           <span>Daily care data could not be loaded. Please try again before making changes.</span>
         </div>
-      ) : profile?.role === "parent" ? (
+      ) : isGuardian(profile?.role) ? (
         existingJournal
           ? <DailyDigest journal={existingJournal} studentName={selectedStudent.name} />
           : <div className="glass-card animate-fade-in" style={{ padding: "48px", textAlign: "center" }}>
