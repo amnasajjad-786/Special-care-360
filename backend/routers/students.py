@@ -23,8 +23,8 @@ def validate_age(dob: str):
         dob_date = datetime.strptime(date_part, "%Y-%m-%d")
         today = datetime.now()
         age = today.year - dob_date.year - ((today.month, today.day) < (dob_date.month, dob_date.day))
-        if age < 0 or age > 12:
-            raise HTTPException(status_code=400, detail="Student age must be between 0 and 12 years.")
+        if age < 0 or age > 16:
+            raise HTTPException(status_code=400, detail="Student age must be between 0 and 16 years.")
     except Exception as e:
         if isinstance(e, HTTPException):
             raise e

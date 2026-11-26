@@ -68,6 +68,12 @@ export interface IEPGoal {
   targetTimeframe?: string;
   measurementMethod?: string;
   rationale?: string;
+  correlation?: {
+    correlatedPillar: "Clinical" | "Behavioral" | "Regression" | "Multi-Pillar";
+    factor: string;
+    strength: "High" | "Medium" | "Moderate";
+    score: number; // e.g., 0.85
+  };
   achievedAt?: string;           // ISO timestamp set when therapist marks goal as Achieved
   milestones?: {
     id: string;

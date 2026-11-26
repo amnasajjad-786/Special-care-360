@@ -6,7 +6,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from routers import auth, students, daily_care, abc_tracker, panic, ai_insights, teletherapy, regression
 import middleware.auth_middleware as authentication
-from fake_store import Store, transactional
+try:
+    from tests.fake_store import Store, transactional
+except ImportError:
+    from fake_store import Store, transactional
 
 ROUTERS = [auth, students, daily_care, abc_tracker, panic, ai_insights, teletherapy, regression]
 

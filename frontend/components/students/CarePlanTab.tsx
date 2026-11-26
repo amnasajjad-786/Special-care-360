@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { CarePlan, IEPGoal } from "@/types";
 import toast from "react-hot-toast";
-import { Target, Save, BrainCircuit, CheckCircle2, Hourglass } from "lucide-react";
+import { Target, Save, BrainCircuit, CheckCircle2, Hourglass, Sparkles, Link2, Check, RefreshCw } from "lucide-react";
 import { milestoneObservationsDb, studentsDb, type MilestoneObservationDoc } from "@/lib/firestore-api";
 import GoalProgressChart from "./GoalProgressChart";
 import { useAuth } from "@/lib/auth-context";
@@ -18,7 +18,7 @@ const STATUS_STYLES: Record<string, string> = {
 interface Props { studentId: string; carePlan: CarePlan; canEdit: boolean; onChange?: (data: CarePlan) => void; }
 
 export default function CarePlanTab({ studentId, carePlan: initial, canEdit, onChange }: Props) {
-  const { profile } = useAuth();
+  const { profile, getIdToken } = useAuth();
   const isTherapist = profile?.role === "therapist";
   const [goals, setGoals] = useState<IEPGoal[]>((initial?.goals || []).filter(goal => goal.status !== "Achieved"));
   const [version, setVersion] = useState(initial?.version ?? 0);
@@ -38,6 +38,48 @@ export default function CarePlanTab({ studentId, carePlan: initial, canEdit, onC
   const [saving, setSaving] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [newGoal, setNewGoal] = useState({ title: "", status: "In Progress" as IEPGoal["status"], progressPercent: 0 });
+
+  // AI IEP Generation state
+  const [generatingAi, setGeneratingAi] = useState(false);
+  const [aiSuggestions, setAiSuggestions] = useState<IEPGoal[]>([]);
+  const [aiSummary, setAiSummary] = useState<string>("");
+
+  const handleGenerateAiIEP = async () => {
+    setGeneratingAi(true);
+    try {
+      const token = await getIdToken();
+      if (!token) throw new Error("You must be logged in as therapist.");
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const res = await fetch(`${apiUrl}/ai-insights/iep/${studentId}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || "Failed to generate AI IEP goals");
+      }
+
+      const data = await res.json();
+      setAiSuggestions(data.goals || []);
+      setAiSummary(data.summary || "");
+      toast.success(`Generated ${data.goals?.length || 0} AI goals with Correlation`);
+    } catch (err) {
+      console.error(err);
+      toast.error(err instanceof Error ? err.message : "Error generating IEP");
+    } finally {
+      setGeneratingAi(false);
+    }
+  };
+
+  const adoptAiGoal = (goalToAdopt: IEPGoal) => {
+    setGoals(prev => [...prev, goalToAdopt]);
+    setAiSuggestions(prev => prev.filter(g => g.id !== goalToAdopt.id));
+    toast.success("Goal added to Care Plan");
+  };
 
   const save = async () => {
     setSaving(true);
@@ -76,7 +118,30 @@ export default function CarePlanTab({ studentId, carePlan: initial, canEdit, onC
             Current Finalized &amp; Ongoing Goals ({goals.length} active)
           </p>
         </div>
-        {canEdit && <button className="btn-primary" onClick={() => setShowAdd(true)} style={{ padding: "8px 18px", fontSize: "0.85rem" }}>+ Add Goal</button>}
+        {canEdit && (
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button
+              className="btn-ghost"
+              onClick={handleGenerateAiIEP}
+              disabled={generatingAi}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "8px 14px",
+                fontSize: "0.85rem",
+                color: "var(--accent-purple)",
+                borderColor: "var(--accent-purple)",
+              }}
+            >
+              {generatingAi ? <RefreshCw size={15} className="spin" /> : <Sparkles size={15} />}
+              {generatingAi ? "Correlating & Generating..." : "Generate AI IEP (Correlation)"}
+            </button>
+            <button className="btn-primary" onClick={() => setShowAdd(true)} style={{ padding: "8px 18px", fontSize: "0.85rem" }}>
+              + Add Goal
+            </button>
+          </div>
+        )}
       </div>
 
       {observationError ? (
@@ -87,6 +152,87 @@ export default function CarePlanTab({ studentId, carePlan: initial, canEdit, onC
         <div className="skeleton" style={{ height: 120, borderRadius: 12 }} />
       ) : (
         <GoalProgressChart observations={observations} goals={[...(initial?.goals ?? []), ...(initial?.achievedGoals ?? [])]} />
+      )}
+
+      {/* AI Suggested Goals Section with Correlation Analytics */}
+      {aiSuggestions.length > 0 && (
+        <div className="glass-card animate-slide-down" style={{ padding: "20px", border: "2px dashed var(--accent-purple)", background: "rgba(124, 58, 237, 0.03)", marginBottom: "16px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <Sparkles size={18} style={{ color: "var(--accent-purple)" }} />
+              <h4 style={{ margin: 0, fontWeight: 700, color: "var(--accent-purple)", fontSize: "0.95rem" }}>
+                AI IEP Suggestions with Tri-Pillar Correlation
+              </h4>
+            </div>
+            <button className="btn-ghost" onClick={() => setAiSuggestions([])} style={{ fontSize: "0.75rem", padding: "4px 8px" }}>
+              Dismiss
+            </button>
+          </div>
+
+          {aiSummary && (
+            <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginBottom: "14px", fontStyle: "italic" }}>
+              &ldquo;{aiSummary}&rdquo;
+            </p>
+          )}
+
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            {aiSuggestions.map((sug) => (
+              <div key={sug.id} style={{ background: "#fff", border: "1px solid rgba(0,0,0,0.08)", borderRadius: "8px", padding: "14px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "10px" }}>
+                  <div>
+                    <span style={{ fontSize: "0.72rem", fontWeight: 700, textTransform: "uppercase", color: "var(--accent-purple)", letterSpacing: "0.5px" }}>
+                      {sug.goalArea || "Clinical Development"}
+                    </span>
+                    <h5 style={{ margin: "3px 0 6px", fontSize: "0.92rem", fontWeight: 600, color: "var(--text-primary)" }}>
+                      {sug.title}
+                    </h5>
+                  </div>
+                  <button
+                    className="btn-primary"
+                    onClick={() => adoptAiGoal(sug)}
+                    style={{ fontSize: "0.78rem", padding: "5px 12px", display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}
+                  >
+                    <Check size={14} /> Adopt Goal
+                  </button>
+                </div>
+
+                {/* Correlation Metrics Badge */}
+                {sug.correlation && (
+                  <div style={{
+                    marginTop: "8px",
+                    padding: "8px 12px",
+                    background: "rgba(124, 58, 237, 0.06)",
+                    borderRadius: "6px",
+                    borderLeft: "3px solid var(--accent-purple)",
+                    display: "flex",
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                    gap: "10px",
+                    fontSize: "0.78rem"
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "4px", fontWeight: 700, color: "var(--accent-purple)" }}>
+                      <Link2 size={13} />
+                      <span>{sug.correlation.correlatedPillar} Correlation:</span>
+                    </div>
+                    <span style={{ color: "var(--text-primary)", fontWeight: 500 }}>
+                      {sug.correlation.factor}
+                    </span>
+                    <span className="chip" style={{ background: "#ede9fe", color: "#6d28d9", fontSize: "0.72rem", padding: "2px 8px" }}>
+                      Confidence: {(sug.correlation.score * 100).toFixed(0)}% ({sug.correlation.strength})
+                    </span>
+                  </div>
+                )}
+
+                {/* Rationale */}
+                {sug.rationale && (
+                  <p style={{ margin: "8px 0 0", fontSize: "0.78rem", color: "var(--text-secondary)", whiteSpace: "pre-line" }}>
+                    <strong>Clinical Rationale:</strong> {sug.rationale}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {showAdd && (
@@ -138,6 +284,25 @@ export default function CarePlanTab({ studentId, carePlan: initial, canEdit, onC
                   {goal.progressPercent}%
                 </span>
               </div>
+
+              {/* Correlation details for adopted goal if present */}
+              {goal.correlation && (
+                <div style={{
+                  marginTop: "10px",
+                  padding: "6px 10px",
+                  background: "rgba(124, 58, 237, 0.05)",
+                  borderRadius: "6px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  fontSize: "0.75rem",
+                  color: "var(--accent-purple)",
+                  border: "1px solid rgba(124, 58, 237, 0.15)"
+                }}>
+                  <Link2 size={12} />
+                  <span><strong>{goal.correlation.correlatedPillar} Link:</strong> {goal.correlation.factor} ({(goal.correlation.score * 100).toFixed(0)}% match)</span>
+                </div>
+              )}
 
               {/* Milestones list if defined */}
               {Array.isArray(goal.milestones) && goal.milestones.length > 0 && (

@@ -201,6 +201,12 @@ class MilestoneSchema(BaseModel):
     completed: bool = False
     targetDate: str = ""
 
+class GoalCorrelationSchema(BaseModel):
+    correlatedPillar: str = "Clinical"  # "Clinical", "Behavioral", "Regression", "Multi-Pillar"
+    factor: str = ""                    # Specific trigger, incident, or regression metric
+    strength: str = "High"              # "High", "Medium", "Moderate"
+    score: float = 0.85                 # 0.0 to 1.0
+
 class GeneratedIEPGoal(BaseModel):
     id: str
     goalArea: str
@@ -208,6 +214,7 @@ class GeneratedIEPGoal(BaseModel):
     targetTimeframe: str
     measurementMethod: str
     rationale: str
+    correlation: Optional[GoalCorrelationSchema] = None
     milestones: list[MilestoneSchema] = []
     status: str = "In Progress"
     progressPercent: int = 0
@@ -381,7 +388,7 @@ MANDATORY GOAL COMPOSITION RULES:
 
 Return ONLY a valid JSON object matching this exact schema:
 {{
-  "summary": "2-3 sentence overview explaining how this IEP balances clinical profile, behavioral antecedents, and regression history.",
+  "summary": "2-3 sentence overview explaining how this IEP correlates across clinical profile, behavioral antecedents, and regression history.",
   "goals": [
     {{
       "id": "goal_1",
@@ -390,6 +397,12 @@ Return ONLY a valid JSON object matching this exact schema:
       "targetTimeframe": "e.g., 3 Months, 6 Months",
       "measurementMethod": "- Bullet 1\\n- Bullet 2",
       "rationale": "- Bullet 1 referencing clinical/behavioral/regression input\\n- Bullet 2",
+      "correlation": {{
+        "correlatedPillar": "Clinical | Behavioral | Regression | Multi-Pillar",
+        "factor": "Specific trigger/behavior/milestone this goal correlates with (e.g. 'ABC Loud Noise trigger' or 'Fine-motor regression')",
+        "strength": "High | Medium | Moderate",
+        "score": 0.88
+      }},
       "milestones": [
         {{
           "id": "m1",
@@ -446,6 +459,14 @@ Return ONLY a valid JSON object matching this exact schema:
 
         formatted_goals = []
         for i, g in enumerate(parsed_data.get("goals", [])):
+            corr_raw = g.get("correlation") or {}
+            corr_obj = GoalCorrelationSchema(
+                correlatedPillar=corr_raw.get("correlatedPillar", "Clinical"),
+                factor=corr_raw.get("factor", f"Clinical correlation with {diagnosis or 'student profile'}"),
+                strength=corr_raw.get("strength", "High"),
+                score=float(corr_raw.get("score", 0.85)) if corr_raw.get("score") is not None else 0.85
+            )
+
             formatted_goals.append(
                 GeneratedIEPGoal(
                     id=f"iep_goal_{uuid.uuid4().hex[:8]}",
@@ -454,6 +475,7 @@ Return ONLY a valid JSON object matching this exact schema:
                     targetTimeframe=g.get("targetTimeframe", "3 Months"),
                     measurementMethod=to_str(g.get("measurementMethod"), "Therapist observation"),
                     rationale=to_str(g.get("rationale"), ""),
+                    correlation=corr_obj,
                     milestones=[
                         MilestoneSchema(
                             id=f"m_{uuid.uuid4().hex[:6]}",
@@ -494,6 +516,12 @@ Return ONLY a valid JSON object matching this exact schema:
                     targetTimeframe="3 Months",
                     measurementMethod=f"- Weekly proficiency monitoring against baseline ({alert_prev}%)\n- 85% consistent accuracy over 4 consecutive evaluations",
                     rationale=f"- Targeted directly to remediate active regression alert on '{alert_skill}' (declined from {alert_prev}% to {alert_curr}%)\n- Restores baseline functional mastery",
+                    correlation=GoalCorrelationSchema(
+                        correlatedPillar="Regression",
+                        factor=f"Skill regression detected in '{alert_skill}' ({alert_prev}% -> {alert_curr}%)",
+                        strength="High",
+                        score=0.92
+                    ),
                     milestones=[
                         MilestoneSchema(id=f"m_{uuid.uuid4().hex[:6]}", description=f"Re-establish structured baseline prompts for {alert_skill} with 50% independence", completed=False, targetDate="Month 1"),
                         MilestoneSchema(id=f"m_{uuid.uuid4().hex[:6]}", description=f"Achieve unprompted task execution of {alert_skill} in 4 of 5 sessions", completed=False, targetDate="Month 2"),
@@ -513,6 +541,12 @@ Return ONLY a valid JSON object matching this exact schema:
                 targetTimeframe="3 Months",
                 measurementMethod="- Daily therapist observation logs\n- 80% accuracy over 3 consecutive sessions",
                 rationale=f"- Aligned with clinical profile for {diag_clean}\n- Supports independence and reduced frustration in daily tasks",
+                correlation=GoalCorrelationSchema(
+                    correlatedPillar="Clinical",
+                    factor=f"Diagnosis correlation with {diagnosis or 'Developmental Profile'}",
+                    strength="High",
+                    score=0.88
+                ),
                 milestones=[
                     MilestoneSchema(id=f"m_{uuid.uuid4().hex[:6]}", description="Identify and express wants/needs using preferred communication mode in 4 of 5 trials", completed=False, targetDate="Month 1"),
                     MilestoneSchema(id=f"m_{uuid.uuid4().hex[:6]}", description="Initiate peer communication during structured group activities with minimal prompting", completed=False, targetDate="Month 2"),
@@ -524,6 +558,12 @@ Return ONLY a valid JSON object matching this exact schema:
         )
 
         # ── Pillar 2: ABC Behavioral Intervention ──
+        beh_factor = "ABC Tracker transition & sensory trigger patterns"
+        if recent_incidents:
+            first_inc = recent_incidents[0]
+            ant_val = first_inc.get('antecedent', {}).get('text') if isinstance(first_inc.get('antecedent'), dict) else str(first_inc.get('antecedent') or 'Transition')
+            beh_factor = f"ABC trigger: {ant_val} (Severity {first_inc.get('severity', 2)}/5)"
+
         fallback_goals.append(
             GeneratedIEPGoal(
                 id=f"iep_goal_{uuid.uuid4().hex[:8]}",
@@ -532,6 +572,12 @@ Return ONLY a valid JSON object matching this exact schema:
                 targetTimeframe="3 Months",
                 measurementMethod="- Behavioral tracking logs\n- Duration of distress reduced to < 3 minutes across 4 consecutive days",
                 rationale="- Directly targets antecedents and triggers logged in ABC Behavioral Tracker\n- Builds self-regulation foundation",
+                correlation=GoalCorrelationSchema(
+                    correlatedPillar="Behavioral",
+                    factor=beh_factor,
+                    strength="High",
+                    score=0.86
+                ),
                 milestones=[
                     MilestoneSchema(id=f"m_{uuid.uuid4().hex[:6]}", description="Identify early sensory/emotional dysregulation cues with visual aids", completed=False, targetDate="Month 1"),
                     MilestoneSchema(id=f"m_{uuid.uuid4().hex[:6]}", description="Utilize designated calm-down space or sensory object independently when prompted", completed=False, targetDate="Month 2"),

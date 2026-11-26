@@ -337,7 +337,7 @@ function assertEnrolmentAge(dob?: string): void {
   if (!dob) return;
   const age = studentAge(dob);
   if (age === null) throw new Error("Invalid date of birth.");
-  if (age < 0 || age > 12) throw new Error("Student age must be between 0 and 12 years.");
+  if (age < 0 || age > 16) throw new Error("Student age must be between 0 and 16 years.");
 }
 
 // ─── Daily Care ───────────────────────────────────────────────────────────────
